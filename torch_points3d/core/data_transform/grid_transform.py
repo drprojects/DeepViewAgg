@@ -145,13 +145,14 @@ class SaveOriginalPosId:
     This allows us to track this point from the output back to the input data object
     """
 
-    KEY = "origin_id"
+    def __init__(self, key="origin_id"):
+        self.key = key
 
     def _process(self, data):
-        if hasattr(data, self.KEY):
+        if hasattr(data, self.key):
             return data
 
-        setattr(data, self.KEY, torch.arange(0, data.pos.shape[0]))
+        setattr(data, self.key, torch.arange(0, data.pos.shape[0]))
         return data
 
     def __call__(self, data):
