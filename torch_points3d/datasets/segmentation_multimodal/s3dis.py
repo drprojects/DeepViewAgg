@@ -22,20 +22,207 @@ import gdown
 import shutil
 import json
 from PIL import Image
+from functools import partial
 
 from torch_points3d.datasets.samplers import BalancedRandomSampler
 import torch_points3d.core.data_transform as cT
 from torch_points3d.datasets.base_dataset import BaseDataset
 
-from torch_points3d.datasets.segmentation.s3dis import *
 from torch_points3d.projection.projection import compute_index_map
 
-DIR = osp.dirname(osp.realpath(__file__))
+DIR = os.path.dirname(os.path.realpath(__file__))
 log = logging.getLogger(__name__)
 
+S3DIS_NUM_CLASSES = 13
 
+INV_OBJECT_LABEL = {
+    0: "ceiling",
+    1: "floor",
+    2: "wall",
+    3: "beam",
+    4: "column",
+    5: "window",
+    6: "door",
+    7: "chair",
+    8: "table",
+    9: "bookcase",
+    10: "sofa",
+    11: "board",
+    12: "clutter",
+}
+
+OBJECT_COLOR = np.asarray(
+    [
+        [233, 229, 107],  # 'ceiling' .-> .yellow
+        [95, 156, 196],  # 'floor' .-> . blue
+        [179, 116, 81],  # 'wall'  ->  brown
+        [241, 149, 131],  # 'beam'  ->  salmon
+        [81, 163, 148],  # 'column'  ->  bluegreen
+        [77, 174, 84],  # 'window'  ->  bright green
+        [108, 135, 75],  # 'door'   ->  dark green
+        [41, 49, 101],  # 'chair'  ->  darkblue
+        [79, 79, 76],  # 'table'  ->  dark grey
+        [223, 52, 52],  # 'bookcase'  ->  red
+        [89, 47, 95],  # 'sofa'  ->  purple
+        [81, 109, 114],  # 'board'   ->  grey
+        [233, 233, 229],  # 'clutter'  ->  light grey
+        [0, 0, 0],  # unlabelled .->. black
+    ]
+)
+
+OBJECT_LABEL = {name: i for i, name in INV_OBJECT_LABEL.items()}
+
+ROOM_TYPES = {
+    "conferenceRoom": 0,
+    "copyRoom": 1,
+    "hallway": 2,
+    "office": 3,
+    "pantry": 4,
+    "WC": 5,
+    "auditorium": 6,
+    "storage": 7,
+    "lounge": 8,
+    "lobby": 9,
+    "openspace": 10
+}
+
+VALIDATION_ROOMS = [
+    "hallway_1",
+    "hallway_6",
+    "hallway_11",
+    "office_1",
+    "office_6",
+    "office_11",
+    "office_16",
+    "office_21",
+    "office_26",
+    "office_31",
+    "office_36",
+    "WC_2",
+    "storage_1",
+    "storage_5",
+    "conferenceRoom_2",
+    "auditorium_1",
+]
 
 ################################### UTILS #######################################
+
+
+def object_name_to_label(object_class):
+    """convert from object name in S3DIS to an int"""
+    object_label = OBJECT_LABEL.get(object_class, OBJECT_LABEL["clutter"])
+    return object_label
+
+
+def read_s3dis_format(train_file, room_name, label_out=True, verbose=False, debug=False):
+    """extract data from a room folder"""
+
+    room_type = room_name.split("_")[0]
+    room_label = ROOM_TYPES[room_type]
+    raw_path = osp.join(train_file, "{}.txt".format(room_name))
+    if debug:
+        reader = pd.read_csv(raw_path, delimiter="\n")
+        RECOMMENDED = 6
+        for idx, row in enumerate(reader.values):
+            row = row[0].split(" ")
+            if len(row) != RECOMMENDED:
+                log.info("1: {} row {}: {}".format(raw_path, idx, row))
+
+            try:
+                for r in row:
+                    r = float(r)
+            except:
+                log.info("2: {} row {}: {}".format(raw_path, idx, row))
+
+        return True
+    else:
+        room_ver = pd.read_csv(raw_path, sep=" ", header=None).values
+        xyz = np.ascontiguousarray(room_ver[:, 0:3], dtype="float32")
+        try:
+            rgb = np.ascontiguousarray(room_ver[:, 3:6], dtype="uint8")
+        except ValueError:
+            rgb = np.zeros((room_ver.shape[0], 3), dtype="uint8")
+            log.warning("WARN - corrupted rgb data for file %s" % raw_path)
+        if not label_out:
+            return xyz, rgb
+        n_ver = len(room_ver)
+        del room_ver
+        nn = NearestNeighbors(n_neighbors=1, algorithm="kd_tree").fit(xyz)
+        room_labels = np.zeros((n_ver,), dtype="int64")
+        room_label = np.asarray([room_label])
+        instance_labels = np.zeros((n_ver,), dtype="int64")
+        objects = glob.glob(osp.join(train_file, "Annotations/*.txt"))
+        i_object = 1
+        for single_object in objects:
+            object_name = os.path.splitext(os.path.basename(single_object))[0]
+            if verbose:
+                log.debug("adding object " +
+                          str(i_object) + " : " + object_name)
+            object_class = object_name.split("_")[0]
+            object_label = object_name_to_label(object_class)
+            obj_ver = pd.read_csv(single_object, sep=" ", header=None).values
+            _, obj_ind = nn.kneighbors(obj_ver[:, 0:3])
+            room_labels[obj_ind] = object_label
+            instance_labels[obj_ind] = i_object
+            i_object = i_object + 1
+
+        return (
+            torch.from_numpy(xyz),
+            torch.from_numpy(rgb),
+            torch.from_numpy(room_labels),
+            torch.from_numpy(instance_labels),
+            torch.from_numpy(room_label),
+        )
+
+
+def to_ply(pos, label, file):
+    assert len(label.shape) == 1
+    assert pos.shape[0] == label.shape[0]
+    pos = np.asarray(pos)
+    colors = OBJECT_COLOR[np.asarray(label)]
+    ply_array = np.ones(
+        pos.shape[0], dtype=[("x", "f4"), ("y", "f4"), ("z", "f4"),
+                             ("red", "u1"), ("green", "u1"), ("blue", "u1")]
+    )
+    ply_array["x"] = pos[:, 0]
+    ply_array["y"] = pos[:, 1]
+    ply_array["z"] = pos[:, 2]
+    ply_array["red"] = colors[:, 0]
+    ply_array["green"] = colors[:, 1]
+    ply_array["blue"] = colors[:, 2]
+    el = PlyElement.describe(ply_array, "S3DIS")
+    PlyData([el], byte_order=">").write(file)
+
+
+def add_weights(dataset, train, class_weight_method):
+    L = len(INV_OBJECT_LABEL.keys())
+    if train:
+        weights = torch.ones(L)
+        if class_weight_method is not None:
+
+            idx_classes, counts = torch.unique(dataset.data.y, return_counts=True)
+
+            dataset.idx_classes = torch.arange(L).long()
+            weights[idx_classes] = counts.float()
+            weights = weights.float()
+            weights = weights.mean() / weights
+            if class_weight_method == "sqrt":
+                weights = torch.sqrt(weights)
+            elif str(class_weight_method).startswith("log"):
+                weights = 1 / torch.log(1.1 + weights / weights.sum())
+
+            weights /= torch.sum(weights)
+        log.info(
+            "CLASS WEIGHT : {}".format(
+                {name: np.round(weights[index].item(), 4)
+                 for index, name in INV_OBJECT_LABEL.items()}
+            )
+        )
+        setattr(dataset, "weight_classes", weights)
+    else:
+        setattr(dataset, "weight_classes", torch.ones((len(INV_OBJECT_LABEL.keys()))))
+
+    return dataset
 
 
 def read_s3dis_pose(json_file):
@@ -92,7 +279,7 @@ def image_room(image_path):
 ################################### Used for fused s3dis radius sphere ###################################
 
 
-class S3DISOriginalFusedMultimodal(S3DISOriginalFused):
+class S3DISOriginalFused(InMemoryDataset):
     """ Original S3DIS dataset. Each area is loaded individually and can be processed using a pre_collate transform. 
     This transform can be used for example to fuse the area into a single space and split it into 
     spheres or smaller regions. If no fusion is applied, each element in the dataset is a single room by default.
@@ -133,7 +320,7 @@ class S3DISOriginalFusedMultimodal(S3DISOriginalFused):
         pre_transform=None,
         pre_collate_transform=None,
         pre_filter=None,
-        multimodal_mapping=None,
+        projection_image=None,
         keep_instance=False,
         verbose=False,
         debug=False,
@@ -141,13 +328,13 @@ class S3DISOriginalFusedMultimodal(S3DISOriginalFused):
         assert test_area in list(range(1,7))
         self.transform = transform
         self.pre_collate_transform = pre_collate_transform
-        self.multimodal_mapping = multimodal_mapping
+        self.projection_image = projection_image
         self.test_area = test_area
         self.keep_instance = keep_instance
         self.verbose = verbose
         self.debug = debug
         self._split = split
-        super(S3DISOriginalFusedMultimodal, self).__init__(
+        super(S3DISOriginalFused, self).__init__(
             root, transform, pre_transform, pre_filter)
         if split == "train":
             path = self.processed_paths[0]
@@ -158,18 +345,32 @@ class S3DISOriginalFusedMultimodal(S3DISOriginalFused):
         elif split == "trainval":
             path = self.processed_paths[3]
         else:
-            raise ValueError(
-                (f"Split {split} found, but expected either " "train, val, trainval or test"))
+            raise ValueError(f"Split {split} found, but expected either ",
+                "train, val, trainval or test")
         self._load_data(path)
 
         if split == "test":
-            self.raw_test_data = torch.load(
-                self.raw_areas_paths[test_area - 1])
+            self.raw_test_data = torch.load(self.raw_areas_paths[test_area - 1])
+
+    @property
+    def center_labels(self):
+        if hasattr(self.data, "center_label"):
+            return self.data.center_label
+        else:
+            return None
+
+    @property
+    def raw_file_names(self):
+        return self.folders
 
     @property
     def pre_processed_path(self):
         pre_processed_file_names = "preprocessed.pt"
-        return osp.join(self.processed_dir, pre_processed_file_names)
+        return os.path.join(self.processed_dir, pre_processed_file_names)
+
+    @property
+    def raw_areas_paths(self):
+        return [os.path.join(self.processed_dir, "raw_area_%i.pt" % i) for i in range(6)]
 
     @property
     def processed_file_names(self):
@@ -181,6 +382,14 @@ class S3DISOriginalFusedMultimodal(S3DISOriginalFused):
             + [self.pre_processed_path]
         )
 
+    @property
+    def raw_test_data(self):
+        return self._raw_test_data
+
+    @raw_test_data.setter
+    def raw_test_data(self, value):
+        self._raw_test_data = value
+
     def download(self):
         raw_folders = os.listdir(self.raw_dir)
         if len(raw_folders) == 0:
@@ -189,13 +398,11 @@ class S3DISOriginalFusedMultimodal(S3DISOriginalFused):
         # Here download and unzip images
         ########################################################################
                 log.info("WARNING: You are downloading S3DIS dataset")
-                log.info(
-                    "Please, register yourself by filling up the form at {}".format(
-                        self.form_url)
-                )
+                log.info("Please, register yourself by filling up the form at {}".format(
+                    self.form_url))
                 log.info("***")
-                log.info(
-                    "Press any key to continue, or CTRL-C to exit. By continuing, you confirm filling up the form.")
+                log.info("Press any key to continue, or CTRL-C to exit. By ",
+                    "continuing, you confirm filling up the form.")
                 input("")
                 gdown.download(self.download_url, osp.join(self.root, self.zip_name), quiet=False)
             extract_zip(osp.join(self.root, self.zip_name), self.root)
@@ -209,7 +416,7 @@ class S3DISOriginalFusedMultimodal(S3DISOriginalFused):
             if intersection != 6:
                 shutil.rmtree(self.raw_dir)
                 os.makedirs(self.raw_dir)
-                self.download()      
+                self.download()  
 
     def process(self):
         if not osp.exists(self.pre_processed_path):
@@ -223,7 +430,10 @@ class S3DISOriginalFusedMultimodal(S3DISOriginalFused):
                 if osp.isdir(osp.join(self.raw_dir, f, room_name))
             ]
 
-            train_images = #############################
+            #############################
+            # Link image & pose files to the split rooms
+            # train_images = 
+            #############################
 
             test_files = [
                 (f, room_name, osp.join(self.raw_dir, f, room_name))
@@ -232,9 +442,12 @@ class S3DISOriginalFusedMultimodal(S3DISOriginalFused):
                 if osp.isdir(osp.join(self.raw_dir, f, room_name))
             ]
 
-            test_images = #############################
+            #############################
+            # Link image & pose files to the split rooms
+            # test_images = 
+            #############################
 
-            # Gather data per area
+            # Gather all data from each area in a List(List(Data))
             data_list = [[] for _ in range(6)]
             if self.debug:
                 areas = np.zeros(7)
@@ -249,16 +462,17 @@ class S3DISOriginalFusedMultimodal(S3DISOriginalFused):
                 
                 area_num = int(area[-1]) - 1
                 if self.debug:
-                    read_s3dis_format(
-                        file_path, room_name, label_out=True, verbose=self.verbose, debug=self.debug)
+                    read_s3dis_format(file_path, room_name, label_out=True, verbose=self.verbose,
+                        debug=self.debug)
                     continue
                 else:
                     xyz, rgb, room_labels, instance_labels, room_label = read_s3dis_format(
-                        file_path, room_name, label_out=True, verbose=self.verbose, debug=self.debug
-                    )
+                        file_path, room_name, label_out=True, verbose=self.verbose,
+                        debug=self.debug)
 
                     rgb_norm = rgb.float() / 255.0
                     data = Data(pos=xyz, y=room_labels, room_label=room_label, rgb=rgb_norm)
+                    
                     if room_name in VALIDATION_ROOMS:
                         data.validation_set = True
                     else:
@@ -281,13 +495,18 @@ class S3DISOriginalFusedMultimodal(S3DISOriginalFused):
                 if self.pre_transform is not None:
                     for data in area_datas:
                         data = self.pre_transform(data)
+
+            # Save the data into one big 'preprocessed.pt' file 
             torch.save(data_list, self.pre_processed_path)
+
         else:
+            # Recover the per-area Data list from the 'preprocessed.pt' file
             data_list = torch.load(self.pre_processed_path)
 
         if self.debug:
             return
 
+        # Build the train, val and trainval data lists
         train_data_list = {}
         val_data_list = {}
         trainval_data_list = {}
@@ -309,6 +528,9 @@ class S3DISOriginalFusedMultimodal(S3DISOriginalFused):
         trainval_data_list = list(trainval_data_list.values())
         test_data_list = data_list[self.test_area - 1]
 
+        # Run the pre_collate_transform to finalize the data preparation
+        # Among other things, the 'origin_id' and 'preprocessed_id' are
+        # generated here  
         if self.pre_collate_transform:
             log.info("pre_collate_transform ...")
             log.info(self.pre_collate_transform)
@@ -319,27 +541,41 @@ class S3DISOriginalFusedMultimodal(S3DISOriginalFused):
 
         ######################################################################## 
         # MAPPING COMPUTATION HERE
-        self.multimodal_mapping()
+
+        # Build the train, val, trainval and test image-pose lists
+
+        # Build the mappings for each split, for each area
+
+        # Save data splits mappings as soon as they are computer to spare memory
+        # self._save_data(train_data_list, val_data_list, test_data_list, trainval_data_list)
+
+        # self.projection_image(xyz_to_img, indices, img_opk, img_mask=None)
         ########################################################################
 
-        self._save_data(train_data_list, val_data_list,
-                        test_data_list, trainval_data_list)
 
     def _save_data(self, train_data_list, val_data_list, test_data_list, trainval_data_list):
-        torch.save(self.collate(train_data_list), self.processed_paths[0])
-        torch.save(self.collate(val_data_list), self.processed_paths[1])
-        torch.save(self.collate(test_data_list), self.processed_paths[2])
-        torch.save(self.collate(trainval_data_list), self.processed_paths[3])
+        """
+        Save the preprocessed data lists. Results are intended to be loaded with
+        self._load_data().
+
+        #### SAVE MULTIMODAL DATA IN MEMORY HERE
+
+        Overwrites the S3DISOriginalFused._save_data() which made use of a
+        collate function.
+        """
+        torch.save(train_data_list, self.processed_paths[0])
+        torch.save(val_data_list, self.processed_paths[1])
+        torch.save(test_data_list, self.processed_paths[2])
+        torch.save(trainval_data_list, self.processed_paths[3])
 
     def _load_data(self, path):
         self.data, self.slices = torch.load(path)
 
 
-
-class S3DISSphereMultimodal(S3DISOriginalFusedMultimodal):
-    """ Small variation of S3DISOriginalFusedMultimodal that allows random sampling of spheres 
-    within an Area during training and validation. Spheres have a radius of 2m. If sample_per_epoch
-    is not specified, spheres are taken on a 2m grid.
+class S3DISSphere(S3DISOriginalFused):
+    """ Small variation of S3DISOriginalFused that allows random sampling of spheres 
+    within an Area during training and validation. Spheres have a radius of 2m. If sample_per_epoch is not specified, spheres
+    are taken on a 2m grid.
 
     http://buildingparser.stanford.edu/dataset.html
 
@@ -377,10 +613,61 @@ class S3DISSphereMultimodal(S3DISOriginalFusedMultimodal):
             return len(self._test_spheres)
 
     def get(self, idx):
+        """
+        Get a 3D points Data sample. Does not return multimodal
+        attributes.
+
+        Overwrites the torch_geometric.InMemoryDataset.get(), which is called
+        from inside the torch_geometric.InMemoryDataset.__getitem__() used for 
+        indexing datasets.
+        """
+
+        ########################################################################
+        """ rewrite this to call multimodal items
+        
+        get_random 
+            called if S3DISSphere is NOT test set
+            S3DISSphere has predefined centers accross all areas in the split
+            randomly picks a center
+            samples the corresponding S3DISSphere._datas[i_area] accordingly
+
+            Need to:
+                inform of the chosen area to get the appropriate ._datas_multimodal
+
+
+        """
+        ########################################################################
+
         if self._sample_per_epoch > 0:
             return self._get_random()
         else:
             return self._test_spheres[idx].clone()
+
+    def __getitem__(self, idx):
+        """
+        Get a 3D points Data sample and its multimodal attributes.
+
+        Only supports indexing with int.
+
+        #### GET MULTIMODAL DATA FROM preprocessed_id HERE
+
+        Overwrites the torch_geometric.InMemoryDataset.__getitem__() used for 
+        indexing datasets.
+        """
+        assert isinstance(idx, int), (f"Indexing with {type(idx)} is not ",
+            f"supported, only {type(int)} are accepted.")
+
+        # Get the 3D point sample and apply transforms
+        data = self.get(self.indices()[idx])
+        data = data if self.transform is None else self.transform(data)
+
+        # Recover the multimodal attributes from the 'preprocessed_id' attribute
+        assert hasattr(data, 'preprocessed_id'), ("Data has no 'preprocessed_id' attribute ",
+            "required for recovering the transformed points multimodal attributes.")
+
+        #### GET MULTIMODAL DATA FROM preprocessed_id HERE
+
+        return data
 
     def process(self):  # We have to include this method, otherwise the parent class skips processing
         super().process()
@@ -399,13 +686,16 @@ class S3DISSphereMultimodal(S3DISOriginalFusedMultimodal):
             self._radius, centre[:3], align_origin=False)
         return sphere_sampler(area_data)
 
-    def _save_data(self, train_data_list, val_data_list, test_data_list, trainval_data_list):
-        torch.save(train_data_list, self.processed_paths[0])
-        torch.save(val_data_list, self.processed_paths[1])
-        torch.save(test_data_list, self.processed_paths[2])
-        torch.save(trainval_data_list, self.processed_paths[3])
-
     def _load_data(self, path):
+        """
+        Initializes the self._datas which hold the all preprocessed data in
+        memory. Also initializes the sphere sampling centers and per-area
+        KDTrees.
+
+        #### LOAD MULTIMODAL DATA IN MEMORY HERE 
+        
+        Overwrites the S3DISOriginalFused._load_data()
+        """
         self._datas = torch.load(path)
         if not isinstance(self._datas, list):
             self._datas = [self._datas]
@@ -431,11 +721,11 @@ class S3DISSphereMultimodal(S3DISOriginalFusedMultimodal):
         else:
             grid_sampler = cT.GridSphereSampling(self._radius, self._radius, center=False)
             self._test_spheres = grid_sampler(self._datas)
+   
 
 
-
-class S3DISFusedMultimodalDataset(BaseDataset):
-    """ Wrapper around S3DISSphereMultimodal that creates train and test datasets.
+class S3DISFusedDataset(BaseDataset):
+    """ Wrapper around S3DISSphere that creates train and test datasets.
 
     http://buildingparser.stanford.edu/dataset.html
 
@@ -457,35 +747,37 @@ class S3DISFusedMultimodalDataset(BaseDataset):
         super().__init__(dataset_opt)
 
         sampling_format = dataset_opt.get('sampling_format', 'sphere')
-        assert sampling_format == 'sphere', f"Sampling format '{sampling_format}' is not supported"
+        assert sampling_format == 'sphere', f"Only sampling format 'sphere' is supported."
 
-        self.train_dataset = S3DISSphereMultimodal(
+        projection_image = partial(compute_index_map, **self.dataset_opt.projection_image)
+
+        self.train_dataset = S3DISSphere(
             self._data_path,
             sample_per_epoch=3000,
             test_area=self.dataset_opt.fold,
             split="train",
             pre_collate_transform=self.pre_collate_transform,
             transform=self.train_transform,
-            multimodal_mapping=self.dataset_opt.multimodal_mapping,
+            projection_image=projection_image,
         )
 
-        self.val_dataset = S3DISSphereMultimodal(
+        self.val_dataset = S3DISSphere(
             self._data_path,
             sample_per_epoch=-1,
             test_area=self.dataset_opt.fold,
             split="val",
             pre_collate_transform=self.pre_collate_transform,
             transform=self.val_transform,
-            multimodal_mapping=self.dataset_opt.multimodal_mapping,
+            projection_image=projection_image,
         )
-        self.test_dataset = S3DISSphereMultimodal(
+        self.test_dataset = S3DISSphere(
             self._data_path,
             sample_per_epoch=-1,
             test_area=self.dataset_opt.fold,
             split="test",
             pre_collate_transform=self.pre_collate_transform,
             transform=self.test_transform,
-            multimodal_mapping=self.dataset_opt.multimodal_mapping,
+            projection_image=projection_image,
         )
 
         if dataset_opt.class_weight_method:

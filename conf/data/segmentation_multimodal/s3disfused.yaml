@@ -14,10 +14,17 @@ data:
       - transform: SaveOriginalPosId    # Required so that one can recover the multimodal mappings after the transforms
         params:
           key: preprocessed_id
-  multimodal_mapping:
-      - transform: PointPixelMapping
-        params:
-          ... # define the projection parameters here !
+  projection_image:
+    img_size: [1024, 512]
+    crop_top: 0
+    crop_bottom: 0
+    voxel: 0.1
+    r_max: 30
+    r_min: 0.5
+    growth_k: 0.2
+    growth_r: 10
+    empty: 0
+  #         ...  define the projection parameters here !
 
 
   train_transforms:
