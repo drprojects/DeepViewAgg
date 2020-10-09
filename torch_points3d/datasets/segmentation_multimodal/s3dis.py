@@ -26,7 +26,7 @@ from functools import partial
 
 from torch_points3d.datasets.samplers import BalancedRandomSampler
 import torch_points3d.core.data_transform as cT
-from torch_points3d.datasets.base_dataset import BaseDataset
+from torch_points3d.datasets.multimodal.base_dataset import BaseDatasetMM
 
 from torch_points3d.projection.projection import compute_index_map
 
@@ -724,7 +724,7 @@ class S3DISSphere(S3DISOriginalFused):
    
 
 
-class S3DISFusedDataset(BaseDataset):
+class S3DISFusedDataset(BaseDatasetMM):
     """ Wrapper around S3DISSphere that creates train and test datasets.
 
     http://buildingparser.stanford.edu/dataset.html

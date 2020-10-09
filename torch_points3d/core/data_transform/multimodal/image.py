@@ -364,3 +364,23 @@ def compute_index_map(
     idx_map = np.concatenate((cropped_map_top, idx_map, cropped_map_bottom), axis=1)
     
     return idx_map, depth_map
+
+#-------------------------------------------------------------------------------
+
+class PointImagePixelMapping():
+    """
+    Transform-like structure. Intended to be called on _datas and images 
+    poses.
+    """
+    def __init__(self):
+        raise NotImplementedError
+
+#-------------------------------------------------------------------------------
+
+class SelectImagesFromId():
+    """
+    Transform-like structure. Intended to be called on _datas and _images_datas
+    and images poses.
+    """
+    def __init__(self):
+        raise NotImplementedError
