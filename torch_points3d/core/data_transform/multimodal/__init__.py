@@ -6,7 +6,7 @@ _custom_multimodal_transforms = sys.modules[__name__]
 
 
 def instantiate_multimodal_transform(transform_option, attr="transform"):
-    """ Creates a transform from an OmegaConf dict such as
+    """ Creates a transform from an OmegaConf dict such as:
     transform: GridSampling3D
         params:
             size: 0.01

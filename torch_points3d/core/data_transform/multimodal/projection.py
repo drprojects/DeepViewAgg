@@ -291,7 +291,8 @@ def compute_index_map(
         r_min=0.5,
         growth_k=0.2,
         growth_r=10,
-        empty=0):
+        empty=0, 
+        no_id=-1):
     # We store indices in int64 format so we only accept indices up to 
     # np.iinfo(np.int64).max
     num_points = xyz_to_img.shape[0]
@@ -328,8 +329,7 @@ def compute_index_map(
     # We store indices in int64 so we assumes point indices are lower
     # than max int64 ~ 2.14 x 10^9.
     # We need the negative for empty pixels
-    no_idx = -1
-    idx_map = np.full(cropped_img_size, no_idx, dtype=np.int64)
+    idx_map = np.full(cropped_img_size, no_id, dtype=np.int64)
     
     # Loop through indices for points in range and in FOV
     distances = distances[in_range][in_fov]
@@ -359,8 +359,8 @@ def compute_index_map(
     cropped_map_bottom = np.full((img_size[0], crop_bottom), empty, np.float32)
     depth_map = np.concatenate((cropped_map_top, depth_map, cropped_map_bottom), axis=1)
     
-    cropped_map_top = np.full((img_size[0], crop_top), no_idx, np.int64)
-    cropped_map_bottom = np.full((img_size[0], crop_bottom), no_idx, np.int64)
+    cropped_map_top = np.full((img_size[0], crop_top), no_id, np.int64)
+    cropped_map_bottom = np.full((img_size[0], crop_bottom), no_id, np.int64)
     idx_map = np.concatenate((cropped_map_top, idx_map, cropped_map_bottom), axis=1)
     
     return idx_map, depth_map

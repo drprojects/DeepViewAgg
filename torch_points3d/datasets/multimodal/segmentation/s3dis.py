@@ -28,8 +28,6 @@ from torch_points3d.datasets.samplers import BalancedRandomSampler
 import torch_points3d.core.data_transform as cT
 from torch_points3d.datasets.multimodal.base_dataset import BaseDatasetMM
 
-from torch_points3d.projection.projection import compute_index_map
-
 DIR = os.path.dirname(os.path.realpath(__file__))
 log = logging.getLogger(__name__)
 
@@ -749,7 +747,7 @@ class S3DISFusedDataset(BaseDatasetMM):
         sampling_format = dataset_opt.get('sampling_format', 'sphere')
         assert sampling_format == 'sphere', f"Only sampling format 'sphere' is supported."
 
-        projection_image = partial(compute_index_map, **self.dataset_opt.projection_image)
+        # projection_image = partial(compute_index_map, **self.dataset_opt.projection_image)
 
         self.train_dataset = S3DISSphere(
             self._data_path,
