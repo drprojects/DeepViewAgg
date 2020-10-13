@@ -96,7 +96,7 @@ class PointImagePixelMapping:
 
             # Subsample the surrounding point cloud
             sampler = SphereSampling(image.r_max, image.pos, align_origin=False)
-            data_sample = sampler(data)  # WARNING IN PLACE EDITION HERE ?
+            data_sample = sampler(data)  # WARNING IN PLACE EDITION HERE ?..........................
 
             # Projection index
             id_map, _ = compute_index_map(
@@ -163,17 +163,17 @@ class PointImagePixelMapping:
 
         # Convert to "nested Forward Star" format
         # Compute image jumps in the pixels array
-        image_jump_index = forward_star.compute_jumps(image_ids)
+        image_jump_index = forward_star.jumps_from_dense(image_ids)
         
         # Update point_ids and image_ids by taking the last value of each jump
-        image_ids = image_ids[image_jump_index - 1]
-        point_ids = point_ids[image_jump_index - 1]
+        image_ids = image_ids[image_jump_index[1:] - 1]
+        point_ids = point_ids[image_jump_index[1:] - 1]
 
         # Compute point jumps in the image_ids array
-        point_jump_index = forward_star.compute_jumps(point_ids)
+        point_jump_index = forward_star.jumps_from_dense(point_ids)
 
         # Update point_ids by taking the last value of each jump
-        point_ids = point_ids[point_jump_index - 1]
+        point_ids = point_ids[point_jump_index[1:] - 1]
 
         # Convert point_jump_index to the complete array of jumps for all point
         # ids in range(0, max(data.processed_id) + 1).
@@ -183,16 +183,16 @@ class PointImagePixelMapping:
         #     if a point with an id larger than max(data.processed_id) were to 
         #     exist, we would not be able to take it into account in the jumps.
         idx_max = getattr(data, self.key).numpy().max()
-        point_jump_index = all_jumps(point_jump_index, point_ids, idx_max=idx_max)
+        point_jump_index = jumps_4_range(point_jump_index, point_ids, idx_max=idx_max)
         del point_ids
 
-        # Convert to torch.Tensor for torch_geometric-friendly format
+        # Save in Data format
         data_image = Data()
         setattr(data_image, self.key, torch.arange(idx_max + 1))
-        data_image.point_jump_index = point_jump_index
-        data_image.image_ids = image_ids
-        data_image.image_jump_index = image_jump_index
-        data_image.pixels = pixels
+        data_image.point_jump_index = torch.from_numpy(point_jump_index)
+        data_image.image_ids = torch.from_numpy(image_ids)
+        data_image.image_jump_index = torch.from_numpy(image_jump_index)
+        data_image.pixels = torch.from_numpy(pixels)
         data_image.num_nodes = idx_max + 1
 
         return data_image
@@ -212,12 +212,12 @@ class PointImagePixelMapping:
         if isinstance(data, list):
             assert len(data) == len(images), (f"List(Data) items and List(List(ImageData)) must ",
                 "have the same lengths.")
-            data_images = [self._process(d, i) for d, i in zip(data, images)]
+            data_image = [self._process(d, i) for d, i in zip(data, images)]
 
         else:
-            data_images = self._process(data, images)
+            data_image = self._process(data, images)
 
-        return data, data_images
+        return data, data_image
 
 
     def __repr__(self):
@@ -229,16 +229,16 @@ class PointImagePixelMappingFromId:
     """
     Transform-like structure. Intended to be called on _datas and _images_datas.
 
-    Populate data sample in place with image attributes in data_multimodal, 
+    Populate data sample in place with image attributes in data_image, 
     based on the self.key point identifiers. The indices in data are expected 
-    to be included in those in data_multimodal. Furthermore, data_multimodal 
+    to be included in those in data_image. Furthermore, data_image 
     is expected to be holding values for all self.key in [0, ..., id_max].
     """
     def __init__(self, key='processed_id'):
         self.key = key
 
 
-    def _process(self, data, data_multimodal):
+    def _process(self, data, data_image):
         assert hasattr(data, self.key)
         for attr in ['point_jump_index', 'image_ids', 'image_jump_index', 'pixels']:
             assert hasattr(data_multimodal, attr)
@@ -254,24 +254,36 @@ class PointImagePixelMappingFromId:
         # stack them carefully, taking care of the indices
         ########################################################################
 
+        # Point indices to subselect point_jumps 
+        indices = getattr(data, self.key)
 
+        # Subselect point_jumps and update jump indices 
+        point_jump_index, indices = index_select_jumps(data_image.point_jump_index, indices)
 
-        
+        # Subselect image_ids wrt updated point_jumps
+        image_ids = data_image.image_ids[indices]
 
+        # Subselect image_jump_index wrt updated point_jumps
+        image_jump_index, indices = index_select_jumps(data_image.image_jump_index, indices)
 
+        # Subselect pixels wrt updated image_jump_index
+        pixels = data_image.pixels[indices]
+
+        # Combine 
+        # TORCH OR NUMPY... CAREFUL WITH FOWRARD STAR FUNCTIONS
 
         return data
 
 
-    def __call__(self, data, data_multimodal):
+    def __call__(self, data, data_image):
         """
-        Populate data sample in place with image attributes in data_multimodal,
+        Populate data sample in place with image attributes in data_image,
         based on the self.key point identifiers.
         """
         if isinstance(data, list):
-            data = [self._process(d, data_multimodal) for d in data]
+            data = [self._process(d, data_image) for d in data]
         else:
-            data = self._process(data, data_multimodal)
+            data = self._process(data, data_image)
         return data
 
 
