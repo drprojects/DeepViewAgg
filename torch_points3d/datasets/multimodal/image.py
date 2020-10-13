@@ -47,7 +47,7 @@ class ImageData(object):
 
 
     @property
-    def map_size_low():
+    def map_size_low(self):
         return ImageData.__map_size_low__ 
 
 
