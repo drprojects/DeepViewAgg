@@ -1,8 +1,13 @@
-from torch_points3d.core.data_transform import instantiate_multimodal_transform
+from torch_points3d.core.data_transform.multimodal import instantiate_multimodal_transform
+from torch_points3d.datasets.base_dataset import BaseDataset
 
 
 
 class BaseDatasetMM(BaseDataset):
+    """
+    BaseDataset with multimodal support.
+    """
+
     def __init__(self, dataset_opt):
         super().__init__(dataset_opt)
 
@@ -13,6 +18,15 @@ class BaseDatasetMM(BaseDataset):
         """
         Instantiate this in child classes because multimodal transforms are 
         very dataset-dependent.
+        """
+        raise NotImplementedError
+
+
+    @staticmethod
+    def _get_collate_function(conv_type, is_multiscale):
+        """
+        Make use of torch_geometric Batch mechanisms on '*index*' attributes to collate multimodal 
+        mapping indices.
         """
         if is_multiscale:
             raise NotImplementedError("Multiscale not supported for multimodal data.")
@@ -26,13 +40,7 @@ class BaseDatasetMM(BaseDataset):
         # batching. The values are reindexed, which is what we need for our
         # forward star indexing structure. 
         return torch_geometric.data.batch.Batch.from_data_list
-
-
-    @staticmethod
-    def _get_collate_function(conv_type, is_multiscale):
-        """Dedicated collate to capture the batch indices ?"""
-        raise NotImplementedError
-
+        
 
     @staticmethod
     def set_multimodal_transform(obj, dataset_opt):
@@ -59,10 +67,10 @@ class BaseDatasetMM(BaseDataset):
                         # NB : only the first 'transform' attribute is taken
                         # into account. Multimodal composition is not implemented yet
                         modality_transform = getattr(modality_opt, key)
-                        assert len(modality_transform) == 1,
-                            "Multimodal composition not implemented."
-                        assert hasattr(modality_transform, 'transform'),
-                            "No transform found in the configuration."
+                        assert len(modality_transform) == 1, ("Multimodal composition not ",
+                         "implemented.")
+                        assert hasattr(modality_transform, 'transform'), ("No transform found in ",
+                            "the configuration.")
 
                         transform = instantiate_multimodal_transform[modality_transform[0]]
 

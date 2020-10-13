@@ -1,386 +1,280 @@
 import numpy as np
-import numba as nb
-from numba import njit
+from torch_geometric.data import Data
+from torch_points3d.datasets.multimodal.image import ImageData
+import torch_points3d.datasets.multimodal.forward_star
+from .projection import compute_index_map
 
 
 
-@njit(cache=True, nogil=True)
-def pose_to_rotation_matrix_numba(opk):
-    # Omega, Phi, Kappa cos and sin
-    co = np.cos(opk[0])
-    so = np.sin(opk[0])
-    cp = np.cos(opk[1])
-    sp = np.sin(opk[1])
-    ck = np.cos(opk[2])
-    sk = np.sin(opk[2])
+class NonStaticImageMask:
+    """
+    Transform-like structure. Find the mask of identical pixels accross a list
+    of images.
+    """
+    def __init__(self, mask_size=(2048, 1024), n_sample=5):
+        self.mask_size = mask_size
+        self.n_sample = n_sample
 
-    # Omega, Phi, Kappa inverse rotation matries
-    M_o = np.array([[1.0, 0.0, 0.0],
-                    [0.0,  co, -so],
-                    [0.0,  so,  co]], dtype=np.float64)
 
-    M_p = np.array([[cp, 0.0,  sp],
-                    [0.0, 1.0, 0.0],
-                    [-sp, 0.0,  cp]], dtype=np.float64)
+    def __call__(self, data, images):
+        """
+        Compute the projection of data points into images and return the input 
+        data augmented with attributes mapping points to pixels in provided 
+        images.
 
-    M_k = np.array([[ck, -sk, 0.0],
-                    [sk,  ck, 0.0],
-                    [0.0, 0.0, 1.0]], dtype=np.float64)
+        Expects a Data (or anything, really) List(ImageData).
 
-    # Global inverse rotation matrix to go from cartesian to
-    # camera-system spherical coordinates
-    M = np.dot(M_o, np.dot(M_p, M_k))
+        Returns the same input. The mask is saved in class attributes of
+        ImageData, to be used for any subsequent image processing.
+        """
+        mask = non_static_pixel_mask(images, self.mask_size, self.n_sample)
+        ImageData.mask = mask
+        return data, images
 
-    return M
 
+    def __repr__(self):
+        return self.__class__.__name__
+    
 #-------------------------------------------------------------------------------
 
-@njit(cache=True, nogil=True)
-def norms_numba(v):
-    norms = np.sqrt((v**2).sum(axis=1))
-    return norms
+class PointImagePixelMapping:
+    """
+    Transform-like structure. Computes the mappings between individual 3D points
+    and image pixels. Point mappings are identified based on the self.key point
+    identifiers.
+    """
+    def __init__(
+            self,
+            map_size_high=(2048, 1024),
+            map_size_low=(512, 256),
+            crop_top=0,
+            crop_bottom=0,
+            voxel=0.1,
+            r_max=30,
+            r_min=0.5,
+            growth_k=0.2,
+            growth_r=10,
+            empty=0,
+            no_id=-1,
+            key='processed_id'
+        ):
 
-#-------------------------------------------------------------------------------
+        self.key = key
+        self.empty = empty
+        self.no_id = no_id
 
-@njit(cache=True, nogil=True)
-def float_pixels_numba(xyz_to_img, radius, img_rotation, img_shape):
-    # Convert point to camera coordinate system
-    v = xyz_to_img.dot(img_rotation.transpose())
-    
-    # Equirectangular projection
-    t = np.arctan2(v[:,1], v[:,0])
-    p = np.arccos(v[:,2] / radius)
-    
-    # Angles to pixel position
-    width, height = img_shape
-    w_pix = ((width - 1) * (1 - t / np.pi) / 2) % width
-    h_pix = ((height - 1) * p / np.pi) % height
-    
-    return w_pix, h_pix
+        # Store the projection parameters in the ImageData class attributes.
+        ImageData.map_size_high = tuple(map_size_high)
+        ImageData.map_size_low = tuple(map_size_low)
+        ImageData.crop_top = crop_top
+        ImageData.crop_bottom = crop_bottom
+        ImageData.voxel = voxel
+        ImageData.r_max = r_max
+        ImageData.r_min = r_min
+        ImageData.growth_k = growth_k
+        ImageData.growth_r = growth_r
 
-#-------------------------------------------------------------------------------
+        if ImageData.mask:
+            assert ImageData.mask.shape == ImageData.map_size_high
 
-@njit(cache=True, nogil=True, fastmath=True)
-def field_of_view(x_pix, y_pix, crop_top, crop_bottom, mask=None):
-    in_fov = np.logical_and(crop_top <= y_pix, y_pix < crop_bottom)
-    if not mask is None:
-        n_points = x_pix.shape[0]
-        x_int = np.floor(x_pix).astype(np.uint32)
-        y_int = np.floor(y_pix).astype(np.uint32)
-        for i in range(n_points):
-            if in_fov[i] and not mask[x_int[i], y_int[i]]:
-                in_fov[i] = False
-    return np.where(in_fov)[0]
+  
+    def _process(self, data, images):
 
-#-------------------------------------------------------------------------------
+        assert hasattr(data, self.key)
 
-@njit(cache=True, nogil=True)
-def array_pixel_width_numba(y_pix, dist, img_shape=(1024,512), voxel=0.03, k=0.2, d=10):
-    # Compute angular width
-    # Pixel are grown based on their distance
-    # Small angular widths assumption: tan(x)~x
-    # Close-by points are further grown with a heuristic based on k and d
-    angular_width = (1 + k * np.exp(-dist / np.log(d))) * voxel / dist
-    
-    # Compute Y angular width
-    # NB: constant for equirectangular projection
-    angular_res_y = angular_width * img_shape[1] / np.pi
-    
-    # Compute X angular width
-    # NB: function of latitude for equirectangular projection
-    a = angular_width * img_shape[0] / (2.0 * np.pi)
-    b = np.pi / img_shape[1]
-    angular_res_x = a / (np.sin(b * y_pix) + 0.001)
-    
-    # NB: stack+transpose faster than column stack
-    return np.stack((angular_res_x, angular_res_y)).transpose()
+        # Initialize the
+        image_ids = []
+        point_ids = []
+        pixels = []
 
-#-------------------------------------------------------------------------------
+        # Project each image and gather the point-pixel mappings
+        for image in images:
 
-@njit(cache=True, nogil=True)
-def pixel_masks_numba(x_pix, y_pix, width_pix):
-    x_a = np.empty_like(x_pix, dtype=np.float32)
-    x_b = np.empty_like(x_pix, dtype=np.float32)
-    y_a = np.empty_like(x_pix, dtype=np.float32)
-    y_b = np.empty_like(x_pix, dtype=np.float32)
-    np.round(x_pix - width_pix[:,0] / 2,     0, x_a)
-    np.round(x_pix + width_pix[:,0] / 2 + 1, 0, x_b)
-    np.round(y_pix - width_pix[:,1] / 2,     0, y_a)
-    np.round(y_pix + width_pix[:,1] / 2 + 1, 0, y_b)
-    return np.stack((x_a, x_b, y_a, y_b)).transpose().astype(np.int32)
+            assert isinstance(image, ImageData)
 
-#-------------------------------------------------------------------------------
+            print(f"\nImage {image.id} : '{image.name}'")
 
-@njit(cache=True, nogil=True)
-def border_pixel_masks_numba(pix_masks, x_min, x_max, y_min, y_max):
-    for i in range(pix_masks.shape[0]):
-        if pix_masks[i, 0] < x_min:
-            pix_masks[i, 0] = x_min
-        if pix_masks[i, 1] > x_max:
-            pix_masks[i, 1] = x_max
-        if pix_masks[i, 2] < y_min:
-            pix_masks[i, 2] = y_min
-        if pix_masks[i, 3] > y_max:
-            pix_masks[i, 3] = y_max
-    return pix_masks
+            # Subsample the surrounding point cloud
+            sampler = SphereSampling(image.r_max, image.pos, align_origin=False)
+            data_sample = sampler(data)  # WARNING IN PLACE EDITION HERE ?
 
-#-------------------------------------------------------------------------------
+            # Projection index
+            id_map, _ = compute_index_map(
+                data_sample.pos.numpy() - image.pos,
+                getattr(data_sample, self.key).numpy(),
+                image.opk,
+                img_mask=image.mask,
+                img_size=image.map_size_high,
+                crop_top=image.crop_top,
+                crop_bottom=image.crop_bottom,
+                voxel=image.voxel,
+                r_max=image.r_max,
+                r_min=image.r_min,
+                growth_k=image.growth_k,
+                growth_r=image.growth_r,
+                empty=self.empty,
+                no_id=self.no_id,
+            )
+            print(f"    High resolution index map shape : {id_map.shape}")
 
-@njit(cache=True, nogil=True)
-def compute_depth_map(
-        xyz_to_img,
-        img_opk,
-        img_mask=None,
-        img_size=(2048, 1024),
-        crop_top=0,
-        crop_bottom=0,
-        voxel=0.1,
-        r_max=30,
-        r_min=0.5,
-        growth_k=0.2,
-        growth_r=10,
-        empty=0):
-    # Rotation matrix from image Euler angle pose
-    img_rotation = pose_to_rotation_matrix_numba(img_opk)
-    
-    # Remove points outside of image range
-    distances = norms_numba(xyz_to_img)
-    in_range = np.where(np.logical_and(r_min < distances, distances < r_max))[0]
+            # Convert the id_map to id-xy coordinate soup
+            # First column holds the point indices, subsequent columns hold the 
+            # pixel coordinates. We use this heterogeneous soup to search for 
+            # duplicate rows after resolution coarsening.
+            # NB : no_id pixels are ignored
+            active_pixels = np.where(id_map != self.no_id)
+            point_ids_pixel_soup = id_map[active_pixels]
+            point_ids_pixel_soup = np.column_stack((id_pixel_soup, np.stack(active_pixels).transpose()))
+            print(f"    id-pixel soup shape : {point_ids_pixel_soup.shape}")
 
-    # Project points to float pixel coordinates
-    x_pix, y_pix = float_pixels_numba(xyz_to_img[in_range], distances[in_range], img_rotation,
-        img_size)
+            # Convert to lower resolution coordinates
+            # NB : we assume the resolution ratio is the same for both dimensions 
+            point_ids_pixel_soup[:, 1:] = ImageData.coarsen_coordinates(point_ids_pixel_soup[:, 1:],
+                ImageData.map_size_high[0], ImageData.map_size_low[0])
 
-    # Remove points outside of camera field of view
-    in_fov = field_of_view(x_pix, y_pix, crop_top, img_size[1] - crop_bottom, mask=img_mask)
-    
-    # Compute projection pixel patches sizes 
-    width_pix = array_pixel_width_numba(y_pix[in_fov], distances[in_range][in_fov], 
-        img_shape=img_size, voxel=voxel, k=growth_k, d=growth_r)
-    pix_masks = pixel_masks_numba(x_pix[in_fov], y_pix[in_fov], width_pix)
-    pix_masks = border_pixel_masks_numba(pix_masks, 0, img_size[0], crop_top,
-        img_size[1] - crop_bottom)
-    pix_masks[:,2:] -= crop_top  # Remove y-crop offset
+            # Remove duplicate id-xy in low resolution
+            # Sort by point id
+            point_ids_pixel_soup = np.unique(point_ids_pixel_soup, axis=0)  # bottleneck here ! Custom unique-sort with numba ?
+            print(f"    Lower-resolution, duplicate-free id-pixel soup shape : {point_ids_pixel_soup.shape}")
 
-    # Cropped maps initialization
-    cropped_img_size = (img_size[0], img_size[1] - crop_bottom - crop_top)
-    depth_map = np.full(cropped_img_size, r_max + 1, np.float32)
-    undistort = np.sin(np.pi * np.arange(crop_top,
-        img_size[1] - crop_bottom) / img_size[1]) + 0.001
-    
-    # Loop through indices for points in range and in FOV
-    distances = distances[in_range][in_fov]
-    for i_point in range(distances.shape[0]):  
+            # Cast pixel coordinates to a dtype minimizing memory use
+            point_ids_ = point_ids_pixel_soup[:, 0]
+            pixel_ = point_ids_pixel_soup[:, 1:].astype(ImageData.map_dtype)
+            del point_ids_pixel_soup
 
-        point_dist = distances[i_point]
-        point_pix_mask = pix_masks[i_point] 
+            # Gather per-image mappings in list structures, only to be
+            # numpy-stacked once all images are processed
+            image_ids.append(image.id)
+            point_ids.append(point_ids_)
+            pixels.append(pixel_)
+            del pixel_, point_ids_
+
+        # Concatenate mappings
+        image_ids = np.repeat(image_ids, [x.shape[0] for x in point_ids])
+        point_ids = np.concatenate(point_ids)
+        pixels = np.vstack(pixels)
+
+        # Sort by point_ids first, image_ids second
+        sorting = np.lexsort(image_ids, point_ids)
+        image_ids = image_ids[sorting]
+        point_ids = point_ids[sorting]
+        pixels = pixels[sorting]
+        del sorting
+
+        # Convert to "nested Forward Star" format
+        # Compute image jumps in the pixels array
+        image_jump_index = forward_star.compute_jumps(image_ids)
         
-        # Update maps where point is closest recorded
-        x_a, x_b, y_a, y_b = point_pix_mask
-        for x in range(x_a, x_b):
-            for y in range(y_a, y_b):
-                if point_dist < depth_map[x, y]:
-                    depth_map[x, y] = point_dist
-    
-    # Set empty pixels to default empty value
-    for x in range(depth_map.shape[0]):
-        for y in range(depth_map.shape[1]):
-            if depth_map[x, y] > r_max:
-                depth_map[x, y] = empty
-    
-    # Restore the cropped areas
-    cropped_map_top = np.full((img_size[0], crop_top), empty, np.float32)
-    cropped_map_bottom = np.full((img_size[0], crop_bottom), empty, np.float32)
-    depth_map = np.concatenate((cropped_map_top, depth_map, cropped_map_bottom), axis=1)
-    
-    return depth_map
+        # Update point_ids and image_ids by taking the last value of each jump
+        image_ids = image_ids[image_jump_index - 1]
+        point_ids = point_ids[image_jump_index - 1]
+
+        # Compute point jumps in the image_ids array
+        point_jump_index = forward_star.compute_jumps(point_ids)
+
+        # Update point_ids by taking the last value of each jump
+        point_ids = point_ids[point_jump_index - 1]
+
+        # Convert point_jump_index to the complete array of jumps for all point
+        # ids in range(0, max(data.processed_id) + 1).
+        # Some points may have been seen by no image so we need to inject 
+        # 0-sized jumps for these.
+        # NB: we assume all relevant points are present in data.processed_id, 
+        #     if a point with an id larger than max(data.processed_id) were to 
+        #     exist, we would not be able to take it into account in the jumps.
+        idx_max = getattr(data, self.key).numpy().max()
+        point_jump_index = all_jumps(point_jump_index, point_ids, idx_max=idx_max)
+        del point_ids
+
+        # Convert to torch.Tensor for torch_geometric-friendly format
+        data_image = Data()
+        setattr(data_image, self.key, torch.arange(idx_max + 1))
+        data_image.point_jump_index = point_jump_index
+        data_image.image_ids = image_ids
+        data_image.image_jump_index = image_jump_index
+        data_image.pixels = pixels
+        data_image.num_nodes = idx_max + 1
+
+        return data_image
+
+
+    def __call__(self, data, images):
+        """
+        Compute the projection of data points into images and return the input 
+        data augmented with attributes mapping points to pixels in provided 
+        images.
+
+        Expects a Data and a List(ImageData) or a List(Data) and a List(List(ImageData)) of 
+        matching length.
+        """
+        assert isinstance(images, list)
+
+        if isinstance(data, list):
+            assert len(data) == len(images), (f"List(Data) items and List(List(ImageData)) must ",
+                "have the same lengths.")
+            data_images = [self._process(d, i) for d, i in zip(data, images)]
+
+        else:
+            data_images = self._process(data, images)
+
+        return data, data_images
+
+
+    def __repr__(self):
+        return self.__class__.__name__
 
 #-------------------------------------------------------------------------------
 
-@njit(cache=True, nogil=True)
-def compute_rgb_map(
-        xyz_to_img,
-        rgb,
-        img_opk,
-        img_mask=None,
-        img_size=(2048, 1024),
-        crop_top=0,
-        crop_bottom=0,
-        voxel=0.1,
-        r_max=30,
-        r_min=0.5,
-        growth_k=0.2,
-        growth_r=10,
-        empty=0):
-    # Rotation matrix from image Euler angle pose
-    img_rotation = pose_to_rotation_matrix_numba(img_opk)
-    
-    # Remove points outside of image range
-    distances = norms_numba(xyz_to_img)
-    in_range = np.where(np.logical_and(r_min < distances, distances < r_max))[0]
+class PointImagePixelMappingFromId:
+    """
+    Transform-like structure. Intended to be called on _datas and _images_datas.
 
-    # Project points to float pixel coordinates
-    x_pix, y_pix = float_pixels_numba(xyz_to_img[in_range], distances[in_range],
-        img_rotation, img_size)
+    Populate data sample in place with image attributes in data_multimodal, 
+    based on the self.key point identifiers. The indices in data are expected 
+    to be included in those in data_multimodal. Furthermore, data_multimodal 
+    is expected to be holding values for all self.key in [0, ..., id_max].
+    """
+    def __init__(self, key='processed_id'):
+        self.key = key
 
-    # Remove points outside of camera field of view
-    in_fov = field_of_view(x_pix, y_pix, crop_top, img_size[1] - crop_bottom, mask=img_mask)
-    
-    # Compute projection pixel patches sizes 
-    width_pix = array_pixel_width_numba(y_pix[in_fov], distances[in_range][in_fov],
-        img_shape=img_size, voxel=voxel, k=growth_k, d=growth_r)
-    pix_masks = pixel_masks_numba(x_pix[in_fov], y_pix[in_fov], width_pix)
-    pix_masks = border_pixel_masks_numba(pix_masks, 0, img_size[0], crop_top,
-        img_size[1] - crop_bottom)
-    pix_masks[:,2:] -= crop_top  # Remove y-crop offset
 
-    # Cropped maps initialization
-    cropped_img_size = (img_size[0], img_size[1] - crop_bottom - crop_top)
-    depth_map = np.full(cropped_img_size, r_max + 1, np.float32)
-    rgb_map = np.zeros((*cropped_img_size, 3), dtype=np.int16)
-    undistort = np.sin(np.pi * np.arange(crop_top,
-        img_size[1] - crop_bottom) / img_size[1]) + 0.001
-    
-    # Loop through indices for points in range and in FOV
-    distances = distances[in_range][in_fov]
-    rgb = rgb[in_range][in_fov]
-    for i_point in range(distances.shape[0]):  
+    def _process(self, data, data_multimodal):
+        assert hasattr(data, self.key)
+        for attr in ['point_jump_index', 'image_ids', 'image_jump_index', 'pixels']:
+            assert hasattr(data_multimodal, attr)
 
-        point_dist = distances[i_point]
-        point_rgb = rgb[i_point]
-        point_pix_mask = pix_masks[i_point] 
+
+
+
+
+
+
+        ########################################################################
+        # recover mappings and images
+        # stack them carefully, taking care of the indices
+        ########################################################################
+
+
+
         
-        # Update maps where point is closest recorded
-        x_a, x_b, y_a, y_b = point_pix_mask
-        for x in range(x_a, x_b):
-            for y in range(y_a, y_b):
-                if point_dist < depth_map[x, y]:
-                    depth_map[x, y] = point_dist
-                    rgb_map[x, y] = point_rgb
-    
-    # Set empty pixels to default empty value
-    for x in range(depth_map.shape[0]):
-        for y in range(depth_map.shape[1]):
-            if depth_map[x, y] > r_max:
-                depth_map[x, y] = empty
-    
-    # Restore the cropped areas
-    cropped_map_top = np.full((img_size[0], crop_top), empty, np.float32)
-    cropped_map_bottom = np.full((img_size[0], crop_bottom), empty, np.float32)
-    depth_map = np.concatenate((cropped_map_top, depth_map, cropped_map_bottom), axis=1)
-    
-    cropped_map_top = np.zeros((img_size[0], crop_top, 3), dtype=np.uint8)
-    cropped_map_bottom = np.zeros((img_size[0], crop_bottom, 3), dtype=np.uint8)
-    rgb_map = np.concatenate((cropped_map_top, rgb_map, cropped_map_bottom), axis=1)
-    
-    return rgb_map, depth_map
 
-#-------------------------------------------------------------------------------
 
-@njit(cache=True, nogil=True)
-def compute_index_map(
-        xyz_to_img,
-        indices,
-        img_opk,
-        img_mask=None,
-        img_size=(1024, 512),
-        crop_top=0,
-        crop_bottom=0,
-        voxel=0.1,
-        r_max=30,
-        r_min=0.5,
-        growth_k=0.2,
-        growth_r=10,
-        empty=0):
-    # We store indices in int64 format so we only accept indices up to 
-    # np.iinfo(np.int64).max
-    num_points = xyz_to_img.shape[0]
-    if num_points >= 9223372036854775807:
-        raise OverflowError
-    
-    # Rotation matrix from image Euler angle pose
-    img_rotation = pose_to_rotation_matrix_numba(img_opk)
-    
-    # Remove points outside of image range
-    distances = norms_numba(xyz_to_img)
-    in_range = np.where(np.logical_and(r_min < distances, distances < r_max))[0]
 
-    # Project points to float pixel coordinates
-    x_pix, y_pix = float_pixels_numba(xyz_to_img[in_range], distances[in_range],
-        img_rotation, img_size)
+        return data
 
-    # Remove points outside of camera field of view
-    in_fov = field_of_view(x_pix, y_pix, crop_top, img_size[1] - crop_bottom, mask=img_mask)
-    
-    # Compute projection pixel patches sizes 
-    width_pix = array_pixel_width_numba(y_pix[in_fov], distances[in_range][in_fov],
-        img_shape=img_size, voxel=voxel, k=growth_k, d=growth_r)
-    pix_masks = pixel_masks_numba(x_pix[in_fov], y_pix[in_fov], width_pix)
-    pix_masks = border_pixel_masks_numba(pix_masks, 0, img_size[0], crop_top,
-        img_size[1] - crop_bottom)
-    pix_masks[:,2:] -= crop_top  # Remove y-crop offset
 
-    # Cropped depth map initialization
-    cropped_img_size = (img_size[0], img_size[1] - crop_bottom - crop_top)
-    depth_map = np.full(cropped_img_size, r_max + 1, np.float32)
-    
-    # Indices map intitialization
-    # We store indices in int64 so we assumes point indices are lower
-    # than max int64 ~ 2.14 x 10^9.
-    # We need the negative for empty pixels
-    no_idx = -1
-    idx_map = np.full(cropped_img_size, no_idx, dtype=np.int64)
-    
-    # Loop through indices for points in range and in FOV
-    distances = distances[in_range][in_fov]
-    indices = indices[in_range][in_fov]
-    for i_point in range(distances.shape[0]):  
+    def __call__(self, data, data_multimodal):
+        """
+        Populate data sample in place with image attributes in data_multimodal,
+        based on the self.key point identifiers.
+        """
+        if isinstance(data, list):
+            data = [self._process(d, data_multimodal) for d in data]
+        else:
+            data = self._process(data, data_multimodal)
+        return data
 
-        point_dist = distances[i_point]
-        point_idx = indices[i_point]
-        point_pix_mask = pix_masks[i_point] 
-        
-        # Update maps where point is closest recorded
-        x_a, x_b, y_a, y_b = point_pix_mask
-        for x in range(x_a, x_b):
-            for y in range(y_a, y_b):
-                if point_dist < depth_map[x, y]:
-                    depth_map[x, y] = point_dist
-                    idx_map[x, y] = point_idx
-    
-    # Set empty pixels to default empty value
-    for x in range(depth_map.shape[0]):
-        for y in range(depth_map.shape[1]):
-            if depth_map[x, y] > r_max:
-                depth_map[x, y] = empty
-    
-    # Restore the cropped areas
-    cropped_map_top = np.full((img_size[0], crop_top), empty, np.float32)
-    cropped_map_bottom = np.full((img_size[0], crop_bottom), empty, np.float32)
-    depth_map = np.concatenate((cropped_map_top, depth_map, cropped_map_bottom), axis=1)
-    
-    cropped_map_top = np.full((img_size[0], crop_top), no_idx, np.int64)
-    cropped_map_bottom = np.full((img_size[0], crop_bottom), no_idx, np.int64)
-    idx_map = np.concatenate((cropped_map_top, idx_map, cropped_map_bottom), axis=1)
-    
-    return idx_map, depth_map
 
-#-------------------------------------------------------------------------------
+    def __repr__(self):
+        return self.__class__.__name__
 
-class PointImagePixelMapping():
-    """
-    Transform-like structure. Intended to be called on _datas and images 
-    poses.
-    """
-    def __init__(self):
-        raise NotImplementedError
-
-#-------------------------------------------------------------------------------
-
-class SelectImagesFromId():
-    """
-    Transform-like structure. Intended to be called on _datas and _images_datas
-    and images poses.
-    """
-    def __init__(self):
-        raise NotImplementedError
