@@ -747,7 +747,13 @@ class S3DISFusedDataset(BaseDatasetMM):
         sampling_format = dataset_opt.get('sampling_format', 'sphere')
         assert sampling_format == 'sphere', f"Only sampling format 'sphere' is supported."
 
+
+
+
         # projection_image = partial(compute_index_map, **self.dataset_opt.projection_image)
+
+
+
 
         self.train_dataset = S3DISSphere(
             self._data_path,

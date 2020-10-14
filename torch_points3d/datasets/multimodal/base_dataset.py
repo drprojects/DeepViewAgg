@@ -1,5 +1,27 @@
-from torch_points3d.core.data_transform.multimodal import instantiate_multimodal_transform
+from torch_points3d.core.data_transform.multimodal import instantiate_multimodal_transforms, ComposeMultiModal
 from torch_points3d.datasets.base_dataset import BaseDataset
+import copy
+
+
+
+def explode_multimodal_transform(transforms):
+    """ Returns a flattened list of transform
+    Arguments:
+        transforms {[list | ComposeMultiModal]} -- Contains list of transform to be added
+
+    Returns:
+        [list] -- [List of transforms]
+    """
+    out = []
+    if transforms is not None:
+        if isinstance(transforms, ComposeMultiModal):
+            out = copy.deepcopy(transforms.transforms)
+        elif isinstance(transforms, list):
+            out = copy.deepcopy(transforms)
+        else:
+            raise Exception(("Multimodal transforms should be provided either within a list or a ",
+                "ComposeMultiModal"))
+    return out
 
 
 
@@ -50,28 +72,24 @@ class BaseDatasetMM(BaseDataset):
 
         Inspired from BaseDataset.set_transform().
         """
-
         for k in dataset_opt.keys():
             if k == "multimodal":
 
+                # Recover the modality name and options
                 modality_opt = getattr(dataset_opt, k)
                 modality = getattr(modality_opt, 'modality')
 
+                # Initialize the modality transforms to None
+                for prefix in ['pre', 'test', 'train', 'val']:
+                    setattr(obj, f"{prefix}_transform_{modality}", None)
+
                 for key in modality_opt.keys():
                     if "transform" in key:
+                        transform = instantiate_multimodal_transforms[getattr(modality_opt, key)]
+                        setattr(obj, f"{key.replace("transforms", "transform")}_{modality}", transform)
 
-                        # Expects only one transform
-
-                        getattr(modality_opt, key)
-
-                        # NB : only the first 'transform' attribute is taken
-                        # into account. Multimodal composition is not implemented yet
-                        modality_transform = getattr(modality_opt, key)
-                        assert len(modality_transform) == 1, ("Multimodal composition not ",
-                         "implemented.")
-                        assert hasattr(modality_transform, 'transform'), ("No transform found in ",
-                            "the configuration.")
-
-                        transform = instantiate_multimodal_transform[modality_transform[0]]
-
-                        setattr(obj, f"{key}_{modality}", transform)
+                # Chain pre_transform_modality and test_transform_modality in inference_transform_modality 
+                inference_transform = explode_multimodal_transform(getattr(obj, f"pre_transform_{modality}"))
+                inference_transform += explode_multimodal_transform(getattr(obj, f"test_transform_{modality}"))
+                inference_transform = Compose(inference_transform) if len(inference_transform) > 0 else None
+                setattr(obj, f"inference_transform_{modality}", inference_transform)

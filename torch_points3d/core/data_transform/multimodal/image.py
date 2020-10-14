@@ -1,12 +1,20 @@
 import numpy as np
 from torch_geometric.data import Data
 from torch_points3d.datasets.multimodal.image import ImageData
-import torch_points3d.datasets.multimodal.forward_star
+from torch_points3d.datasets.multimodal.forward_star import ForwardStar
 from .projection import compute_index_map
 
 
 
-class NonStaticImageMask:
+"""
+Image-based transforms for multimodal data processing. Inspired by 
+torch_points3d and torch_geometric transforms on data, with a signature 
+allowing for multimodal transform composition : __call(data, images, mappings)__
+"""
+
+
+
+class NonStaticImageMask(object):
     """
     Transform-like structure. Find the mask of identical pixels accross a list
     of images.
@@ -16,20 +24,20 @@ class NonStaticImageMask:
         self.n_sample = n_sample
 
 
-    def __call__(self, data, images):
+    def __call__(self, data, images, mappings=None):
         """
         Compute the projection of data points into images and return the input 
         data augmented with attributes mapping points to pixels in provided 
         images.
 
-        Expects a Data (or anything, really) List(ImageData).
+        Expects a Data (or anything, really), List(ImageData).
 
         Returns the same input. The mask is saved in class attributes of
         ImageData, to be used for any subsequent image processing.
         """
         mask = non_static_pixel_mask(images, self.mask_size, self.n_sample)
         ImageData.mask = mask
-        return data, images
+        return data, images, mappings
 
 
     def __repr__(self):
@@ -37,7 +45,7 @@ class NonStaticImageMask:
     
 #-------------------------------------------------------------------------------
 
-class PointImagePixelMapping:
+class PointImagePixelMapping(object):
     """
     Transform-like structure. Computes the mappings between individual 3D points
     and image pixels. Point mappings are identified based on the self.key point
@@ -163,61 +171,52 @@ class PointImagePixelMapping:
 
         # Convert to "nested Forward Star" format
         # Compute image jumps in the pixels array
-        image_jump_index = forward_star.jumps_from_dense(image_ids)
+        image_pixel_mappings = ForwardStar(image_ids, pixels, dense=True)
         
         # Update point_ids and image_ids by taking the last value of each jump
-        image_ids = image_ids[image_jump_index[1:] - 1]
-        point_ids = point_ids[image_jump_index[1:] - 1]
+        image_ids = image_ids[image_pixel_mappings.jumps[1:] - 1]
+        point_ids = point_ids[image_pixel_mappings.jumps[1:] - 1]
 
         # Compute point jumps in the image_ids array
-        point_jump_index = forward_star.jumps_from_dense(point_ids)
+        point_image_mappings = ForwardStar(point_ids, image_ids, image_pixel_mappings, dense=True)
 
         # Update point_ids by taking the last value of each jump
-        point_ids = point_ids[point_jump_index[1:] - 1]
+        point_ids = point_ids[point_image_mappings.jumps[1:] - 1]
 
-        # Convert point_jump_index to the complete array of jumps for all point
-        # ids in range(0, max(data.processed_id) + 1).
         # Some points may have been seen by no image so we need to inject 
-        # 0-sized jumps for these.
+        # 0-sized jumps to account for these.
         # NB: we assume all relevant points are present in data.processed_id, 
         #     if a point with an id larger than max(data.processed_id) were to 
         #     exist, we would not be able to take it into account in the jumps.
-        idx_max = getattr(data, self.key).numpy().max()
-        point_jump_index = jumps_4_range(point_jump_index, point_ids, idx_max=idx_max)
-        del point_ids
+        num_points = getattr(data, self.key).numpy().max() + 1
+        point_image_mappings = point_image_mappings.reindex_groups(point_ids, num_groups=num_points)
 
-        # Save in Data format
-        data_image = Data()
-        setattr(data_image, self.key, torch.arange(idx_max + 1))
-        data_image.point_jump_index = torch.from_numpy(point_jump_index)
-        data_image.image_ids = torch.from_numpy(image_ids)
-        data_image.image_jump_index = torch.from_numpy(image_jump_index)
-        data_image.pixels = torch.from_numpy(pixels)
-        data_image.num_nodes = idx_max + 1
-
-        return data_image
+        return point_image_mappings
 
 
-    def __call__(self, data, images):
+    def __call__(self, data, images, mappings=None):
         """
         Compute the projection of data points into images and return the input 
         data augmented with attributes mapping points to pixels in provided 
         images.
 
-        Expects a Data and a List(ImageData) or a List(Data) and a List(List(ImageData)) of 
-        matching length.
+        Expects a Data and a List(ImageData) or a List(Data) and a 
+        List(List(ImageData)) of matching length.
+
+        Returns the input data and the point-image-pixel mappings in a nested 
+        ForwardStar format.
         """
         assert isinstance(images, list)
 
         if isinstance(data, list):
             assert len(data) == len(images), (f"List(Data) items and List(List(ImageData)) must ",
                 "have the same lengths.")
-            data_image = [self._process(d, i) for d, i in zip(data, images)]
+            mappings = [self._process(d, i) for d, i in zip(data, images)]
 
         else:
-            data_image = self._process(data, images)
+            mappings = self._process(data, images)
 
-        return data, data_image
+        return data, images, mappings
 
 
     def __repr__(self):
@@ -225,66 +224,56 @@ class PointImagePixelMapping:
 
 #-------------------------------------------------------------------------------
 
-class PointImagePixelMappingFromId:
+class PointImagePixelMappingFromId(object):
     """
     Transform-like structure. Intended to be called on _datas and _images_datas.
 
-    Populate data sample in place with image attributes in data_image, 
-    based on the self.key point identifiers. The indices in data are expected 
-    to be included in those in data_image. Furthermore, data_image 
-    is expected to be holding values for all self.key in [0, ..., id_max].
+    Populate the passed Data sample in-place with attributes extracted from the 
+    input ForwardStar mappings, based on the self.key point identifiers.
+    
+    The indices in data are expected to be included in those in mappings. The 
+    ForwardStar format implicitly holds values for all self.key in 
+    [0, ..., len(mappings)].
     """
     def __init__(self, key='processed_id'):
         self.key = key
 
 
-    def _process(self, data, data_image):
+    def _process(self, data, mappings):
         assert hasattr(data, self.key)
-        for attr in ['point_jump_index', 'image_ids', 'image_jump_index', 'pixels']:
-            assert hasattr(data_multimodal, attr)
-
-
-
-
-
-
-
-        ########################################################################
-        # recover mappings and images
-        # stack them carefully, taking care of the indices
-        ########################################################################
+        assert isinstance(mappings, ForwardStar)
 
         # Point indices to subselect point_jumps 
         indices = getattr(data, self.key)
 
-        # Subselect point_jumps and update jump indices 
-        point_jump_index, indices = index_select_jumps(data_image.point_jump_index, indices)
+        # Subselect mappings with ForwardStar indexing 
+        data_mappings = mappings[indices]
 
-        # Subselect image_ids wrt updated point_jumps
-        image_ids = data_image.image_ids[indices]
-
-        # Subselect image_jump_index wrt updated point_jumps
-        image_jump_index, indices = index_select_jumps(data_image.image_jump_index, indices)
-
-        # Subselect pixels wrt updated image_jump_index
-        pixels = data_image.pixels[indices]
-
-        # Combine 
-        # TORCH OR NUMPY... CAREFUL WITH FOWRARD STAR FUNCTIONS
+        # Populate data with attribute names making use of torch_geometric.Data 
+        # and torch_geometric.Batch special mechanisms for "*index*" attributes. 
+        settatr(data, torch.from_array(data_mappings.jumps), 'point_jump_index')
+        settatr(data, torch.from_array(data_mappings.values[0]), 'image_ids')
+        settatr(data, torch.from_array(data_mappings.values[1].jumps), 'image_jump_index')
+        settatr(data, torch.from_array(data_mappings.values[1].values[0]), 'pixels')
 
         return data
 
 
-    def __call__(self, data, data_image):
+    def __call__(self, data, images, mappings):
         """
-        Populate data sample in place with image attributes in data_image,
+        Populate data sample in place with image attributes in mappings,
         based on the self.key point identifiers.
         """
         if isinstance(data, list):
-            data = [self._process(d, data_image) for d in data]
+            if isinstance(mappings, ForwardStar):
+                data = [self._process(d, mappings) for d in data]
+            else:
+                assert len(data) == len(mappings)
+                data = [self._process(d, m) for d, m in zip(data, mappings)]
         else:
-            data = self._process(data, data_image)
-        return data
+            assert isinstance(mappings, ForwardStar)
+            data = self._process(data, mappings)
+        return data, images, mappings
 
 
     def __repr__(self):
