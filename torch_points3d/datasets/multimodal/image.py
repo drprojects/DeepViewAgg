@@ -21,17 +21,12 @@ class ImageData(object):
     growth_r = 10
 
 
-    def __init__(self, id, path, pos, opk):
-        self.id = id
+    def __init__(self, path, pos, opk):
         self.pos = pos
         self.opk = opk
         self.path = path
         self.name = osp.splitext(osp.basename(path))[0]
 #         self.image = self.read_image(self.path, self.size)
-
-    
-    def __repr__(self): 
-        return self.__class__.__name__
 
     
     @staticmethod
@@ -67,19 +62,21 @@ class ImageData(object):
         """
         Find the mask of identical pixels accross a list of images.
         """
-        for image in img_list:
-            assert isinstance(image, ImageData)
-
         # Iteratively update the mask w.r.t. a reference image
         mask = np.ones(mask_size, dtype='bool')
-        img_1 = ImageData.read_image(image.path, mask_size)
+        img_1 = ImageData.read_image(img_list[0].path, mask_size)
 
         n_sample = min(n_sample, len(img_list)-1)
         img_list_sample = np.random.choice(img_list[1:], size=n_sample, replace=False)
 
-        for img_path in img_list_sample:
+        for image in img_list_sample:
             img_2 = ImageData.read_image(image.path, mask_size)
             mask_equal = np.all(img_1 == img_2, axis=2).transpose()
             mask[np.logical_and(mask, mask_equal)] = 0
 
         return mask
+
+
+    def __repr__(self):
+        args = [f"{key}={getattr(self, key)}" for key in ['pos', 'opk', 'name']]
+        return f"{self.__class__.__name__}({', '.join(args)})"

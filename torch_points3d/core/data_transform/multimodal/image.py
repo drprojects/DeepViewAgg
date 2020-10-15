@@ -1,5 +1,6 @@
 import numpy as np
 from torch_geometric.data import Data
+from torch_points3d.core.data_transform import SphereSampling
 from torch_points3d.datasets.multimodal.image import ImageData
 from torch_points3d.datasets.multimodal.forward_star import ForwardStar
 from .projection import compute_index_map
@@ -30,13 +31,21 @@ class NonStaticImageMask(object):
         data augmented with attributes mapping points to pixels in provided 
         images.
 
-        Expects a Data (or anything, really), List(ImageData).
+        Expects Data (or anything), List(ImageData) or List(List(ImageData)), 
+        ForwardStar mapping (or anything).
 
         Returns the same input. The mask is saved in class attributes of
         ImageData, to be used for any subsequent image processing.
         """
-        mask = non_static_pixel_mask(images, self.mask_size, self.n_sample)
+        assert isinstance(images, list)
+        if isinstance(images[0], list):
+            flat_images_list = [im for im_sublist in images for im in im_sublist]
+        else:
+            flat_images_list = images
+
+        mask = ImageData.non_static_pixel_mask(flat_images_list, self.mask_size, self.n_sample)
         ImageData.mask = mask
+
         return data, images, mappings
 
 
@@ -82,7 +91,7 @@ class PointImagePixelMapping(object):
         ImageData.growth_k = growth_k
         ImageData.growth_r = growth_r
 
-        if ImageData.mask:
+        if ImageData.mask is not None:
             assert ImageData.mask.shape == ImageData.map_size_high
 
   
@@ -96,15 +105,13 @@ class PointImagePixelMapping(object):
         pixels = []
 
         # Project each image and gather the point-pixel mappings
-        for image in images:
+        for i_image, image in enumerate(images):
 
-            assert isinstance(image, ImageData)
-
-            print(f"\nImage {image.id} : '{image.name}'")
+            print(f"Image {i_image} : '{image.name}'")
 
             # Subsample the surrounding point cloud
             sampler = SphereSampling(image.r_max, image.pos, align_origin=False)
-            data_sample = sampler(data)  # WARNING IN PLACE EDITION HERE ?..........................
+            data_sample = sampler(data.clone())
 
             # Projection index
             id_map, _ = compute_index_map(
@@ -123,7 +130,6 @@ class PointImagePixelMapping(object):
                 empty=self.empty,
                 no_id=self.no_id,
             )
-            print(f"    High resolution index map shape : {id_map.shape}")
 
             # Convert the id_map to id-xy coordinate soup
             # First column holds the point indices, subsequent columns hold the 
@@ -132,18 +138,18 @@ class PointImagePixelMapping(object):
             # NB : no_id pixels are ignored
             active_pixels = np.where(id_map != self.no_id)
             point_ids_pixel_soup = id_map[active_pixels]
-            point_ids_pixel_soup = np.column_stack((id_pixel_soup, np.stack(active_pixels).transpose()))
-            print(f"    id-pixel soup shape : {point_ids_pixel_soup.shape}")
+            point_ids_pixel_soup = np.column_stack((point_ids_pixel_soup,
+                np.stack(active_pixels).transpose()))
 
             # Convert to lower resolution coordinates
-            # NB : we assume the resolution ratio is the same for both dimensions 
+            # NB: we assume the resolution ratio is the same for both 
+            # dimensions 
             point_ids_pixel_soup[:, 1:] = ImageData.coarsen_coordinates(point_ids_pixel_soup[:, 1:],
-                ImageData.map_size_high[0], ImageData.map_size_low[0])
+                ImageData.map_size_high[0], ImageData.map_size_low[0], ImageData.map_dtype)
 
             # Remove duplicate id-xy in low resolution
             # Sort by point id
             point_ids_pixel_soup = np.unique(point_ids_pixel_soup, axis=0)  # bottleneck here ! Custom unique-sort with numba ?
-            print(f"    Lower-resolution, duplicate-free id-pixel soup shape : {point_ids_pixel_soup.shape}")
 
             # Cast pixel coordinates to a dtype minimizing memory use
             point_ids_ = point_ids_pixel_soup[:, 0]
@@ -152,7 +158,7 @@ class PointImagePixelMapping(object):
 
             # Gather per-image mappings in list structures, only to be
             # numpy-stacked once all images are processed
-            image_ids.append(image.id)
+            image_ids.append(i_image)
             point_ids.append(point_ids_)
             pixels.append(pixel_)
             del pixel_, point_ids_
@@ -163,7 +169,7 @@ class PointImagePixelMapping(object):
         pixels = np.vstack(pixels)
 
         # Sort by point_ids first, image_ids second
-        sorting = np.lexsort(image_ids, point_ids)
+        sorting = np.lexsort((image_ids, point_ids))
         image_ids = image_ids[sorting]
         point_ids = point_ids[sorting]
         pixels = pixels[sorting]
@@ -201,7 +207,7 @@ class PointImagePixelMapping(object):
         images.
 
         Expects a Data and a List(ImageData) or a List(Data) and a 
-        List(List(ImageData)) of matching length.
+        List(List(ImageData)) of matching lengths.
 
         Returns the input data and the point-image-pixel mappings in a nested 
         ForwardStar format.

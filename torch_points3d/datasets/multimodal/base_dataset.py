@@ -85,11 +85,11 @@ class BaseDatasetMM(BaseDataset):
 
                 for key in modality_opt.keys():
                     if "transform" in key:
-                        transform = instantiate_multimodal_transforms[getattr(modality_opt, key)]
-                        setattr(obj, f"{key.replace("transforms", "transform")}_{modality}", transform)
+                        transform = instantiate_multimodal_transforms(getattr(modality_opt, key))
+                        setattr(obj, f"{key.replace('transforms', 'transform')}_{modality}", transform)
 
                 # Chain pre_transform_modality and test_transform_modality in inference_transform_modality 
                 inference_transform = explode_multimodal_transform(getattr(obj, f"pre_transform_{modality}"))
                 inference_transform += explode_multimodal_transform(getattr(obj, f"test_transform_{modality}"))
-                inference_transform = Compose(inference_transform) if len(inference_transform) > 0 else None
+                inference_transform = ComposeMultiModal(inference_transform) if len(inference_transform) > 0 else None
                 setattr(obj, f"inference_transform_{modality}", inference_transform)

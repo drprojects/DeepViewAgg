@@ -19,7 +19,7 @@ class ComposeMultiModal(object):
     def __call__(self, *args):
         for t in self.transforms:
             args = t(*args)
-        return *args
+        return args
 
     def __repr__(self):
         args = ['    {},'.format(t) for t in self.transforms]

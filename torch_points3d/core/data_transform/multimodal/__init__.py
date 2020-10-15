@@ -38,5 +38,5 @@ def instantiate_multimodal_transforms(transform_options):
     """
     transforms = []
     for transform in transform_options:
-        transforms.append(instantiate_transform(transform))
+        transforms.append(instantiate_multimodal_transform(transform))
     return ComposeMultiModal(transforms)
