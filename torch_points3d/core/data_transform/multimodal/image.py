@@ -25,27 +25,28 @@ class NonStaticImageMask(object):
         self.n_sample = n_sample
 
 
+    def _process(self, images):
+        images.map_size_high = self.mask_size
+        images.mask = images.non_static_pixel_mask(size=self.mask_size, n_sample=self.n_sample)
+        return images
+
+
     def __call__(self, data, images, mappings=None):
         """
         Compute the projection of data points into images and return the input 
         data augmented with attributes mapping points to pixels in provided 
         images.
 
-        Expects Data (or anything), List(ImageData) or List(List(ImageData)), 
+        Expects Data (or anything), ImageData or List(ImageData), 
         ForwardStar mapping (or anything).
 
-        Returns the same input. The mask is saved in class attributes of
-        ImageData, to be used for any subsequent image processing.
+        Returns the same input. The mask is saved in ImageData attributes, to 
+        be used for any subsequent image processing.
         """
-        assert isinstance(images, list)
-        if isinstance(images[0], list):
-            flat_images_list = [im for im_sublist in images for im in im_sublist]
+        if isinstance(images, list):
+            images = [self._process(img) for img in images]
         else:
-            flat_images_list = images
-
-        mask = ImageData.non_static_pixel_mask(flat_images_list, self.mask_size, self.n_sample)
-        ImageData.mask = mask
-
+            images = self._process(images)
         return data, images, mappings
 
 
@@ -107,7 +108,7 @@ class PointImagePixelMapping(object):
         # Project each image and gather the point-pixel mappings
         for i_image, image in enumerate(images):
 
-            print(f"Image {i_image} : '{image.name}'")
+            print(f"Image {i_image} : '{image.path}'")
 
             # Subsample the surrounding point cloud
             sampler = SphereSampling(image.r_max, image.pos, align_origin=False)
@@ -195,7 +196,8 @@ class PointImagePixelMapping(object):
         #     if a point with an id larger than max(data.processed_id) were to 
         #     exist, we would not be able to take it into account in the jumps.
         num_points = getattr(data, self.key).numpy().max() + 1
-        point_image_mappings = point_image_mappings.reindex_groups(point_ids, num_groups=num_points)
+        point_image_mappings = point_image_mappings.reindex_groups(point_ids,
+            num_groups=num_points)
 
         return point_image_mappings
 
@@ -206,8 +208,8 @@ class PointImagePixelMapping(object):
         data augmented with attributes mapping points to pixels in provided 
         images.
 
-        Expects a Data and a List(ImageData) or a List(Data) and a 
-        List(List(ImageData)) of matching lengths.
+        Expects a Data and a ImageData or a List(Data) and a List(ImageData) of 
+        matching lengths.
 
         Returns the input data and the point-image-pixel mappings in a nested 
         ForwardStar format.
@@ -215,8 +217,8 @@ class PointImagePixelMapping(object):
         assert isinstance(images, list)
 
         if isinstance(data, list):
-            assert len(data) == len(images), (f"List(Data) items and List(List(ImageData)) must ",
-                "have the same lengths.")
+            assert isisnstance(images, list) and len(data) == len(images), 
+                (f"List(Data) items and List(ImageData) must have the same lengths.")
             mappings = [self._process(d, i) for d, i in zip(data, images)]
 
         else:
