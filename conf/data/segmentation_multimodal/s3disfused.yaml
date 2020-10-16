@@ -19,14 +19,14 @@ data:
       - transform: SaveOriginalPosId       # Required so that one can recover the multimodal mappings after the transforms
         params:
           key: ${data_multimodal.point_id}
-  multimodal:
+  multimodal:                              # Each modality must be inserted in a dedicated 'multimodal' section
     modality: image
     pre_transform:
-      # - transform: NonStaticImageMask         # Find acquisition mask
-      #   params:
-      #     mask_size: ${data_multimodal.map_size_high}
-      #     n_sample: 5 
-      - transform: PointImagePixelMapping  # Define the 3D-2D mapping method here
+      - transform: NonStaticImageMask      # Find acquisition mask
+        params:
+          mask_size: ${data_multimodal.map_size_high}
+          n_sample: 5 
+      - transform: PointImagePixelMapping  # Define the 3D-2D mapping
         params:
           map_size_high: ${data_multimodal.map_size_high}
           map_size_low: ${data_multimodal.map_size_low}
@@ -40,10 +40,12 @@ data:
           empty: 0
           no_id: -1
           key: ${data_multimodal.point_id}
-    transform:
+    train_transforms:
       - transform: PointImagePixelMappingFromId
         params:
           key: ${data_multimodal.point_id}
+    test_transforms: ${data.multimodal.train_transforms}
+    val_transforms: ${data.multimodal.test_transforms}
   train_transforms:
     - transform: RandomNoise
       params:

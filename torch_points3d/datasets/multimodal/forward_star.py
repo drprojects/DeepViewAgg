@@ -36,10 +36,6 @@ class ForwardStar(object):
         self.values = [*args] if args else None
 
 
-    def __repr__(self): 
-        return self.__class__.__name__
-
-
     @property
     def num_groups(self):
         return self.jumps.shape[0] - 1  
@@ -72,36 +68,61 @@ class ForwardStar(object):
         return np.asarray(jumps)
 
 
-
-    def inject_empty_groups(self, indices, idx_max=None):
-
-
-        Hey, gotta change this to a more general-purpose, name-explicit group_reindexing mechanism!
-        
-
+    def reindex_groups(self, group_indices, num_groups=None):
         """
-        By default, jumps are implicitly linked to the group indices
-        range(0, jumps.shape[0])
+        Returns a copy of self with modified jumps to account for new groups.
+        Affects the num_groups and the order of groups. Injects 0-length jumps 
+        where need be. 
 
-        Update the jumps for the complete array of indices range(0, idx_max).
+        By default, jumps are implicitly linked to the group indices in
+        range(0, self.num_groups). 
 
-        Indices are assumed to be sorted and to correspond to the provided jumps.
-        The indices with no jump will have 0-size jumps in the returned jumps. 
+        Here we provide new group_indices for the existing jumps, with 
+        group_indices[i] corresponding to the position of existing group i in 
+        the new array. The indices missing from group_indices account for empty 
+        groups to be injected.
+
+        The num_groups specifies the number of groups in the new array. If not
+        provided, it is inferred from the size of group_indices. 
         """
-        assert self.jumps.shape[0] == indices.shape[0] + 1
-        assert is_sorted(indices), "New jump indices must be sorted."
+        group_indices = np.asarray(group_indices)
+        order = np.argsort(group_indices)
 
-        idx_max = max(indices.max(), idx_max) if idx_max else indices.max()
+        fs_new = self[order]
+        fs_new.__insert_empty_groups(group_indices[order], num_groups=num_groups)
+        return fs_new
 
-        jumps_expanded = np.zeros(idx_max + 2, dtype=indices.dtype)
-        jumps_expanded[indices + 1] = self.jumps[1:]
 
-        self.jumps = ForwardStar.fill_empty_groups_numba(jumps_expanded)
+    def __insert_empty_groups(self, group_indices, num_groups=None):       
+        """
+        Private method called when in-place reindexing groups.
+
+        The group_indices are assumed to be sorted and group_indices[i] 
+        corresponds to the position of existing group i in the new array. The 
+        indices missing from group_indices correspond to empty groups to be 
+        injected.
+
+        The num_groups specifies the number of groups in the new array. If not
+        provided, it is inferred from the size of group_indices. 
+        """
+        group_indices = np.asarray(group_indices)
+        assert self.num_groups == group_indices.shape[0], ("New group indices must correspond to ",
+            "the existing number of groups")
+        assert ForwardStar.is_sorted(group_indices), "New group indices must be sorted."
+
+        if num_groups:
+            num_groups = max(group_indices.max() + 1, num_groups)
+        else:
+            num_groups = group_indices.max() + 1
+
+        self.jumps = ForwardStar.insert_empty_groups_numba(self.jumps, group_indices, num_groups)
 
 
     @staticmethod
     @njit
-    def fill_empty_groups_numba(jumps_expanded):
+    def insert_empty_groups_numba(jumps, group_indices, num_groups):
+        jumps_expanded = np.zeros(num_groups + 1, dtype=group_indices.dtype)
+        jumps_expanded[group_indices + 1] = jumps[1:]
         jump_previous = 0
         for i in range(jumps_expanded.shape[0]):
             if jumps_expanded[i] < jump_previous:
@@ -160,5 +181,13 @@ class ForwardStar(object):
             return ForwardStar(jumps, *[v[val_idx] for v in self.values], dense=False)
         else:
             return ForwardStar(jumps, dense=False)
+
+
+    def __len__(self):
+        return self.num_groups
+
+
+    def __repr__(self): 
+        return self.__class__.__name__
 
 
