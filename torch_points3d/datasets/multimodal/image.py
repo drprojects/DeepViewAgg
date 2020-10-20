@@ -28,14 +28,12 @@ class ImageData(object):
         growth_r        float             projection pixel growth radius
     """
 
-    keys = ['path', 'pos', 'opk', 'img_size', 'mask', 'map_size_high', 'map_size_low', 'crop_top',
+    _keys = ['path', 'pos', 'opk', 'img_size', 'mask', 'map_size_high', 'map_size_low', 'crop_top',
         'crop_bottom', 'voxel', 'r_max', 'r_min', 'growth_k', 'growth_r']
-    
-    numpy_keys = ['path', ]
-    torch_keys = ['pos', 'opk']
-    array_keys = numpy_keys + torch_keys
-
-    shared_keys = [key for key in keys if key not in array_keys]
+    _numpy_keys = ['path']
+    _torch_keys = ['pos', 'opk']
+    _array_keys = _numpy_keys + _torch_keys
+    _shared_keys = list(set(_keys) - set(_array_keys))
 
 
     def __init__(self, path=np.empty(0, dtype='O'), pos=torch.empty([0,3]), opk=torch.empty([0,3]),
@@ -197,11 +195,11 @@ class ImageData(object):
     @property
     def device(self):
         """Get the device of the torch.Tensor attributes."""
-        assert self.pos.device == self.opk.device, f"Discrepancy in the devices of 'pos' and ",
-            "'opk' attributes. Please use `ImageData.to()` to set the device."
+        assert self.pos.device == self.opk.device, (f"Discrepancy in the devices of 'pos' and ",
+            "'opk' attributes. Please use `ImageData.to()` to set the device.")
         if self.mask:
-            assert self.pos.device == self.mask.device, f"Discrepancy in the devices of 'pos' and ",
-                "'mask' attributes. Please use `ImageData.to()` to set the device."
+            assert self.pos.device == self.mask.device, (f"Discrepancy in the devices of 'pos' ",
+                "and 'mask' attributes. Please use `ImageData.to()` to set the device.")
         return self.pose.device
 
 
@@ -214,35 +212,33 @@ class ImageBatch(ImageData):
 
     def __init__(self, **kwargs):
         super(ImageBatch, self).__init__(**kwargs)
-
-        self.__data_class__ = ImageData
         self.__sizes__ = None
 
 
     @property
-    def sizes(self):
-        return self.__sizes__ if self.__sizes__ else None
+    def batch_jumps(self):
+        return np.cumsum(np.concatenate([0], self.__sizes__)) if self.__sizes__ is not None else None
 
 
     @property
-    def jumps(self):
-        return np.cumsum(np.stack([0], self.__sizes__)) if self.__sizes__ else None
+    def batch_items_sizes(self):
+        return self.__sizes__ if self.__sizes__ is not None else None
 
 
     @property
-    def num_items(self):
-        return len(self.__sizes__) if self.__sizes__ else None
+    def num_batch_items(self):
+        return len(self.__sizes__) if self.__sizes__ is not None else None
 
 
     @staticmethod
     def from_image_data_list(image_data_list):
-        assert isinstance(image_data_list) and len(image_data_list) > 0
+        assert isinstance(image_data_list, list) and len(image_data_list) > 0
 
         # Recover the attributes of the first ImageData to compare the shared
         # attributes with the other ImageData
         batch_dict = image_data_list[0].to_dict()
         sizes = [image_data_list[0].num_images]
-        for key in ImageData.array_keys:
+        for key in ImageData._array_keys:
             batch_dict[key] = [batch_dict[key]]
 
         # Only stack if all ImageData have the same shared attributes
@@ -251,19 +247,21 @@ class ImageBatch(ImageData):
                 
                 image_dict = image_data.to_dict().items()
 
-                for key, value in image_dict if key in ImageData.shared_keys:
+                for key, value in [(k, v) for (k, v) in image_dict.items()
+                        if k in ImageData._shared_keys]:
                     assert batch_dict[key] == value, ("All ImageData values for shared keys ",
-                        f"{ImageData.shared_keys} must be the same.")
+                        f"{ImageData._shared_keys} must be the same.")
 
-                for key, value in image_dict if key in ImageData.array_keys:
+                for key, value in [(k, v) for (k, v) in image_dict.items()
+                        if k in ImageData._array_keys]:
                     batch_dict[key] += [value]
                 sizes = [image_data.num_images]
 
         # Concatenate array attributes with torch or numpy
-        for key in ImageData.numpy_keys:
+        for key in ImageData._numpy_keys:
             batch_dict[key] = np.stack(batch_dict[key])
 
-        for key in ImageData.torch_keys:
+        for key in ImageData._torch_keys:
             batch_dict[key] = torch.cat(batch_dict[key])
 
         # Initialize the batch from dict and keep track of the item sizes
@@ -278,5 +276,5 @@ class ImageBatch(ImageData):
             raise RuntimeError(('Cannot reconstruct image data list from batch because the batch ',
                 'object was not created using `ImageBatch.from_image_data_list()`.'))
 
-        jumps = self.jumps
-        return [self[jumps[i]:jumps[i+1]] for i in range(self.num_items)]
+        batch_jumps = self.batch_jumps
+        return [self[batch_jumps[i]:batch_jumps[i+1]] for i in range(self.num_batch_items)]

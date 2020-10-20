@@ -4,6 +4,7 @@ from torch_points3d.core.data_transform import SphereSampling
 from torch_points3d.datasets.multimodal.image import ImageData
 from torch_points3d.datasets.multimodal.forward_star import ForwardStar
 from .projection import compute_index_map
+from tqdm.auto import tqdm as tq
 
 
 
@@ -106,9 +107,7 @@ class PointImagePixelMapping(object):
         pixels = []
 
         # Project each image and gather the point-pixel mappings
-        for i_image, image in enumerate(images):
-
-            print(f"Image {i_image} : '{image.path}'")
+        for i_image, image in tq(enumerate(images)):
 
             # Subsample the surrounding point cloud
             sampler = SphereSampling(image.r_max, image.pos, align_origin=False)
@@ -217,8 +216,8 @@ class PointImagePixelMapping(object):
         assert isinstance(images, list)
 
         if isinstance(data, list):
-            assert isisnstance(images, list) and len(data) == len(images), 
-                (f"List(Data) items and List(ImageData) must have the same lengths.")
+            assert isisnstance(images, list) and len(data) == len(images), \
+                f"List(Data) items and List(ImageData) must have the same lengths."
             mappings = [self._process(d, i) for d, i in zip(data, images)]
 
         else:
