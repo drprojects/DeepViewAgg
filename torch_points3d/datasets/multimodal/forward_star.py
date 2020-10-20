@@ -235,7 +235,8 @@ class ForwardStar(object):
 
 
     def __len__(self):
-        return self.num_items
+        print("hey !")
+        return self.num_groups
 
 
     def __repr__(self): 
