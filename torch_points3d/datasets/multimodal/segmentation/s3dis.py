@@ -29,6 +29,7 @@ from torch_points3d.datasets.multimodal.base_dataset import BaseDatasetMM
 from torch_points3d.datasets.segmentation.s3dis import *
 
 from torch_geometric.data import Data
+from torch_points3d.datasets.multimodal.data import MMData
 from torch_points3d.datasets.multimodal.image import ImageData
 from torch_points3d.datasets.multimodal.forward_star import ForwardStar
 
@@ -407,7 +408,7 @@ class S3DISOriginalFusedMM(InMemoryDataset):
         test_data_list = data_list[self.test_area - 1]
 
         # Run the pre_collate_transform to finalize the data preparation
-        # Among other things, the 'origin_id' and 'preprocessed_id' are
+        # Among other things, the 'origin_id' and 'point_index' are
         # generated here  
         if self.pre_collate_transform:
             log.info("pre_collate_transform ...")
@@ -557,9 +558,10 @@ class S3DISSphereMM(S3DISOriginalFusedMM):
         data = data if self.transform is None else self.transform(data)
 
         # Get the corresponding images and mappings
-        data = self.transform_image(data, self._images[i_area], self._mappings[i_area])[0]
+        data, images, mappings = self.transform_image(data, self._images[i_area],
+            self._mappings[i_area])
 
-        return data, self._images[i_area]
+        return MMData(data, images, mappings)
 
 
     def get(self, idx):

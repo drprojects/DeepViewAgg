@@ -75,7 +75,7 @@ class PointImagePixelMapping(object):
             growth_r=10,
             empty=0,
             no_id=-1,
-            key='processed_id'
+            key='point_index'
         ):
 
         self.key = key
@@ -191,8 +191,8 @@ class PointImagePixelMapping(object):
 
         # Some points may have been seen by no image so we need to inject 
         # 0-sized jumps to account for these.
-        # NB: we assume all relevant points are present in data.processed_id, 
-        #     if a point with an id larger than max(data.processed_id) were to 
+        # NB: we assume all relevant points are present in data.point_index, 
+        #     if a point with an id larger than max(data.point_index) were to 
         #     exist, we would not be able to take it into account in the jumps.
         num_points = getattr(data, self.key).numpy().max() + 1
         point_image_mappings = point_image_mappings.reindex_groups(point_ids,
@@ -242,28 +242,38 @@ class PointImagePixelMappingFromId(object):
     ForwardStar format implicitly holds values for all self.key in 
     [0, ..., len(mappings)].
     """
-    def __init__(self, key='processed_id'):
+    def __init__(self, key='point_index'):
         self.key = key
 
 
-    def _process(self, data, mappings):
+    def _process(self, data, images, mappings):
+        assert isinstance(data, Data)
         assert hasattr(data, self.key)
+        assert isinstance(images, ImageData)
         assert isinstance(mappings, ForwardStar)
 
-        # Point indices to subselect point_jumps 
-        indices = getattr(data, self.key)
+        # Point indices to subselect mappings.
+        # The selected mappings are sorted by their order in point_indices. 
+        # NB: just like images, the same point may be used multiple times. 
+        point_indices = torch.unique(data[self.key])
+        mappings = mappings[point_indices]
 
-        # Subselect mappings with ForwardStar indexing 
-        data_mappings = mappings[indices]
+        # Update point indices to the new mappings length.
+        # This is important to preserve the mappings and for multimodal data
+        # batching mechanisms.
+        data[self.key] = torch.bucketize(data[self.key], point_indices)
 
-        # Populate data with attribute names making use of torch_geometric.Data 
-        # and torch_geometric.Batch special mechanisms for "*index*" attributes. 
-        settatr(data, torch.from_array(data_mappings.jumps), 'point_jump_index')
-        settatr(data, torch.from_array(data_mappings.values[0]), 'image_ids')
-        settatr(data, torch.from_array(data_mappings.values[1].jumps), 'image_jump_index')
-        settatr(data, torch.from_array(data_mappings.values[1].values[0]), 'pixels')
+        # Subselect the images used in the mappings.
+        # The selected images are sorted by their order in image_indices.
+        image_indices = np.unique(mappings.values[0])
+        images = images[image_indices]
 
-        return data
+        # Update image indices to the new images length
+        # This is important to preserve the mappings and for multimodal data
+        # batching mechanisms.
+        mappings.values[0] = np.digitize(mappings.values[0], image_indices) - 1
+
+        return data, images, mappings
 
 
     def __call__(self, data, images, mappings):
@@ -272,14 +282,16 @@ class PointImagePixelMappingFromId(object):
         based on the self.key point identifiers.
         """
         if isinstance(data, list):
-            if isinstance(mappings, ForwardStar):
-                data = [self._process(d, mappings) for d in data]
+            if isinstance(imagess, list) and isinstance(mappings, list) and \
+                    len(images) == len(data) and len(mappings) == len(data):
+                out = [self._process(d, i, m) for d, i, m in zip(data, images, mappings)]
             else:
-                assert len(data) == len(mappings)
-                data = [self._process(d, m) for d, m in zip(data, mappings)]
+                out = [self._process(d, images, mappings) for d in data]
+            data, images, mappings = [list(x) for x in zip(*out)]
+
         else:
-            assert isinstance(mappings, ForwardStar)
-            data = self._process(data, mappings)
+            data, images, mappings = self._process(data, images, mappings)
+
         return data, images, mappings
 
 

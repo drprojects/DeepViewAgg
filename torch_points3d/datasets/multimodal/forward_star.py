@@ -62,6 +62,9 @@ class ForwardStar(object):
                 "All value objects must have the same size."
             assert len(self.values[0]) == self.num_items, \
                 "Jumps must cover the entire range of values."
+            for v in self.values:
+                if isinstance(v, ForwardStar):
+                    v.debug()
 
         if self.values is not None and self.is_index_value is not None:
             assert isinstance(self.is_index_value, np.ndarray), \
@@ -196,8 +199,6 @@ class ForwardStar(object):
         Returns a new jump array with updated jumps, along with an indices array to
         be used to update any values array associated with the input jumps.   
         """
-        print('indices: ', indices)
-        print('jumps.shape[0]: ', jumps.shape[0])
         assert indices.max() <= jumps.shape[0] - 2
         jumps_updated, val_indices = ForwardStar.index_select_jumps_numba(jumps, indices)
         return jumps_updated, np.concatenate(val_indices)
@@ -235,12 +236,12 @@ class ForwardStar(object):
 
 
     def __len__(self):
-        print("hey !")
         return self.num_groups
 
 
-    def __repr__(self): 
-        return self.__class__.__name__
+    def __repr__(self):
+        info = [f"{key}={getattr(self, key)}" for key in ['num_groups', 'num_items']]
+        return f"{self.__class__.__name__}({', '.join(info)})"
 
 
 
@@ -353,7 +354,6 @@ class ForwardStarBatch(ForwardStar):
         values = [list(x) for x in zip(*values)]
 
         fs_list = [ForwardStar(j, *v, dense=False, is_index_value=self.is_index_value)
-            for j, v in zip(jumps, values)
-        ]
+            for j, v in zip(jumps, values)]
 
         return fs_list
