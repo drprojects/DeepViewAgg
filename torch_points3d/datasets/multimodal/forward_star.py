@@ -26,19 +26,67 @@ class ForwardStar(object):
     Implements the ForwardStar format and associated mechanisms in Numpy.
     """
     
-    def __init__(self, jumps, *args, dense=False):
+    def __init__(self, jumps, *args, dense=False, is_index_value=None):
         """
-        Initialize the jumps and values. Values are passed as args and stored 
-        in a list. If dense=True, jumps are treated as a dense array of indices
-        to be converted into jump indices.
+        Initialize the jumps and values.
+
+        Values are passed as args and stored in a list. They are expected to all
+        have the same size and support numpy array indexing (i.e. they can be 
+        numpy arrays or ForwardStar objects themselves).
+
+        If dense=True, jumps are treated as a dense array of indices to be 
+        converted into jump indices. 
+
+        Optionnally, a list of booleans is_index_value can be passed. It must 
+        be the same size as *args and indicates, for each value, whether it 
+        holds elements that should be treated as indices when stacking 
+        ForwardStar objects into a ForwardStarBatch. If so, the indices will be 
+        updated wrt the cumulative size of the batched values.
         """
         self.jumps = ForwardStar.indices_to_jumps(jumps) if dense else jumps
-        self.values = [*args] if args else None
+        self.values = [*args] if len(args) > 0 else None
+        self.is_index_value = np.asarray(is_index_value) if is_index_value is not None else None
+        self.debug()
+
+
+    def debug(self):
+        assert np.all(self.jumps[1:] - self.jumps[:-1] >= 0), \
+            "Jump indices must be increasing."
+        assert self.jumps[0] == 0, \
+            "The first jump element must always be 0."
+
+        if self.values is not None:
+            assert isinstance(self.values, list), \
+                "Values must be held in a list."
+            assert all([len(v) == self.num_items for v in self.values]),  \
+                "All value objects must have the same size."
+            assert len(self.values[0]) == self.num_items, \
+                "Jumps must cover the entire range of values."
+
+        if self.values is not None and self.is_index_value is not None:
+            assert isinstance(self.is_index_value, np.ndarray), \
+                "is_index_value must be a numpy array."
+            assert self.is_index_value.dtype == np.bool, \
+                "is_index_value must be an array of booleans."
+            assert self.is_index_value.ndim == 1, \
+                "is_index_value must be a 1D array."
+            assert self.is_index_value.size == self.num_values, \
+                "is_index_value size must match the number of value arrays."
 
 
     @property
     def num_groups(self):
-        return self.jumps.shape[0] - 1  
+        return self.jumps.shape[0] - 1
+
+
+    @property
+    def num_values(self):
+        return len(self.values) if self.values is not None else 0
+
+
+    @property
+    def num_items(self):
+        return self.jumps[-1]
 
 
     @staticmethod    
@@ -110,7 +158,7 @@ class ForwardStar(object):
             "the existing number of groups")
         assert ForwardStar.is_sorted(group_indices), "New group indices must be sorted."
 
-        if num_groups:
+        if num_groups is not None:
             num_groups = max(group_indices.max() + 1, num_groups)
         else:
             num_groups = group_indices.max() + 1
@@ -135,8 +183,8 @@ class ForwardStar(object):
     @njit
     def is_sorted(a):
         for i in range(a.size-1):
-             if a[i+1] < a[i] :
-                   return False
+            if a[i+1] < a[i] :
+                return False
         return True
 
 
@@ -148,6 +196,8 @@ class ForwardStar(object):
         Returns a new jump array with updated jumps, along with an indices array to
         be used to update any values array associated with the input jumps.   
         """
+        print('indices: ', indices)
+        print('jumps.shape[0]: ', jumps.shape[0])
         assert indices.max() <= jumps.shape[0] - 2
         jumps_updated, val_indices = ForwardStar.index_select_jumps_numba(jumps, indices)
         return jumps_updated, np.concatenate(val_indices)
@@ -177,13 +227,15 @@ class ForwardStar(object):
 
         jumps, val_idx = ForwardStar.index_select_jumps(self.jumps, idx)
 
-        if self.values:
-            return ForwardStar(jumps, *[v[val_idx] for v in self.values], dense=False)
+        if self.values is not None:
+            return ForwardStar(jumps, *[v[val_idx] for v in self.values], dense=False, 
+                is_index_value=self.is_index_value)
         else:
             return ForwardStar(jumps, dense=False)
 
 
     def __len__(self):
+        print("hey !")
         return self.num_groups
 
 
@@ -191,3 +243,117 @@ class ForwardStar(object):
         return self.__class__.__name__
 
 
+
+class ForwardStarBatch(ForwardStar):
+    """
+    Wrapper class of ForwardStar to build a batch from a list of ForwardStar 
+    data and reconstruct it afterwards.  
+    """
+
+    def __init__(self, jumps, *args, dense=False, is_index_value=None):
+        """
+        Basic constructor for a ForwardStarBatch. Batches are rather
+        intendended to be built using the from_forward_star_list() method.
+        """
+        super(ForwardStarBatch, self).__init__(jumps, *args, dense=dense,
+            is_index_value=is_index_value)
+        self.__sizes__ = None
+
+
+    @property
+    def batch_jumps(self):
+        return np.cumsum(np.concatenate(([0], self.__sizes__))) if self.__sizes__ is not None else None
+
+
+    @property
+    def batch_items_sizes(self):
+        return self.__sizes__ if self.__sizes__ is not None else None
+
+
+    @property
+    def num_batch_items(self):
+        return len(self.__sizes__) if self.__sizes__ is not None else 0
+
+    
+    @staticmethod
+    def from_forward_star_list(fs_list):
+        assert isinstance(fs_list, list) and len(fs_list) > 0
+        assert all([isinstance(fs, ForwardStar) for fs in fs_list]), \
+            "All provided items must be ForwardStar objects."
+        for fs in fs_list: fs.debug()
+
+        num_values = fs_list[0].num_values
+        assert all([fs.num_values == num_values for fs in fs_list]),\
+            "All provided items must have the same number of values."
+
+        is_index_value = fs_list[0].is_index_value
+        if is_index_value is not None:
+            assert all([np.array_equal(fs.is_index_value, is_index_value) for fs in fs_list]), \
+                "All provided items must have the same is_index_value."
+        else:
+            assert all([fs.is_index_value is None for fs in fs_list]), \
+                "All provided items must have the same is_index_value."
+
+        # combine all jumps
+        # jump_sizes = np.array([fs.num_groups for fs in fs_list])
+
+        # Offsets are used to stack jump indices and values identified as 
+        # is_index_value without losing the indexing information they carry
+        offsets = np.cumsum(np.concatenate(([0], [fs.num_items for fs in fs_list[:-1]])))
+
+        # Stack jumps
+        jumps = np.concatenate((
+            [0], 
+            *[fs.jumps[1:] + offset for fs, offset in zip(fs_list, offsets)],
+        )).astype(np.int)
+
+        # Stack values
+        values = []
+        for i in range(num_values):
+            val_list = [fs.values[i] for fs in fs_list]
+            if isinstance(fs_list[0].values[i], ForwardStar):
+                val = ForwardStarBatch.from_forward_star_list(val_list)
+            elif is_index_value[i]:
+                val = np.concatenate([v + o for v, o in zip(val_list, offsets)])
+            else:
+                val = np.concatenate(val_list)
+            values.append(val)
+
+        # Create the ForwardStarBatch
+        batch = ForwardStarBatch(jumps, *values, dense=False, is_index_value=is_index_value)
+        batch.__sizes__ = np.array([fs.num_groups for fs in fs_list])
+
+        return batch
+
+
+    def to_forward_star_list(self):
+        if self.__sizes__ is None:
+            raise RuntimeError(('Cannot reconstruct ForwardStar data list from batch because the ',
+                'batch object was not created using `ForwardStarBatch.from_forward_star_list()`.'))
+
+        group_jumps = self.batch_jumps
+        item_jumps = self.jumps[group_jumps]
+
+        # Recover jumps and index offsets
+        jumps = [self.jumps[group_jumps[i]:group_jumps[i+1] + 1] - item_jumps[i] 
+            for i in range(self.num_batch_items)]
+
+        values = []
+        for i in range(self.num_values):
+            batch_value = self.values[i]
+            if isinstance(batch_value, ForwardStar):
+                val = batch_value.to_forward_star_list()
+            elif self.is_index_value[i]:
+                val = [batch_value[item_jumps[j]:item_jumps[j+1]] - item_jumps[j] 
+                    for j in range(self.num_batch_items)]
+            else:
+                val = [batch_value[item_jumps[j]:item_jumps[j+1]]
+                    for j in range(self.num_batch_items)]
+            values.append(val)
+        values = [list(x) for x in zip(*values)]
+
+        fs_list = [ForwardStar(j, *v, dense=False, is_index_value=self.is_index_value)
+            for j, v in zip(jumps, values)
+        ]
+
+        return fs_list
