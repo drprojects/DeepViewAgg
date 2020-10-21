@@ -1,8 +1,7 @@
 import numpy as np
 import torch
 from torch_geometric.data import Data, Batch
-from torch_points3d.datasets.multimodal.data import MMData
-from torch_points3d.datasets.multimodal.image import ImageData, ImageDataBatch
+from torch_points3d.datasets.multimodal.image import ImageData, ImageBatch
 from torch_points3d.datasets.multimodal.forward_star import ForwardStar, ForwardStarBatch
 
 
@@ -36,8 +35,7 @@ class MMData(object):
         assert hasattr(data, self.key)
         assert bool(re.search('index', self.key)), \
             f"Key {self.key} must contain 'index' to benefit from Batch mechanisms."
-        assert np.array_equal(np.unique(self.data[self.key]),
-            np.arange(len(self.mappings))), \
+        assert np.array_equal(np.unique(self.data[self.key]), np.arange(len(self.mappings))), \
             "Data point indices must span the entire range of mappings."
         
         # Ensure mappings have the expected signature
@@ -52,15 +50,14 @@ class MMData(object):
         # In fact, we would only need to ensure that the largest image index in 
         # the mappings corresponds to the number of images, but this is safer
         # and avoids loading uneccessary ImageData.
-        assert np.array_equal(np.unique(self.mappings.values[0]), 
-            np.arange(self.images.num_images)), \
+        assert np.array_equal(np.unique(self.mappings.values[0]), np.arange(self.images.num_images)), \
             "Mapping image indices must span the entire range of images."
 
         # Ensure pixel coordinates in the mappings are compatible with 
         # the expected feature maps resolution.
         pix_max = self.mappings.values[1].values[0].max(axis=0)
         map_max = self.images.map_size_low
-        assert all(a < b for a, b in zip(pix_max, map_max)),
+        assert all(a < b for a, b in zip(pix_max, map_max)), \
             "Pixel coordinates must match images.map_size_low."
 
 
@@ -119,7 +116,7 @@ class MMBatch(MMData):
         assert all([isinstance(mm_data, MMData) for mm_data in mm_data_list])
 
         data = Batch.from_data_list([mm_data.data for mm_data in mm_data_list])
-        images = ImageDataBatch.from_image_data_list([mm_data.images for mm_data in mm_data_list])
+        images = ImageBatch.from_image_data_list([mm_data.images for mm_data in mm_data_list])
         mappings = ForwardStarBatch.from_forward_star_list([mm_data.mappings for mm_data in mm_data_list])
         sizes = [len(mm_data) for mm_data in mm_data_list]
 

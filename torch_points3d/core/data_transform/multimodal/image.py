@@ -22,11 +22,14 @@ class NonStaticImageMask(object):
     of images.
     """
     def __init__(self, mask_size=(2048, 1024), n_sample=5):
-        self.mask_size = mask_size
+        self.mask_size = tuple(mask_size)
         self.n_sample = n_sample
 
 
     def _process(self, images):
+        print('\nNonStaticImageMask process')
+        print("images:")
+        print(images)
         images.map_size_high = self.mask_size
         images.mask = images.non_static_pixel_mask(size=self.mask_size, n_sample=self.n_sample)
         return images
@@ -82,26 +85,36 @@ class PointImagePixelMapping(object):
         self.empty = empty
         self.no_id = no_id
 
-        # Store the projection parameters in the ImageData class attributes.
-        ImageData.map_size_high = tuple(map_size_high)
-        ImageData.map_size_low = tuple(map_size_low)
-        ImageData.crop_top = crop_top
-        ImageData.crop_bottom = crop_bottom
-        ImageData.voxel = voxel
-        ImageData.r_max = r_max
-        ImageData.r_min = r_min
-        ImageData.growth_k = growth_k
-        ImageData.growth_r = growth_r
-
-        if ImageData.mask is not None:
-            assert ImageData.mask.shape == ImageData.map_size_high
+        # Store the projection parameters destined for the ImageData attributes.
+        self.map_size_high = tuple(map_size_high)
+        self.map_size_low = tuple(map_size_low)
+        self.crop_top = crop_top
+        self.crop_bottom = crop_bottom
+        self.voxel = voxel
+        self.r_max = r_max
+        self.r_min = r_min
+        self.growth_k = growth_k
+        self.growth_r = growth_r
 
   
     def _process(self, data, images):
-
         assert hasattr(data, self.key)
 
-        # Initialize the
+        # Pass the projection attributes to the ImageData
+        images.map_size_high = self.map_size_high
+        images.map_size_low = self.map_size_low
+        images.crop_top = self.crop_top
+        images.crop_bottom = self.crop_bottom
+        images.voxel = self.voxel
+        images.r_max = self.r_max
+        images.r_min = self.r_min
+        images.growth_k = self.growth_k
+        images.growth_r = self.growth_r
+
+        if images.mask is not None:
+            assert images.mask.shape == images.map_size_high
+
+        # Initialize the mapping arrays
         image_ids = []
         point_ids = []
         pixels = []
@@ -113,12 +126,12 @@ class PointImagePixelMapping(object):
             sampler = SphereSampling(image.r_max, image.pos, align_origin=False)
             data_sample = sampler(data.clone())
 
-            # Projection index
+            # Projection to build the index map
             id_map, _ = compute_index_map(
-                data_sample.pos.numpy() - image.pos,
+                (data_sample.pos - image.pos.squeeze()).numpy(),
                 getattr(data_sample, self.key).numpy(),
-                image.opk,
-                img_mask=image.mask,
+                np.array(image.opk.squeeze()),
+                img_mask=image.mask.numpy() if image.mask is not None else None,
                 img_size=image.map_size_high,
                 crop_top=image.crop_top,
                 crop_bottom=image.crop_bottom,
@@ -144,8 +157,7 @@ class PointImagePixelMapping(object):
             # Convert to lower resolution coordinates
             # NB: we assume the resolution ratio is the same for both 
             # dimensions 
-            point_ids_pixel_soup[:, 1:] = ImageData.coarsen_coordinates(point_ids_pixel_soup[:, 1:],
-                ImageData.map_size_high[0], ImageData.map_size_low[0], ImageData.map_dtype)
+            point_ids_pixel_soup[:, 1:] = image.coarsen_coordinates(point_ids_pixel_soup[:, 1:])
 
             # Remove duplicate id-xy in low resolution
             # Sort by point id
@@ -153,7 +165,7 @@ class PointImagePixelMapping(object):
 
             # Cast pixel coordinates to a dtype minimizing memory use
             point_ids_ = point_ids_pixel_soup[:, 0]
-            pixel_ = point_ids_pixel_soup[:, 1:].astype(ImageData.map_dtype)
+            pixel_ = point_ids_pixel_soup[:, 1:].astype(image.map_dtype)
             del point_ids_pixel_soup
 
             # Gather per-image mappings in list structures, only to be
@@ -184,10 +196,10 @@ class PointImagePixelMapping(object):
         point_ids = point_ids[image_pixel_mappings.jumps[1:] - 1]
 
         # Compute point jumps in the image_ids array
-        point_image_mappings = ForwardStar(point_ids, image_ids, image_pixel_mappings, dense=True)
+        mappings = ForwardStar(point_ids, image_ids, image_pixel_mappings, dense=True)
 
         # Update point_ids by taking the last value of each jump
-        point_ids = point_ids[point_image_mappings.jumps[1:] - 1]
+        point_ids = point_ids[mappings.jumps[1:] - 1]
 
         # Some points may have been seen by no image so we need to inject 
         # 0-sized jumps to account for these.
@@ -195,10 +207,10 @@ class PointImagePixelMapping(object):
         #     if a point with an id larger than max(data.point_index) were to 
         #     exist, we would not be able to take it into account in the jumps.
         num_points = getattr(data, self.key).numpy().max() + 1
-        point_image_mappings = point_image_mappings.reindex_groups(point_ids,
+        mappings = mappings.reindex_groups(point_ids,
             num_groups=num_points)
 
-        return point_image_mappings
+        return data, images, mappings
 
 
     def __call__(self, data, images, mappings=None):
@@ -216,12 +228,13 @@ class PointImagePixelMapping(object):
         assert isinstance(images, list)
 
         if isinstance(data, list):
-            assert isisnstance(images, list) and len(data) == len(images), \
+            assert isinstance(images, list) and len(data) == len(images), \
                 f"List(Data) items and List(ImageData) must have the same lengths."
-            mappings = [self._process(d, i) for d, i in zip(data, images)]
+            out = [self._process(d, i) for d, i in zip(data, images)]
+            data, images, mappings = [list(x) for x in zip(*out)]
 
         else:
-            mappings = self._process(data, images)
+            data, images, mappings = self._process(data, images)
 
         return data, images, mappings
 

@@ -45,13 +45,13 @@ class ImageData(object):
         assert path.shape[0] == pos.shape[0] and path.shape[0] == opk.shape[0], (f"Attributes ",
             "'path', 'pos' and 'opk' must have the same length.")
 
-        self.path = path
-        self.pos = pos
-        self.opk = opk
-        self.img_size = img_size
+        self.path = np.array(path)
+        self.pos = pos.double()
+        self.opk = opk.double()
+        self.img_size = tuple(img_size)
         self.mask = mask
-        self.map_size_high = map_size_high
-        self.map_size_low = map_size_low
+        self.map_size_high = tuple(map_size_high)
+        self.map_size_low = tuple(map_size_low)
         self.crop_top = crop_top
         self.crop_bottom = crop_bottom
         self.voxel = voxel
@@ -89,9 +89,13 @@ class ImageData(object):
     def read_images(self, idx=None, size=None):
         """Read images and batch them into a tensor of size BxCxHxW."""
         if idx is None:
-            idx = torch.arange(self.num_images)
-        elif isinstance(idx, int):
-            idx = [idx]
+            idx = np.arange(self.num_images)
+        if isinstance(idx, int):
+            idx = np.array([idx])
+        if isinstance(idx, torch.Tensor):
+            idx = np.asarray(idx)
+        if len(idx.shape) < 1:
+            idx = np.array([idx])
         if size is None:
             size = self.img_size
 
@@ -103,8 +107,8 @@ class ImageData(object):
 
     def coarsen_coordinates(self, pixel_coordinates):
         """Convert pixel coordinates from high to low resolution."""
-        ratio = self.map_size_low / self.map_size_high
-        return torch.floor(pixel_coordinates * ratio).type(dtype)
+        ratio = self.map_size_low[0] / self.map_size_high[0]
+        return torch.floor(torch.Tensor(pixel_coordinates) * ratio).type(self.map_dtype)
 
 
     def non_static_pixel_mask(self, size=None, n_sample=5):
@@ -114,18 +118,18 @@ class ImageData(object):
         if size is None:
             size = self.map_size_high
 
-        mask = torch.ones(size, dtype='bool')
+        mask = torch.ones(size, dtype=torch.bool)
 
         n_sample = min(n_sample, self.num_images)
-        if n_samples < 2:
+        if n_sample < 2:
             return mask
 
         # Iteratively update the mask w.r.t. a reference image
-        idx = torch.multinomial(torch.arange(self.num_images, dtype=torch.float), n_samples)
+        idx = torch.multinomial(torch.arange(self.num_images, dtype=torch.float), n_sample)
         img_1 = self.read_images(idx=idx[0], size=size).squeeze()
         for i in idx[1:]:
             img_2 = self.read_images(idx=i, size=size).squeeze()
-            mask_equal = torch.all(img_1 == img_2, axis=0)
+            mask_equal = torch.all(img_1 == img_2, axis=0).t()
             mask[torch.logical_and(mask, mask_equal)] = 0
 
         return mask
@@ -155,7 +159,7 @@ class ImageData(object):
             path=self.path[np.asarray(idx)].copy(),
             pos=self.pos[torch.LongTensor(idx)].clone(),
             opk=self.opk[torch.LongTensor(idx)].clone(),
-            mask=self.mask.clone() if self.mask else self.mask, 
+            mask=self.mask.clone() if self.mask is not None else self.mask, 
             img_size=copy.deepcopy(self.img_size),
             map_size_high=copy.deepcopy(self.map_size_high),
             map_size_low=copy.deepcopy(self.map_size_low), 
@@ -181,14 +185,14 @@ class ImageData(object):
 
 
     def __repr__(self):
-        return f"{self.__class__.__name__}(num_images={self.num_images}, device={self.device()})"
+        return f"{self.__class__.__name__}(num_images={self.num_images}, device={self.device})"
 
 
     def to(self, device):
         """Set torch.Tensor attribute device."""
         self.pos = self.pos.to(device)
         self.opk = self.opk.to(device)
-        self.mask = self.mask.to(device) if self.mask else self.mask
+        self.mask = self.mask.to(device) if self.mask is not None else self.mask
         return self
 
 
@@ -197,10 +201,10 @@ class ImageData(object):
         """Get the device of the torch.Tensor attributes."""
         assert self.pos.device == self.opk.device, (f"Discrepancy in the devices of 'pos' and ",
             "'opk' attributes. Please use `ImageData.to()` to set the device.")
-        if self.mask:
+        if self.mask is not None:
             assert self.pos.device == self.mask.device, (f"Discrepancy in the devices of 'pos' ",
                 "and 'mask' attributes. Please use `ImageData.to()` to set the device.")
-        return self.pose.device
+        return self.pos.device
 
 
 

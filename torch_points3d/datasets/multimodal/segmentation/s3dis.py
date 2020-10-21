@@ -69,7 +69,8 @@ def read_s3dis_pose(json_file):
 
 #-------------------------------------------------------------------------------
 
-def s3dis_image_pose_pairs(image_dir, pose_dir, image_suffix='_rgb.png', pose_suffix='_pose.json'):
+def s3dis_image_pose_pairs(image_dir, pose_dir, image_suffix='_rgb.png', pose_suffix='_pose.json',
+        verbose=False):
     """
     Search for all image-pose correspondences in the directories.
     Return the list of image-pose pairs. Orphans are ignored.
@@ -95,12 +96,14 @@ def s3dis_image_pose_pairs(image_dir, pose_dir, image_suffix='_rgb.png', pose_su
             for x in set(pose_names) - set(image_names)
         ]
         print("Could not recover all image-pose correspondences.")
-        print(f"Orphan RGB images : \n{image_orphan}")
-        for x in image_orphan:
-            print(4 * ' ' + x)
-        print(f"Orphan segmentation images : \n{pose_orphan}")
-        for x in pose_orphan:
-            print(4 * ' ' + x)
+        print(f"  Orphan images : {len(image_orphan)}/{len(image_names)}")
+        if verbose:
+            for x in image_orphan:
+                print(4 * ' ' + '/'.join(x.split('/')[-4:]))
+        print(f"  Orphan poses  : {len(pose_orphan)}/{len(pose_names)}")
+        if verbose:
+            for x in pose_orphan:
+                print(4 * ' ' + '/'.join(x.split('/')[-4:]))
 
     # Only return the recovered pairs
     correspondences = sorted(list(set(image_names).intersection(set(pose_names))))
@@ -333,7 +336,6 @@ class S3DISOriginalFusedMM(InMemoryDataset):
                     if areas[area_idx] == 5:
                         continue
                     else:
-                        print(area_idx)
                         areas[area_idx] += 1
                 
                 area_num = int(area[-1]) - 1
@@ -377,7 +379,9 @@ class S3DISOriginalFusedMM(InMemoryDataset):
 
         else:
             # Recover the per-area Data list from the 'preprocessed.pt' file
+            print('Loading the preprocessed 3D data...')
             data_list = torch.load(self.pre_processed_path)
+            print('Done\n')
 
         if self.debug:
             return
@@ -385,6 +389,7 @@ class S3DISOriginalFusedMM(InMemoryDataset):
 
         # Build the data splits and pre_collate them
         #-------------------------------------------
+        print('Preparing 3D data splits...')
         train_data_list = {}
         val_data_list = {}
         trainval_data_list = {}
@@ -406,17 +411,20 @@ class S3DISOriginalFusedMM(InMemoryDataset):
         val_data_list = list(val_data_list.values())
         trainval_data_list = list(trainval_data_list.values())
         test_data_list = data_list[self.test_area - 1]
+        print('Done\n')
 
         # Run the pre_collate_transform to finalize the data preparation
         # Among other things, the 'origin_id' and 'point_index' are
         # generated here  
         if self.pre_collate_transform:
+            print('Running pre-collate on 3D data...')
             log.info("pre_collate_transform ...")
             log.info(self.pre_collate_transform)
             train_data_list = self.pre_collate_transform(train_data_list)
             val_data_list = self.pre_collate_transform(val_data_list)
             test_data_list = self.pre_collate_transform(test_data_list)
             trainval_data_list = self.pre_collate_transform(trainval_data_list)
+            print('Done\n')
 
 
         # Pre_transform_image heavy computation
@@ -432,8 +440,9 @@ class S3DISOriginalFusedMM(InMemoryDataset):
             # reading
             folders = [f"area_{i+1}"] if i != 4 else ["area_5a", "area_5b"]
 
-            image_data_list = [
-                ImageData(i_file, *read_s3dis_pose(p_file))
+            image_info_list = [
+                # ImageData(i_file, *read_s3dis_pose(p_file))
+                (i_file, *read_s3dis_pose(p_file))
                 for folder in folders
                 for i_file, p_file in s3dis_image_pose_pairs(
                         osp.join(self.image_dir, folder, 'pano', 'rgb'), 
@@ -443,31 +452,48 @@ class S3DISOriginalFusedMM(InMemoryDataset):
 
             # Keep all images for the test area
             if i == self.test_area:
-                test_image_list = image_data_list
+                path, pos, opk = [list(x) for x in zip(*image_info_list)]
+                test_image_list = ImageData(path=np.array(path), pos=torch.Tensor(pos),
+                    opk=torch.Tensor(opk))
 
             # Split between train and val room images otherwise
             else:
                 train_image_list[i] = []
                 val_image_list[i] = []
 
-                for image in image_data_list:
-                    if s3dis_image_room(image.path) in VALIDATION_ROOMS:
-                        val_image_list[i].append(image)
+                for image_info in image_info_list:
+                    if s3dis_image_room(image_info[0]) in VALIDATION_ROOMS:
+                        val_image_list[i].append(image_info)
                     else:
-                        train_image_list[i].append(image)
+                        train_image_list[i].append(image_info)
 
                 trainval_image_list[i] = val_image_list[i] + train_image_list[i]
+
+                path, pos, opk = [list(x) for x in zip(*train_image_list[i])]
+                train_image_list[i] = ImageData(path=np.array(path), pos=torch.Tensor(pos),
+                    opk=torch.Tensor(opk))
+
+                path, pos, opk = [list(x) for x in zip(*val_image_list[i])]
+                val_image_list[i] = ImageData(path=np.array(path), pos=torch.Tensor(pos),
+                    opk=torch.Tensor(opk))
+
+                path, pos, opk = [list(x) for x in zip(*trainval_image_list[i])]
+                trainval_image_list[i] = ImageData(path=np.array(path), pos=torch.Tensor(pos),
+                    opk=torch.Tensor(opk))
 
         train_image_list = list(train_image_list.values())
         val_image_list = list(val_image_list.values())
         trainval_image_list = list(trainval_image_list.values())
+
                 
         # Build the mappings for each split, for each area
+        print('\nRunning the pre-transform-images...')
         train_mappings_list = self.pre_transform_image(train_data_list, train_image_list, None)[2]
         val_mappings_list = self.pre_transform_image(val_data_list, val_image_list, None)[2]
         trainval_mappings_list = self.pre_transform_image(trainval_data_list, trainval_image_list,
             None)[2]
         test_mappings_list = self.pre_transform_image(test_data_list, test_image_list, None)[2]
+        print('Done\n')
 
         # Save the Data, ImageData and ForwardStar mappings for each split        
         self._save_preprocessed_multimodal_data(
