@@ -62,7 +62,7 @@ class ImageData(object):
 
 
     def to_dict(self):
-        return {key: getattr(self, key) for key in self.keys}
+        return {key: getattr(self, key) for key in self._keys}
 
 
     @property
@@ -153,12 +153,25 @@ class ImageData(object):
         indexing.
         """
         if isinstance(idx, int):
-            idx = [idx]
+            idx = np.array([idx])
+
+        if isinstance(idx, slice):
+            idx_torch = idx
+            idx_numpy = idx
+        else:
+            if isinstance(idx, np.ndarray):
+                idx_torch = torch.from_numpy(idx)
+                idx_numpy = idx
+            elif isinstance(idx, torch.Tensor):
+                idx_torch = idx
+                idx_numpy = np.asarray(idx)
+            else:
+                raise NotImplementedError
 
         return self.__class__(
-            path=self.path[np.asarray(idx)].copy(),
-            pos=self.pos[torch.LongTensor(idx)].clone(),
-            opk=self.opk[torch.LongTensor(idx)].clone(),
+            path=self.path[idx_numpy].copy(),
+            pos=self.pos[idx_torch].clone(),
+            opk=self.opk[idx_torch].clone(),
             mask=self.mask.clone() if self.mask is not None else self.mask, 
             img_size=copy.deepcopy(self.img_size),
             map_size_high=copy.deepcopy(self.map_size_high),
@@ -221,7 +234,8 @@ class ImageBatch(ImageData):
 
     @property
     def batch_jumps(self):
-        return np.cumsum(np.concatenate([0], self.__sizes__)) if self.__sizes__ is not None else None
+        return np.cumsum(np.concatenate(([0], self.__sizes__))) if self.__sizes__ is not None \
+            else None
 
 
     @property
@@ -249,7 +263,7 @@ class ImageBatch(ImageData):
         if len(image_data_list) > 1:
             for image_data in image_data_list[1:]:
                 
-                image_dict = image_data.to_dict().items()
+                image_dict = image_data.to_dict()
 
                 for key, value in [(k, v) for (k, v) in image_dict.items()
                         if k in ImageData._shared_keys]:
@@ -259,11 +273,11 @@ class ImageBatch(ImageData):
                 for key, value in [(k, v) for (k, v) in image_dict.items()
                         if k in ImageData._array_keys]:
                     batch_dict[key] += [value]
-                sizes = [image_data.num_images]
+                sizes.append(image_data.num_images)
 
         # Concatenate array attributes with torch or numpy
         for key in ImageData._numpy_keys:
-            batch_dict[key] = np.stack(batch_dict[key])
+            batch_dict[key] = np.concatenate(batch_dict[key])
 
         for key in ImageData._torch_keys:
             batch_dict[key] = torch.cat(batch_dict[key])

@@ -32,17 +32,17 @@ class MMData(object):
         # Ensure Data have the key attribute necessary for linking points with
         # images in mappings. Each point must have a mapping, even if empty.
         # NB: just like images, the same point may be used multiple times.
-        assert hasattr(data, self.key)
-        assert bool(re.search('index', self.key)), \
+        assert hasattr(self.data, self.key)
+        assert 'index' in self.key, \
             f"Key {self.key} must contain 'index' to benefit from Batch mechanisms."
         assert np.array_equal(np.unique(self.data[self.key]), np.arange(len(self.mappings))), \
             "Data point indices must span the entire range of mappings."
         
         # Ensure mappings have the expected signature
-        mappings.debug()
+        self.mappings.debug()
         assert self.mappings.num_values == 2 \
             and self.mappings.is_index_value[0] \
-            and isisnstance(self.mappings.values[1], ForwardStar), \
+            and isinstance(self.mappings.values[1], ForwardStar), \
             "Mappings must have the signature of PointImagePixels mappings."
         
         # Ensure all images in ImageData are used the mappings.
@@ -50,7 +50,8 @@ class MMData(object):
         # In fact, we would only need to ensure that the largest image index in 
         # the mappings corresponds to the number of images, but this is safer
         # and avoids loading uneccessary ImageData.
-        assert np.array_equal(np.unique(self.mappings.values[0]), np.arange(self.images.num_images)), \
+        assert np.array_equal(np.unique(self.mappings.values[0]),
+            np.arange(self.images.num_images)), \
             "Mapping image indices must span the entire range of images."
 
         # Ensure pixel coordinates in the mappings are compatible with 
@@ -82,6 +83,12 @@ class MMData(object):
         return self.images.read_images(idx=idx, size=size).to(device)
 
 
+    def __repr__(self):
+        info = [f"    {key} = {getattr(self, key)}" for key in ['data', 'images', 'mappings']]
+        info = '\n'.join(info)
+        return f"{self.__class__.__name__}(\n{info}\n)"
+
+
 
 class MMBatch(MMData):
     """
@@ -97,7 +104,8 @@ class MMBatch(MMData):
 
     @property
     def batch_jumps(self):
-        return np.cumsum(np.concatenate([0], self.__sizes__)) if self.__sizes__ is not None else None
+        return np.cumsum(np.concatenate(([0], self.__sizes__))) if self.__sizes__ is not None \
+            else None
 
 
     @property
@@ -112,7 +120,7 @@ class MMBatch(MMData):
 
     @staticmethod
     def from_mm_data_list(mm_data_list, key='point_index'):
-        assert isinstance(image_data_list, list) and len(image_data_list) > 0
+        assert isinstance(mm_data_list, list) and len(mm_data_list) > 0
         assert all([isinstance(mm_data, MMData) for mm_data in mm_data_list])
 
         data = Batch.from_data_list([mm_data.data for mm_data in mm_data_list])

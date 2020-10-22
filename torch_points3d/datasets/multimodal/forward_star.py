@@ -45,15 +45,20 @@ class ForwardStar(object):
         """
         self.jumps = ForwardStar.indices_to_jumps(jumps) if dense else jumps
         self.values = [*args] if len(args) > 0 else None
-        self.is_index_value = np.asarray(is_index_value) if is_index_value is not None else None
+        if is_index_value is None:
+            self.is_index_value = np.array([False] * self.num_values)
+        else:
+            self.is_index_value = np.asarray(is_index_value)
         self.debug()
 
 
     def debug(self):
-        assert np.all(self.jumps[1:] - self.jumps[:-1] >= 0), \
-            "Jump indices must be increasing."
+        assert self.num_groups >= 1, \
+            "Jump indices must cover at least one group."
         assert self.jumps[0] == 0, \
             "The first jump element must always be 0."
+        assert np.all(self.jumps[1:] - self.jumps[:-1] >= 0), \
+            "Jump indices must be increasing."
 
         if self.values is not None:
             assert isinstance(self.values, list), \
@@ -95,10 +100,11 @@ class ForwardStar(object):
     @staticmethod    
     def indices_to_jumps(indices):
         """
-        Convert dense format to forward star. Indices are assumed to be already
-        sorted, if sorting is necessary.  
+        Convert dense format to forward star. Indices are assumed to be ALREADY
+        SORTED, if sorting is necessary.  
         """
-        assert len(indices.shape) == 1
+        assert len(indices.shape) == 1, "Only 1D indices are accepted."
+        assert indices.shape[0] >= 1, "At least one group index is required."
         return ForwardStar.indices_to_jumps_numba(indices)
 
 
@@ -263,7 +269,8 @@ class ForwardStarBatch(ForwardStar):
 
     @property
     def batch_jumps(self):
-        return np.cumsum(np.concatenate(([0], self.__sizes__))) if self.__sizes__ is not None else None
+        return np.cumsum(np.concatenate(([0], self.__sizes__))) if self.__sizes__ is not None \
+            else None
 
 
     @property
@@ -315,7 +322,12 @@ class ForwardStarBatch(ForwardStar):
             if isinstance(fs_list[0].values[i], ForwardStar):
                 val = ForwardStarBatch.from_forward_star_list(val_list)
             elif is_index_value[i]:
-                val = np.concatenate([v + o for v, o in zip(val_list, offsets)])
+                # Index values are stacked with updated indices.
+                # For mappings, this implies all elements designed by the
+                # index_values must be used in. There can be no element outside
+                # of the range of index_values  
+                idx_offsets = np.cumsum(np.concatenate(([0], [v.max()+1 for v in val_list[:-1]])))
+                val = np.concatenate([v + o for v, o in zip(val_list, idx_offsets)])
             else:
                 val = np.concatenate(val_list)
             values.append(val)
@@ -345,7 +357,8 @@ class ForwardStarBatch(ForwardStar):
             if isinstance(batch_value, ForwardStar):
                 val = batch_value.to_forward_star_list()
             elif self.is_index_value[i]:
-                val = [batch_value[item_jumps[j]:item_jumps[j+1]] - item_jumps[j] 
+                val = [batch_value[item_jumps[j]:item_jumps[j+1]] \
+                    - (batch_value[:item_jumps[j]].max() + 1 if j > 0 else 0)
                     for j in range(self.num_batch_items)]
             else:
                 val = [batch_value[item_jumps[j]:item_jumps[j+1]]

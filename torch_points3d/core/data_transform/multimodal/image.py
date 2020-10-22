@@ -1,4 +1,5 @@
 import numpy as np
+import torch
 from torch_geometric.data import Data
 from torch_points3d.core.data_transform import SphereSampling
 from torch_points3d.datasets.multimodal.image import ImageData
@@ -27,9 +28,6 @@ class NonStaticImageMask(object):
 
 
     def _process(self, images):
-        print('\nNonStaticImageMask process')
-        print("images:")
-        print(images)
         images.map_size_high = self.mask_size
         images.mask = images.non_static_pixel_mask(size=self.mask_size, n_sample=self.n_sample)
         return images
@@ -99,6 +97,7 @@ class PointImagePixelMapping(object):
   
     def _process(self, data, images):
         assert hasattr(data, self.key)
+        assert isinstance(images, ImageData)
 
         # Pass the projection attributes to the ImageData
         images.map_size_high = self.map_size_high
@@ -165,20 +164,27 @@ class PointImagePixelMapping(object):
 
             # Cast pixel coordinates to a dtype minimizing memory use
             point_ids_ = point_ids_pixel_soup[:, 0]
-            pixel_ = point_ids_pixel_soup[:, 1:].astype(image.map_dtype)
+            pixels_ = np.asarray(torch.from_numpy(point_ids_pixel_soup[:,1:]).type(image.map_dtype))
             del point_ids_pixel_soup
 
             # Gather per-image mappings in list structures, only to be
             # numpy-stacked once all images are processed
             image_ids.append(i_image)
             point_ids.append(point_ids_)
-            pixels.append(pixel_)
-            del pixel_, point_ids_
+            pixels.append(pixels_)
+            del pixels_, point_ids_
 
         # Concatenate mappings
         image_ids = np.repeat(image_ids, [x.shape[0] for x in point_ids])
         point_ids = np.concatenate(point_ids)
         pixels = np.vstack(pixels)
+
+        # Return empty ImageData and mapping if no image was seen
+        if pixels.shape[0] == 0:
+            raise ValueError("No mappings were found between the 3D points and any of the provided \
+images. This will cause errors in the subsequent operations. Make sure your images are located in \
+the vicinity of your point cloud and that the projection parameters allow for at least one \
+point-image-pixel mapping before re-running this transformation.")
 
         # Sort by point_ids first, image_ids second
         sorting = np.lexsort((image_ids, point_ids))
@@ -187,18 +193,25 @@ class PointImagePixelMapping(object):
         pixels = pixels[sorting]
         del sorting
 
+        # We want all images present in the mappings and in ImageData to have 
+        # been seen. If an image has not been seen, we remove it here.
+        seen_image_ids = np.unique(image_ids)
+        images = images[np.isin(np.arange(images.num_images), seen_image_ids)]
+        image_ids = np.digitize(image_ids, seen_image_ids) - 1
+
         # Convert to "nested Forward Star" format
         # Compute image jumps in the pixels array
         image_pixel_mappings = ForwardStar(image_ids, pixels, dense=True)
         
-        # Update point_ids and image_ids by taking the last value of each jump
+        # Compress point_ids and image_ids by taking the last value of each jump
         image_ids = image_ids[image_pixel_mappings.jumps[1:] - 1]
         point_ids = point_ids[image_pixel_mappings.jumps[1:] - 1]
 
         # Compute point jumps in the image_ids array
-        mappings = ForwardStar(point_ids, image_ids, image_pixel_mappings, dense=True)
+        mappings = ForwardStar(point_ids, image_ids, image_pixel_mappings, dense=True,
+            is_index_value=[True, False])
 
-        # Update point_ids by taking the last value of each jump
+        # Compress point_ids by taking the last value of each jump
         point_ids = point_ids[mappings.jumps[1:] - 1]
 
         # Some points may have been seen by no image so we need to inject 
@@ -225,8 +238,6 @@ class PointImagePixelMapping(object):
         Returns the input data and the point-image-pixel mappings in a nested 
         ForwardStar format.
         """
-        assert isinstance(images, list)
-
         if isinstance(data, list):
             assert isinstance(images, list) and len(data) == len(images), \
                 f"List(Data) items and List(ImageData) must have the same lengths."
