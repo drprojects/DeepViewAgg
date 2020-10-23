@@ -413,6 +413,22 @@ class S3DISOriginalFusedMM(InMemoryDataset):
         test_data_list = data_list[self.test_area - 1]
         print('Done\n')
 
+        print('Train data')
+        for i_area, split_area in enumerate(train_data_list):
+            print(f"Area {i_area+1 if i_area+1 < self.test_area else i_area+2} : {len(split_area)} rooms")
+        print()
+        print('Val data')
+        for i_area, split_area in enumerate(val_data_list):
+            print(f"Area {i_area+1 if i_area+1 < self.test_area else i_area+2} : {len(split_area)} rooms")
+        print()
+        print('Trainval data')
+        for i_area, split_area in enumerate(trainval_data_list):
+            print(f"Area {i_area+1 if i_area+1 < self.test_area else i_area+2} : {len(split_area)} rooms")
+        print()
+        print('Test data')
+        print(f"Area {self.test_area} : {len(split_area)} rooms")
+        print()
+
         # Run the pre_collate_transform to finalize the data preparation
         # Among other things, the 'origin_id' and 'point_index' are
         # generated here  
@@ -435,6 +451,7 @@ class S3DISOriginalFusedMM(InMemoryDataset):
             for room_name in os.listdir(osp.join(self.raw_dir, f))
             if osp.isdir(osp.join(self.raw_dir, f, room_name))
         ]
+        rooms = [[r[1] for r in rooms if r[0] == i] for i in range(6)]
 
         train_image_list = {}
         val_image_list = {}
@@ -456,9 +473,18 @@ class S3DISOriginalFusedMM(InMemoryDataset):
                     )
             ]
 
+            print(f"Area {i+1}")
+            print(f"    All image info list : {len(image_info_list)} images")
+            print(f"    Area : {len(rooms[i])} rooms")
+
             # Dropping inmage info for images outside of rooms found during 
             # preprocessing
             image_info_list = [x for x in image_info_list if s3dis_image_room(x[0]) in rooms[i]]
+
+            print(f"    Pruned image info list : {len(image_info_list)} images")
+            for info in image_info_list:
+                print(8 * ' ' + '/'.join(info[0].split('/')[-4:]))
+            print()
 
             # Local helper function to combine image info lists into a more
             # convenient ImageData object.
@@ -472,7 +498,7 @@ class S3DISOriginalFusedMM(InMemoryDataset):
                 return image_data
 
             # Keep all images for the test area
-            if i == self.test_area:
+            if i+1 == self.test_area:
                 test_image_list = info_list_to_image_data(image_info_list)
 
             # Split between train and val room images otherwise
@@ -483,8 +509,14 @@ class S3DISOriginalFusedMM(InMemoryDataset):
                 for image_info in image_info_list:
                     if s3dis_image_room(image_info[0]) in VALIDATION_ROOMS:
                         val_image_list[i].append(image_info)
+                        print(f"        Val image   : {'/'.join(image_info[0].split('/')[-4:])}")
                     else:
                         train_image_list[i].append(image_info)
+                        print(f"        Train image : {'/'.join(image_info[0].split('/')[-4:])}")
+
+                print(f"    Images in train : {len(train_image_list[i])}")
+                print(f"    Images in val : {len(val_image_list[i])}")
+                print()
 
                 trainval_image_list[i] = val_image_list[i] + train_image_list[i]
 

@@ -98,6 +98,7 @@ class PointImagePixelMapping(object):
     def _process(self, data, images):
         assert hasattr(data, self.key)
         assert isinstance(images, ImageData)
+        assert images.num_images >= 1, "At least one image must be provided."
 
         # Pass the projection attributes to the ImageData
         images.map_size_high = self.map_size_high
@@ -179,7 +180,7 @@ class PointImagePixelMapping(object):
         point_ids = np.concatenate(point_ids)
         pixels = np.vstack(pixels)
 
-        # Return empty ImageData and mapping if no image was seen
+        # Raise error if no point-image-pixel mapping was found
         if pixels.shape[0] == 0:
             raise ValueError("No mappings were found between the 3D points and any of the provided \
 images. This will cause errors in the subsequent operations. Make sure your images are located in \
