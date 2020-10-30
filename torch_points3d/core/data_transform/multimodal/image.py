@@ -7,8 +7,6 @@ from torch_points3d.datasets.multimodal.forward_star import ForwardStar
 from .projection import compute_index_map
 from tqdm.auto import tqdm as tq
 
-
-
 """
 Image-based transforms for multimodal data processing. Inspired by 
 torch_points3d and torch_geometric transforms on data, with a signature 
@@ -16,22 +14,20 @@ allowing for multimodal transform composition : __call(data, images, mappings)__
 """
 
 
-
 class NonStaticImageMask(object):
     """
-    Transform-like structure. Find the mask of identical pixels accross a list
+    Transform-like structure. Find the mask of identical pixels across a list
     of images.
     """
+
     def __init__(self, mask_size=(2048, 1024), n_sample=5):
         self.mask_size = tuple(mask_size)
         self.n_sample = n_sample
-
 
     def _process(self, images):
         images.map_size_high = self.mask_size
         images.mask = images.non_static_pixel_mask(size=self.mask_size, n_sample=self.n_sample)
         return images
-
 
     def __call__(self, data, images, mappings=None):
         """
@@ -51,11 +47,11 @@ class NonStaticImageMask(object):
             images = self._process(images)
         return data, images, mappings
 
-
     def __repr__(self):
         return self.__class__.__name__
-    
-#-------------------------------------------------------------------------------
+
+
+# -------------------------------------------------------------------------------
 
 class PointImagePixelMapping(object):
     """
@@ -63,6 +59,7 @@ class PointImagePixelMapping(object):
     and image pixels. Point mappings are identified based on the self.key point
     identifiers.
     """
+
     def __init__(
             self,
             map_size_high=(2048, 1024),
@@ -77,7 +74,7 @@ class PointImagePixelMapping(object):
             empty=0,
             no_id=-1,
             key='point_index'
-        ):
+    ):
 
         self.key = key
         self.empty = empty
@@ -94,7 +91,6 @@ class PointImagePixelMapping(object):
         self.growth_k = growth_k
         self.growth_r = growth_r
 
-  
     def _process(self, data, images):
         assert hasattr(data, self.key)
         assert isinstance(images, ImageData)
@@ -121,7 +117,6 @@ class PointImagePixelMapping(object):
 
         # Project each image and gather the point-pixel mappings
         for i_image, image in tq(enumerate(images)):
-
             # Subsample the surrounding point cloud
             sampler = SphereSampling(image.r_max, image.pos, align_origin=False)
             data_sample = sampler(data.clone())
@@ -152,7 +147,7 @@ class PointImagePixelMapping(object):
             active_pixels = np.where(id_map != self.no_id)
             point_ids_pixel_soup = id_map[active_pixels]
             point_ids_pixel_soup = np.column_stack((point_ids_pixel_soup,
-                np.stack(active_pixels).transpose()))
+                                                    np.stack(active_pixels).transpose()))
 
             # Convert to lower resolution coordinates
             # NB: we assume the resolution ratio is the same for both 
@@ -161,11 +156,12 @@ class PointImagePixelMapping(object):
 
             # Remove duplicate id-xy in low resolution
             # Sort by point id
-            point_ids_pixel_soup = np.unique(point_ids_pixel_soup, axis=0)  # bottleneck here ! Custom unique-sort with numba ?
+            point_ids_pixel_soup = np.unique(point_ids_pixel_soup,
+                                             axis=0)  # bottleneck here ! Custom unique-sort with numba ?
 
             # Cast pixel coordinates to a dtype minimizing memory use
             point_ids_ = point_ids_pixel_soup[:, 0]
-            pixels_ = np.asarray(torch.from_numpy(point_ids_pixel_soup[:,1:]).type(image.map_dtype))
+            pixels_ = np.asarray(torch.from_numpy(point_ids_pixel_soup[:, 1:]).type(image.map_dtype))
             del point_ids_pixel_soup
 
             # Gather per-image mappings in list structures, only to be
@@ -200,17 +196,19 @@ point-image-pixel mapping before re-running this transformation.")
         images = images[np.isin(np.arange(images.num_images), seen_image_ids)]
         image_ids = np.digitize(image_ids, seen_image_ids) - 1
 
-        # Convert to "nested Forward Star" format
-        # Compute image jumps in the pixels array
-        image_pixel_mappings = ForwardStar(image_ids, pixels, dense=True)
-        
+        # Convert to "nested Forward Star" format.
+        # Compute point-image jumps in the pixels array.
+        # NB: The jumps are marked by non-successive point-image ids. Watch
+        #     out for overflow in case the point_ids and image_ids are too
+        #     large and stored in 32 bits.
+        image_pixel_mappings = ForwardStar(point_ids + image_ids * (point_ids.max() + 1), pixels, dense=True)
+
         # Compress point_ids and image_ids by taking the last value of each jump
         image_ids = image_ids[image_pixel_mappings.jumps[1:] - 1]
         point_ids = point_ids[image_pixel_mappings.jumps[1:] - 1]
 
         # Compute point jumps in the image_ids array
-        mappings = ForwardStar(point_ids, image_ids, image_pixel_mappings, dense=True,
-            is_index_value=[True, False])
+        mappings = ForwardStar(point_ids, image_ids, image_pixel_mappings, dense=True, is_index_value=[True, False])
 
         # Compress point_ids by taking the last value of each jump
         point_ids = point_ids[mappings.jumps[1:] - 1]
@@ -222,10 +220,9 @@ point-image-pixel mapping before re-running this transformation.")
         #     exist, we would not be able to take it into account in the jumps.
         num_points = getattr(data, self.key).numpy().max() + 1
         mappings = mappings.reindex_groups(point_ids,
-            num_groups=num_points)
+                                           num_groups=num_points)
 
         return data, images, mappings
-
 
     def __call__(self, data, images, mappings=None):
         """
@@ -250,11 +247,11 @@ point-image-pixel mapping before re-running this transformation.")
 
         return data, images, mappings
 
-
     def __repr__(self):
         return self.__class__.__name__
 
-#-------------------------------------------------------------------------------
+
+# -------------------------------------------------------------------------------
 
 class PointImagePixelMappingFromId(object):
     """
@@ -267,9 +264,9 @@ class PointImagePixelMappingFromId(object):
     ForwardStar format implicitly holds values for all self.key in 
     [0, ..., len(mappings)].
     """
+
     def __init__(self, key='point_index'):
         self.key = key
-
 
     def _process(self, data, images, mappings):
         assert isinstance(data, Data)
@@ -300,14 +297,13 @@ class PointImagePixelMappingFromId(object):
 
         return data, images, mappings
 
-
     def __call__(self, data, images, mappings):
         """
         Populate data sample in place with image attributes in mappings,
         based on the self.key point identifiers.
         """
         if isinstance(data, list):
-            if isinstance(imagess, list) and isinstance(mappings, list) and \
+            if isinstance(images, list) and isinstance(mappings, list) and \
                     len(images) == len(data) and len(mappings) == len(data):
                 out = [self._process(d, i, m) for d, i, m in zip(data, images, mappings)]
             else:
@@ -319,7 +315,5 @@ class PointImagePixelMappingFromId(object):
 
         return data, images, mappings
 
-
     def __repr__(self):
         return self.__class__.__name__
-

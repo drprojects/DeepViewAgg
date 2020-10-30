@@ -1,8 +1,6 @@
 import numpy as np
 from numba import njit
 
-
-
 """
 Forward Star format
 
@@ -21,11 +19,12 @@ When electing items from the Forward Star format, special attention must be
 given to re-indexing and ordering.
 """
 
+
 class ForwardStar(object):
     """
     Implements the ForwardStar format and associated mechanisms in Numpy.
     """
-    
+
     def __init__(self, jumps, *args, dense=False, is_index_value=None):
         """
         Initialize the jumps and values.
@@ -51,7 +50,6 @@ class ForwardStar(object):
             self.is_index_value = np.asarray(is_index_value)
         self.debug()
 
-
     def debug(self):
         assert self.num_groups >= 1, \
             "Jump indices must cover at least one group."
@@ -63,7 +61,7 @@ class ForwardStar(object):
         if self.values is not None:
             assert isinstance(self.values, list), \
                 "Values must be held in a list."
-            assert all([len(v) == self.num_items for v in self.values]),  \
+            assert all([len(v) == self.num_items for v in self.values]), \
                 "All value objects must have the same size."
             assert len(self.values[0]) == self.num_items, \
                 "Jumps must cover the entire range of values."
@@ -81,23 +79,19 @@ class ForwardStar(object):
             assert self.is_index_value.size == self.num_values, \
                 "is_index_value size must match the number of value arrays."
 
-
     @property
     def num_groups(self):
         return self.jumps.shape[0] - 1
-
 
     @property
     def num_values(self):
         return len(self.values) if self.values is not None else 0
 
-
     @property
     def num_items(self):
         return self.jumps[-1]
 
-
-    @staticmethod    
+    @staticmethod
     def indices_to_jumps(indices):
         """
         Convert dense format to forward star. Indices are assumed to be ALREADY
@@ -106,7 +100,6 @@ class ForwardStar(object):
         assert len(indices.shape) == 1, "Only 1D indices are accepted."
         assert indices.shape[0] >= 1, "At least one group index is required."
         return ForwardStar.indices_to_jumps_numba(indices)
-
 
     @staticmethod
     @njit
@@ -120,10 +113,9 @@ class ForwardStar(object):
                 idx_previous = idx
 
         # Last index must be treated separately
-        jumps.append(i+1)
+        jumps.append(len(indices))
 
         return np.asarray(jumps)
-
 
     def reindex_groups(self, group_indices, num_groups=None):
         """
@@ -149,8 +141,7 @@ class ForwardStar(object):
         fs_new.__insert_empty_groups(group_indices[order], num_groups=num_groups)
         return fs_new
 
-
-    def __insert_empty_groups(self, group_indices, num_groups=None):       
+    def __insert_empty_groups(self, group_indices, num_groups=None):
         """
         Private method called when in-place reindexing groups.
 
@@ -164,7 +155,7 @@ class ForwardStar(object):
         """
         group_indices = np.asarray(group_indices)
         assert self.num_groups == group_indices.shape[0], ("New group indices must correspond to ",
-            "the existing number of groups")
+                                                           "the existing number of groups")
         assert ForwardStar.is_sorted(group_indices), "New group indices must be sorted."
 
         if num_groups is not None:
@@ -173,7 +164,6 @@ class ForwardStar(object):
             num_groups = group_indices.max() + 1
 
         self.jumps = ForwardStar.insert_empty_groups_numba(self.jumps, group_indices, num_groups)
-
 
     @staticmethod
     @njit
@@ -187,15 +177,13 @@ class ForwardStar(object):
             jump_previous = jumps_expanded[i]
         return jumps_expanded
 
-
     @staticmethod
     @njit
     def is_sorted(a):
-        for i in range(a.size-1):
-            if a[i+1] < a[i] :
+        for i in range(a.size - 1):
+            if a[i + 1] < a[i]:
                 return False
         return True
-
 
     @staticmethod
     def index_select_jumps(jumps, indices):
@@ -209,7 +197,6 @@ class ForwardStar(object):
         jumps_updated, val_indices = ForwardStar.index_select_jumps_numba(jumps, indices)
         return jumps_updated, np.concatenate(val_indices)
 
-
     @staticmethod
     @njit
     def index_select_jumps_numba(jumps, indices):
@@ -219,7 +206,6 @@ class ForwardStar(object):
         # Can't np.concatenate  the nb.list here for some reason, so we need to 
         # np.concatenate outside of the @njit scope
         return jumps_selection, val_indices
-
 
     def __getitem__(self, idx):
         """
@@ -235,20 +221,17 @@ class ForwardStar(object):
         jumps, val_idx = ForwardStar.index_select_jumps(self.jumps, idx)
 
         if self.values is not None:
-            return ForwardStar(jumps, *[v[val_idx] for v in self.values], dense=False, 
-                is_index_value=self.is_index_value)
+            return ForwardStar(jumps, *[v[val_idx] for v in self.values], dense=False,
+                               is_index_value=self.is_index_value)
         else:
             return ForwardStar(jumps, dense=False)
-
 
     def __len__(self):
         return self.num_groups
 
-
     def __repr__(self):
         info = [f"{key}={getattr(self, key)}" for key in ['num_groups', 'num_items']]
         return f"{self.__class__.__name__}({', '.join(info)})"
-
 
 
 class ForwardStarBatch(ForwardStar):
@@ -263,35 +246,32 @@ class ForwardStarBatch(ForwardStar):
         intendended to be built using the from_forward_star_list() method.
         """
         super(ForwardStarBatch, self).__init__(jumps, *args, dense=dense,
-            is_index_value=is_index_value)
+                                               is_index_value=is_index_value)
         self.__sizes__ = None
-
 
     @property
     def batch_jumps(self):
         return np.cumsum(np.concatenate(([0], self.__sizes__))) if self.__sizes__ is not None \
             else None
 
-
     @property
     def batch_items_sizes(self):
         return self.__sizes__ if self.__sizes__ is not None else None
-
 
     @property
     def num_batch_items(self):
         return len(self.__sizes__) if self.__sizes__ is not None else 0
 
-    
     @staticmethod
     def from_forward_star_list(fs_list):
         assert isinstance(fs_list, list) and len(fs_list) > 0
         assert all([isinstance(fs, ForwardStar) for fs in fs_list]), \
             "All provided items must be ForwardStar objects."
-        for fs in fs_list: fs.debug()
+        for fs in fs_list:
+            fs.debug()
 
         num_values = fs_list[0].num_values
-        assert all([fs.num_values == num_values for fs in fs_list]),\
+        assert all([fs.num_values == num_values for fs in fs_list]), \
             "All provided items must have the same number of values."
 
         is_index_value = fs_list[0].is_index_value
@@ -302,16 +282,13 @@ class ForwardStarBatch(ForwardStar):
             assert all([fs.is_index_value is None for fs in fs_list]), \
                 "All provided items must have the same is_index_value."
 
-        # combine all jumps
-        # jump_sizes = np.array([fs.num_groups for fs in fs_list])
-
         # Offsets are used to stack jump indices and values identified as 
         # is_index_value without losing the indexing information they carry
         offsets = np.cumsum(np.concatenate(([0], [fs.num_items for fs in fs_list[:-1]])))
 
         # Stack jumps
         jumps = np.concatenate((
-            [0], 
+            [0],
             *[fs.jumps[1:] + offset for fs, offset in zip(fs_list, offsets)],
         )).astype(np.int)
 
@@ -326,7 +303,7 @@ class ForwardStarBatch(ForwardStar):
                 # For mappings, this implies all elements designed by the
                 # index_values must be used in. There can be no element outside
                 # of the range of index_values  
-                idx_offsets = np.cumsum(np.concatenate(([0], [v.max()+1 for v in val_list[:-1]])))
+                idx_offsets = np.cumsum(np.concatenate(([0], [v.max() + 1 for v in val_list[:-1]])))
                 val = np.concatenate([v + o for v, o in zip(val_list, idx_offsets)])
             else:
                 val = np.concatenate(val_list)
@@ -338,18 +315,17 @@ class ForwardStarBatch(ForwardStar):
 
         return batch
 
-
     def to_forward_star_list(self):
         if self.__sizes__ is None:
             raise RuntimeError(('Cannot reconstruct ForwardStar data list from batch because the ',
-                'batch object was not created using `ForwardStarBatch.from_forward_star_list()`.'))
+                                'batch object was not created using `ForwardStarBatch.from_forward_star_list()`.'))
 
         group_jumps = self.batch_jumps
         item_jumps = self.jumps[group_jumps]
 
         # Recover jumps and index offsets
-        jumps = [self.jumps[group_jumps[i]:group_jumps[i+1] + 1] - item_jumps[i] 
-            for i in range(self.num_batch_items)]
+        jumps = [self.jumps[group_jumps[i]:group_jumps[i + 1] + 1] - item_jumps[i]
+                 for i in range(self.num_batch_items)]
 
         values = []
         for i in range(self.num_values):
@@ -357,16 +333,16 @@ class ForwardStarBatch(ForwardStar):
             if isinstance(batch_value, ForwardStar):
                 val = batch_value.to_forward_star_list()
             elif self.is_index_value[i]:
-                val = [batch_value[item_jumps[j]:item_jumps[j+1]] \
-                    - (batch_value[:item_jumps[j]].max() + 1 if j > 0 else 0)
-                    for j in range(self.num_batch_items)]
+                val = [batch_value[item_jumps[j]:item_jumps[j + 1]]
+                       - (batch_value[:item_jumps[j]].max() + 1 if j > 0 else 0)
+                       for j in range(self.num_batch_items)]
             else:
-                val = [batch_value[item_jumps[j]:item_jumps[j+1]]
-                    for j in range(self.num_batch_items)]
+                val = [batch_value[item_jumps[j]:item_jumps[j + 1]]
+                       for j in range(self.num_batch_items)]
             values.append(val)
         values = [list(x) for x in zip(*values)]
 
         fs_list = [ForwardStar(j, *v, dense=False, is_index_value=self.is_index_value)
-            for j, v in zip(jumps, values)]
+                   for j, v in zip(jumps, values)]
 
         return fs_list
