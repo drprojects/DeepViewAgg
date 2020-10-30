@@ -15,6 +15,7 @@ def read_s3dis_pose(json_file):
     # Area 5b poses need a special treatment
     # Need to see the file comes from Area i in the provided filepath
     area_5b = 'area_5b' in json_file.lower()
+    area_5a = 'area_5a' in json_file.lower()
 
     # Loading the Stanford pose json file
     with open(json_file) as f:
@@ -30,12 +31,12 @@ def read_s3dis_pose(json_file):
     opk = np.array([omega - (np.pi / 2), -phi, -kappa - (np.pi / 2)])
 
     # Area 5b poses require some rotation and offset corrections
-    # if area_5b:
-    #     M = np.array([[0, 1, 0],
-    #                   [-1, 0, 0],
-    #                   [0, 0, 1]])
-    #     xyz = M.dot(xyz) + np.array([-4.10, 6.25, 0.0])
-    #     opk = opk + np.array([0, 0, np.pi / 2])
+    if area_5b:
+        M = np.array([[0, 1, 0],
+                      [-1, 0, 0],
+                      [0, 0, 1]])
+        xyz = M.dot(xyz) + np.array([-4.10, 6.25, 0.0])
+        opk = opk + np.array([0, 0, np.pi / 2])
 
     return xyz, opk
 
@@ -264,24 +265,6 @@ class S3DISOriginalFusedMM(InMemoryDataset):
         # ------------------------------------------------
         if not osp.exists(self.pre_processed_path):
 
-            # # Trainval and test Area_i
-            # train_areas = [f for f in self.folders if str(self.test_area) not in f]
-            # test_areas = [f for f in self.folders if str(self.test_area) in f]
-
-            # train_files = [
-            #     (f, room_name, osp.join(self.raw_dir, f, room_name))
-            #     for f in train_areas
-            #     for room_name in os.listdir(osp.join(self.raw_dir, f))
-            #     if osp.isdir(osp.join(self.raw_dir, f, room_name))
-            # ]
-
-            # test_files = [
-            #     (f, room_name, osp.join(self.raw_dir, f, room_name))
-            #     for f in test_areas
-            #     for room_name in os.listdir(osp.join(self.raw_dir, f))
-            #     if osp.isdir(osp.join(self.raw_dir, f, room_name))
-            # ]
-
             data_files = [
                 (f, room_name, osp.join(self.raw_dir, f, room_name))
                 for f in self.folders
@@ -369,20 +352,20 @@ class S3DISOriginalFusedMM(InMemoryDataset):
                         train_data_list[i].append(data)
                 trainval_data_list[i] = val_data_list[i] + train_data_list[i]
 
-        # train_data_list = list(train_data_list.values())
+        train_data_list = list(train_data_list.values())
         val_data_list = list(val_data_list.values())
-        # trainval_data_list = list(trainval_data_list.values())
-        # test_data_list = data_list[self.test_area - 1]
+        trainval_data_list = list(trainval_data_list.values())
+        test_data_list = data_list[self.test_area - 1]
         print('Done\n')
 
         # print('Train data')
         # for i_area, split_area in enumerate(train_data_list):
         #     print(f"Area {i_area + 1 if i_area + 1 < self.test_area else i_area + 2} : {len(split_area)} rooms")
         # print()
-        print('Val data')
-        for i_area, split_area in enumerate(val_data_list):
-            print(f"Area {i_area + 1 if i_area + 1 < self.test_area else i_area + 2} : {len(split_area)} rooms")
-        print()
+        # print('Val data')
+        # for i_area, split_area in enumerate(val_data_list):
+        #     print(f"Area {i_area + 1 if i_area + 1 < self.test_area else i_area + 2} : {len(split_area)} rooms")
+        # print()
         # print('Trainval data')
         # for i_area, split_area in enumerate(trainval_data_list):
         #     print(f"Area {i_area + 1 if i_area + 1 < self.test_area else i_area + 2} : {len(split_area)} rooms")
@@ -395,12 +378,12 @@ class S3DISOriginalFusedMM(InMemoryDataset):
         # Among other things, the 'origin_id' and 'point_index' are
         # generated here  
         if self.pre_collate_transform:
-            # print('Running pre-collate on 3D data...')
-            # log.info("pre_collate_transform ...")
-            # log.info(self.pre_collate_transform)
+            print('Running pre-collate on 3D data...')
+            log.info("pre_collate_transform ...")
+            log.info(self.pre_collate_transform)
             # train_data_list = self.pre_collate_transform(train_data_list)
-            val_data_list = self.pre_collate_transform(val_data_list)
-            # test_data_list = self.pre_collate_transform(test_data_list)
+            # val_data_list = self.pre_collate_transform(val_data_list)
+            test_data_list = self.pre_collate_transform(test_data_list)
             # trainval_data_list = self.pre_collate_transform(trainval_data_list)
             print('Done\n')
 
@@ -443,8 +426,6 @@ class S3DISOriginalFusedMM(InMemoryDataset):
             image_info_list = [x for x in image_info_list if s3dis_image_room(x[0]) in rooms[i]]
 
             print(f"    Pruned image info list : {len(image_info_list)} images")
-            for info in image_info_list:
-                print(8 * ' ' + '/'.join(info[0].split('/')[-4:]))
             print()
 
             # Local helper function to combine image info lists into a more
@@ -470,10 +451,8 @@ class S3DISOriginalFusedMM(InMemoryDataset):
                 for image_info in image_info_list:
                     if s3dis_image_room(image_info[0]) in VALIDATION_ROOMS:
                         val_image_list[i].append(image_info)
-                        print(f"        Val image   : {'/'.join(image_info[0].split('/')[-4:])}")
                     else:
                         train_image_list[i].append(image_info)
-                        print(f"        Train image : {'/'.join(image_info[0].split('/')[-4:])}")
 
                 print(f"    Images in train : {len(train_image_list[i])}")
                 print(f"    Images in val : {len(val_image_list[i])}")
@@ -494,12 +473,12 @@ class S3DISOriginalFusedMM(InMemoryDataset):
         # print('    train image pre-transforms...')
         # train_data_list, train_image_list, train_mappings_list = self.pre_transform_image(
         #     train_data_list, train_image_list, None)
-        print('    val image pre-transforms...')
-        val_data_list, val_image_list, val_mappings_list = self.pre_transform_image(
-            val_data_list, val_image_list, None)
-        # print('    test image pre-transforms...')
-        # test_data_list, test_image_list, test_mappings_list = self.pre_transform_image(
-        #     test_data_list, test_image_list, None)
+        # print('    val image pre-transforms...')
+        # val_data_list, val_image_list, val_mappings_list = self.pre_transform_image(
+        #     val_data_list, val_image_list, None)
+        print('    test image pre-transforms...')
+        test_data_list, test_image_list, test_mappings_list = self.pre_transform_image(
+            test_data_list, test_image_list, None)
         # print('    trainval image pre-transforms...')
         # trainval_data_list, trainval_image_list, trainval_mappings_list = self.pre_transform_image(
         #     trainval_data_list, trainval_image_list, None)
@@ -514,8 +493,8 @@ class S3DISOriginalFusedMM(InMemoryDataset):
         # )
         self._save_preprocessed_multimodal_data(
             (train_data_list, train_image_list, None),
-            (val_data_list, val_image_list, val_mappings_list),
-            (None, test_image_list, None),
+            (val_data_list, val_image_list, None),
+            (test_data_list, test_image_list, test_mappings_list),
             (trainval_data_list, trainval_image_list, None)
         )
 
@@ -779,26 +758,27 @@ class S3DISFusedDataset(BaseDatasetMM):
         #     transform_image=self.train_transform_image,
         # )
 
-        self.val_dataset = S3DISSphereMM(
-            self._data_path,
-            sample_per_epoch=-1,
-            test_area=self.dataset_opt.fold,
-            split="val",
-            pre_collate_transform=self.pre_collate_transform,
-            transform=self.val_transform,
-            pre_transform_image=self.pre_transform_image,
-            transform_image=self.val_transform_image,
-        )
-        # self.test_dataset = S3DISSphereMM(
+        # self.val_dataset = S3DISSphereMM(
         #     self._data_path,
         #     sample_per_epoch=-1,
         #     test_area=self.dataset_opt.fold,
-        #     split="test",
+        #     split="val",
         #     pre_collate_transform=self.pre_collate_transform,
-        #     transform=self.test_transform,
+        #     transform=self.val_transform,
         #     pre_transform_image=self.pre_transform_image,
-        #     transform_image=self.test_transform_image,
+        #     transform_image=self.val_transform_image,
         # )
+
+        self.test_dataset = S3DISSphereMM(
+            self._data_path,
+            sample_per_epoch=-1,
+            test_area=self.dataset_opt.fold,
+            split="test",
+            pre_collate_transform=self.pre_collate_transform,
+            transform=self.test_transform,
+            pre_transform_image=self.pre_transform_image,
+            transform_image=self.test_transform_image,
+        )
 
         if dataset_opt.class_weight_method:
             self.train_dataset = add_weights(
