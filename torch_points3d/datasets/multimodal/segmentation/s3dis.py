@@ -222,6 +222,7 @@ class S3DISOriginalFusedMM(InMemoryDataset):
         raw_folders = os.listdir(self.raw_dir)
         if len(raw_folders) == 0:
             if not osp.exists(osp.join(self.root, self.zip_name)):
+                
                 ########################################################################
                 # 
                 """
@@ -293,7 +294,13 @@ class S3DISOriginalFusedMM(InMemoryDataset):
                     xyz, rgb, room_labels, instance_labels, room_label = read_s3dis_format(
                         file_path, room_name, label_out=True, verbose=self.verbose,
                         debug=self.debug)
-
+                    
+                    # Room orientation correction
+                    # 2 rooms need to be rotated by 180° around Z: Area_2/hallway_11 and Area_5/hallway_6
+                    if (area_num == 1 and room_name == 'hallway_11') or (area_num == 4 and room_name == 'hallway_6'):
+                        xy_center = (xyz[:, 0:2].mean(dim=0)[0])
+                        xyz[:, 0:2] = 2 * xy_center - xyz[:, 0:2]  # equivalent to 180° Z-rotation around the XY-center
+                    
                     rgb_norm = rgb.float() / 255.0
                     data = Data(pos=xyz, y=room_labels, room_label=room_label, rgb=rgb_norm)
 
@@ -358,21 +365,21 @@ class S3DISOriginalFusedMM(InMemoryDataset):
         test_data_list = data_list[self.test_area - 1]
         print('Done\n')
 
-        # print('Train data')
-        # for i_area, split_area in enumerate(train_data_list):
-        #     print(f"Area {i_area + 1 if i_area + 1 < self.test_area else i_area + 2} : {len(split_area)} rooms")
-        # print()
-        # print('Val data')
-        # for i_area, split_area in enumerate(val_data_list):
-        #     print(f"Area {i_area + 1 if i_area + 1 < self.test_area else i_area + 2} : {len(split_area)} rooms")
-        # print()
-        # print('Trainval data')
-        # for i_area, split_area in enumerate(trainval_data_list):
-        #     print(f"Area {i_area + 1 if i_area + 1 < self.test_area else i_area + 2} : {len(split_area)} rooms")
-        # print()
-        # print('Test data')
-        # print(f"Area {self.test_area} : {len(split_area)} rooms")
-        # print()
+        print('Train data')
+        for i_area, split_area in enumerate(train_data_list):
+            print(f"Area {i_area + 1 if i_area + 1 < self.test_area else i_area + 2} : {len(split_area)} rooms")
+        print()
+        print('Val data')
+        for i_area, split_area in enumerate(val_data_list):
+            print(f"Area {i_area + 1 if i_area + 1 < self.test_area else i_area + 2} : {len(split_area)} rooms")
+        print()
+        print('Trainval data')
+        for i_area, split_area in enumerate(trainval_data_list):
+            print(f"Area {i_area + 1 if i_area + 1 < self.test_area else i_area + 2} : {len(split_area)} rooms")
+        print()
+        print('Test data')
+        print(f"Area {self.test_area} : {len(split_area)} rooms")
+        print()
 
         # Run the pre_collate_transform to finalize the data preparation
         # Among other things, the 'origin_id' and 'point_index' are
@@ -381,10 +388,10 @@ class S3DISOriginalFusedMM(InMemoryDataset):
             print('Running pre-collate on 3D data...')
             log.info("pre_collate_transform ...")
             log.info(self.pre_collate_transform)
-            # train_data_list = self.pre_collate_transform(train_data_list)
-            # val_data_list = self.pre_collate_transform(val_data_list)
+            train_data_list = self.pre_collate_transform(train_data_list)
+            val_data_list = self.pre_collate_transform(val_data_list)
             test_data_list = self.pre_collate_transform(test_data_list)
-            # trainval_data_list = self.pre_collate_transform(trainval_data_list)
+            trainval_data_list = self.pre_collate_transform(trainval_data_list)
             print('Done\n')
 
         # Pre_transform_image heavy computation
@@ -470,44 +477,57 @@ class S3DISOriginalFusedMM(InMemoryDataset):
 
         # Build the mappings for each split, for each area
         print('Running the image pre-transforms...')
-        # print('    train image pre-transforms...')
-        # train_data_list, train_image_list, train_mappings_list = self.pre_transform_image(
-        #     train_data_list, train_image_list, None)
-        # print('    val image pre-transforms...')
-        # val_data_list, val_image_list, val_mappings_list = self.pre_transform_image(
-        #     val_data_list, val_image_list, None)
-        print('    test image pre-transforms...')
-        test_data_list, test_image_list, test_mappings_list = self.pre_transform_image(
-            test_data_list, test_image_list, None)
-        # print('    trainval image pre-transforms...')
-        # trainval_data_list, trainval_image_list, trainval_mappings_list = self.pre_transform_image(
-        #     trainval_data_list, trainval_image_list, None)
+        
+        print('    Train image pre-transforms...')
+#         train_data_list, train_image_list, train_mappings_list = self.pre_transform_image(
+#             train_data_list, train_image_list, None)
+        torch.save(self.pre_transform_image(train_data_list, train_image_list, None),
+            self.processed_paths[0])
+        del train_data_list, train_image_list
+        
+        print('    Val image pre-transforms...')
+#         val_data_list, val_image_list, val_mappings_list = self.pre_transform_image(
+#             val_data_list, val_image_list, None)
+        torch.save(self.pre_transform_image(val_data_list, val_image_list, None),
+            self.processed_paths[1])
+        del val_data_list, val_image_list
+        
+        print('    Test image pre-transforms...')
+#         test_data_list, test_image_list, test_mappings_list = self.pre_transform_image(
+#             test_data_list, test_image_list, None)
+        torch.save(self.pre_transform_image(test_data_list, test_image_list, None),
+            self.processed_paths[2])
+        del test_data_list, test_image_list
+        
+        print('    Trainval image pre-transforms...')
+#         trainval_data_list, trainval_image_list, trainval_mappings_list = self.pre_transform_image(
+#             trainval_data_list, trainval_image_list, None)
+        torch.save(self.pre_transform_image(trainval_data_list, trainval_image_list, None),
+            self.processed_paths[3])
+        del trainval_data_list, trainval_image_list
         print('Done\n')
 
         # Save the Data, ImageData and ForwardStar mappings for each split
-        # self._save_preprocessed_multimodal_data(
-        #     (train_data_list, train_image_list, train_mappings_list),
-        #     (val_data_list, val_image_list, val_mappings_list),
-        #     (test_data_list, test_image_list, test_mappings_list),
-        #     (trainval_data_list, trainval_image_list, trainval_mappings_list)
-        # )
-        self._save_preprocessed_multimodal_data(
-            (train_data_list, train_image_list, None),
-            (val_data_list, val_image_list, None),
-            (test_data_list, test_image_list, test_mappings_list),
-            (trainval_data_list, trainval_image_list, None)
-        )
+#         self._save_preprocessed_multimodal_data(
+#             (train_data_list, train_image_list, train_mappings_list),
+#             (val_data_list, val_image_list, val_mappings_list),
+#             (test_data_list, test_image_list, test_mappings_list),
+#             (trainval_data_list, trainval_image_list, trainval_mappings_list)
+#         )
+#         self._save_preprocessed_multimodal_data(
+#             (train_data_list, train_image_list, None),
+#             (val_data_list, val_image_list, None),
+#             (test_data_list, test_image_list, test_mappings_list),
+#             (trainval_data_list, trainval_image_list, None)
+#         )
 
-    def _save_preprocessed_multimodal_data(self, train_tuple, val_tuple, test_tuple,
-                                           trainval_tuple):
-        """
-        Save the preprocessed data lists. Results are intended to be loaded with
-        self._load_data().
-        """
-        torch.save(train_tuple, self.processed_paths[0])
-        torch.save(val_tuple, self.processed_paths[1])
-        torch.save(test_tuple, self.processed_paths[2])
-        torch.save(trainval_tuple, self.processed_paths[3])
+#     def _save_preprocessed_multimodal_data(self, mm_data_tuple, path):
+#         """
+#         Save the preprocessed data lists. Results are intended to be loaded with
+#         self._load_data().
+#         """
+#         torch.save(mm_data_tuple, path)
+
 
     def _load_data(self, path):
         self.data, self.images, self.mappings = torch.load(path)
@@ -621,12 +641,12 @@ class S3DISSphereMM(S3DISOriginalFusedMM):
         Called if S3DISSphereMM is NOT test set. 
         """
         # Random spheres biased towards getting more low frequency classes
-        # chosen_label = np.random.choice(self._labels, p=self._label_counts)
-        # valid_centres = self._centres_for_sampling[self._centres_for_sampling[:, 4] == chosen_label]
-        # centre_idx = int(random.random() * (valid_centres.shape[0] - 1))
-        # centre = valid_centres[centre_idx]
+        chosen_label = np.random.choice(self._labels, p=self._label_counts)
+        valid_centres = self._centres_for_sampling[self._centres_for_sampling[:, 4] == chosen_label]
+        centre_idx = int(random.random() * (valid_centres.shape[0] - 1))
+        centre = valid_centres[centre_idx]
 
-        centre_idx = int(random.random() * (self._centres_for_sampling.shape[0] - 1))
+#         centre_idx = int(random.random() * (self._centres_for_sampling.shape[0] - 1))
         # centre_idx = 27026
         # 21155 # image 0 and 4
         # 5991  # image 1, 4 and 5
@@ -641,30 +661,30 @@ class S3DISSphereMM(S3DISOriginalFusedMM):
         # 5710  # image 4
         # 34181  # image 1
         # 2586  # image 0 and 1  # VERY interesting case
-        """
-        Hypotheses:
-        Note the images-mappings are mainly correct.
+#         """
+#         Hypotheses:
+#         Note the images-mappings are mainly correct.
         
-        Maybe it is a Image-Pixel mapping problem
-        The errors are unlikely to come from the projection, so they arise from later processing.
+#         Maybe it is a Image-Pixel mapping problem
+#         The errors are unlikely to come from the projection, so they arise from later processing.
         
-            - Area 2 seems worse off than other, is that correct ? Not only... but errors in the office in Area 2 are 
-            worse than other areas...
-            - global point indexing is too large and some points have the same point_index ?
-            - +1/-1 index offset when slicing FWD* ?
-            - get and visualize the point whose mapping creates errors ? See if it the last one, or the first, or 
-            anything noteworthy
-            - Some points were TOO close to the camera at projection time and created unrealistically large masks ?
-            - point_index batch reindexing problem check that torch_geometric batch does what we want with the indeices
+#             - Area 2 seems worse off than other, is that correct ? Not only... but errors in the office in Area 2 are 
+#             worse than other areas...
+#             - global point indexing is too large and some points have the same point_index ?
+#             - +1/-1 index offset when slicing FWD* ?
+#             - get and visualize the point whose mapping creates errors ? See if it the last one, or the first, or 
+#             anything noteworthy
+#             - Some points were TOO close to the camera at projection time and created unrealistically large masks ?
+#             - point_index batch reindexing problem check that torch_geometric batch does what we want with the indeices
             
             
              
-        """
-        centre = self._centres_for_sampling[centre_idx]
+#         """
+#         centre = self._centres_for_sampling[centre_idx]
 
 
-        print(f"centre_idx = {centre_idx}")
-        print(f"i_area = {centre[3].int()}")
+#         print(f"centre_idx = {centre_idx}")
+#         print(f"i_area = {centre[3].int()}")
 
         i_area = centre[3].int()
         area_data = self._datas[i_area]
@@ -747,27 +767,27 @@ class S3DISFusedDataset(BaseDatasetMM):
         sampling_format = dataset_opt.get('sampling_format', 'sphere')
         assert sampling_format == 'sphere', f"Only sampling format 'sphere' is supported."
 
-        # self.train_dataset = S3DISSphereMM(
-        #     self._data_path,
-        #     sample_per_epoch=3000,
-        #     test_area=self.dataset_opt.fold,
-        #     split="train",
-        #     pre_collate_transform=self.pre_collate_transform,
-        #     transform=self.train_transform,
-        #     pre_transform_image=self.pre_transform_image,
-        #     transform_image=self.train_transform_image,
-        # )
+        self.train_dataset = S3DISSphereMM(
+            self._data_path,
+            sample_per_epoch=3000,
+            test_area=self.dataset_opt.fold,
+            split="train",
+            pre_collate_transform=self.pre_collate_transform,
+            transform=self.train_transform,
+            pre_transform_image=self.pre_transform_image,
+            transform_image=self.train_transform_image,
+        )
 
-        # self.val_dataset = S3DISSphereMM(
-        #     self._data_path,
-        #     sample_per_epoch=-1,
-        #     test_area=self.dataset_opt.fold,
-        #     split="val",
-        #     pre_collate_transform=self.pre_collate_transform,
-        #     transform=self.val_transform,
-        #     pre_transform_image=self.pre_transform_image,
-        #     transform_image=self.val_transform_image,
-        # )
+        self.val_dataset = S3DISSphereMM(
+            self._data_path,
+            sample_per_epoch=-1,
+            test_area=self.dataset_opt.fold,
+            split="val",
+            pre_collate_transform=self.pre_collate_transform,
+            transform=self.val_transform,
+            pre_transform_image=self.pre_transform_image,
+            transform_image=self.val_transform_image,
+        )
 
         self.test_dataset = S3DISSphereMM(
             self._data_path,
