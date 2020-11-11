@@ -39,4 +39,3 @@ torch_points3d/applications/weights/*
 .python-version
 .idea
 python_for_remote_pycharm_conda
-pycharm_remote_setup.html
