@@ -59,7 +59,7 @@ def visualize_3d(mm_data, class_names=None, class_colors=None, class_opacities=N
 
     # Draw a trace for labeled 3D point cloud
     y = data_sample.y.numpy()
-    n_classes = int(y.max())
+    n_classes = int(y.max() + 1)
     if class_names is None:
         class_names = [f"Class {i}" for i in range(n_classes)]
     if class_colors is None:
@@ -141,7 +141,7 @@ def visualize_3d(mm_data, class_names=None, class_colors=None, class_opacities=N
         # Draw image position as ball
         fig.add_trace(
             go.Scatter3d(
-                name=f"Picture {i}",
+                name=f"Image {i}",
                 x=[xyz[0]],
                 y=[xyz[1]],
                 z=[xyz[2]],
@@ -257,7 +257,7 @@ def visualize_2d(mm_data, image_batch=None, figsize=800, width=None, height=None
             go.Image(
                 z=image.permute(1, 2, 0),
                 visible=i == 0,  # initialize to image 0 visible
-                hoverinfo='none',  # disable hover info on pictures
+                hoverinfo='none',  # disable hover info on images
             )
         )
 
@@ -293,17 +293,18 @@ def visualize_2d(mm_data, image_batch=None, figsize=800, width=None, height=None
     return fig
 
 
-def visualize_mm_data(mm_data, **kwargs):
+def visualize_mm_data(mm_data, show_3d=True, show_2d=True, **kwargs):
     """Draw an interactive 3D visualization of the Data point cloud."""
     #     assert isinstance(data, MMData)
 
-    # Build a figure for 3D data visualization
-    fig_3d = visualize_3d(mm_data, **kwargs)
+    # Draw a figure for 3D data visualization
+    if show_3d:
+        fig_3d = visualize_3d(mm_data, **kwargs)
+        fig_3d.show(config={'displayModeBar': False})
 
-    # Build a figure for 2D data visualization
-    fig_2d = visualize_2d(mm_data, **kwargs)
-
-    # Draw the figures
-    fig_3d.show(config={'displayModeBar': False})
-    fig_2d.show(config={'displayModeBar': False})
+    # Draw a figure for 2D data visualization
+    if show_2d:
+        fig_2d = visualize_2d(mm_data, **kwargs)
+        fig_2d.show(config={'displayModeBar': False})
+    
     return
