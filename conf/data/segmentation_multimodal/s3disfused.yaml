@@ -35,8 +35,8 @@ data:
           voxel: ${data.first_subsampling}
           r_max: 8
           r_min: 0.5
-          growth_k: 0.2
-          growth_r: 10
+          growth_k: 0.5
+          growth_r: 16
           empty: 0
           no_id: -1
           key: ${data_multimodal.point_id}
