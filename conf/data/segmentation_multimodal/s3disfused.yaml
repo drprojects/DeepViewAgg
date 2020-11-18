@@ -36,7 +36,7 @@ data:
           r_max: 8
           r_min: 0.5
           growth_k: 0.5
-          growth_r: 16
+          growth_r: 100  # growth_k and growth_r set so that correction factor is ~1.1 at r_max=8
           empty: 0
           no_id: -1
           key: ${data_multimodal.point_id}

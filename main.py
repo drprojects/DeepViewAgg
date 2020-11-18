@@ -17,14 +17,22 @@ if __name__ == "__main__":
     sys.path.insert(0, DIR)
     from torch_points3d.datasets.multimodal.segmentation.s3dis import S3DISFusedDataset
 
+    from time import time
+    start = time()
 
     dataset_options = OmegaConf.load(os.path.join('conf/data/segmentation_multimodal/s3disfused.yaml'))
     # Set root to the DATA drive, where the data was downloaded
     # dataset_options.data.dataroot = "/mnt/fa444ffd-fdb4-4701-88e7-f00297a8e29b/projects/datasets/s3dis_multimodal"
-    dataset_options.data.dataroot = "/media/drobert-admin/DATA/datasets/s3dis_subset_tp3d_multimodal"
+    dataset_options.data.dataroot = "/media/drobert-admin/DATA/datasets/s3dis_tp3d_multimodal"
     dataset = S3DISFusedDataset(dataset_options.data)
 
-
+    print()
+    print()
+    print()
+    print(f"Total preprocessing time: {time() - start:0.0f}")
+    print()
+    print()
+    print()
 
     print("Dataset")
     print(dataset)

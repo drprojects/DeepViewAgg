@@ -22,11 +22,15 @@ def rgb_to_plotly_rgb(rgb):
 def visualize_3d(mm_data, class_names=None, class_colors=None, class_opacities=None, figsize=800, width=None,
                  height=None, voxel=0.1, max_points=100000, pointsize=5, **kwargs):
     """3D data visualization with interaction tools."""
+    assert isinstance(mm_data, MMData)
 
     # Subsample to limit the drawing time
     data_sample = GridSampling3D(voxel)(mm_data.data.clone())
     if data_sample.num_nodes > max_points:
         data_sample = FixedPoints(max_points, replace=False, allow_duplicates=False)(data_sample)
+
+    # Round to the cm for cleaner hover info
+    data_sample.pos = (data_sample.pos * 100).round() / 100
 
     # Prepare figure
     width = width if width and height else figsize
@@ -52,6 +56,7 @@ def visualize_3d(mm_data, class_names=None, class_colors=None, class_opacities=N
                 size=pointsize,
                 color=rgb_to_plotly_rgb(data_sample.rgb),
             ),
+            showlegend=False,
             visible=True,
         )
     )
@@ -106,6 +111,7 @@ def visualize_3d(mm_data, class_names=None, class_colors=None, class_opacities=N
                 colorscale='spectral',
                 colorbar=dict(thickness=10, len=0.5, tick0=0, dtick=1, ),
             ),
+            showlegend=False,
             visible=False,
         )
     )
@@ -116,6 +122,8 @@ def visualize_3d(mm_data, class_names=None, class_colors=None, class_opacities=N
     image_opk = np.asarray(mm_data.images.opk.clone())
     if len(image_xyz.shape) == 1:
         image_xyz = image_xyz.reshape((1, -1))
+    image_xyz = np.around(image_xyz, decimals=2)
+    image_opk = np.around(image_opk, decimals=2)
     for i, (xyz, opk) in enumerate(zip(image_xyz, image_opk)):
 
         # Draw image coordinate system axes
@@ -145,17 +153,22 @@ def visualize_3d(mm_data, class_names=None, class_colors=None, class_opacities=N
                 x=[xyz[0]],
                 y=[xyz[1]],
                 z=[xyz[2]],
-                mode='markers',
+                mode='markers+text',
                 marker=dict(
                     line_width=2,
                     size=pointsize + 4,
                 ),
+                text=f"<b>{i}</b>",
+                textposition="bottom center",
+                textfont=dict(
+                    size=12
+                ),
+                showlegend=False,
                 visible=True,
             )
         )
 
-        # Traces visibility for interactive point cloud coloring
-
+    # Traces visibility for interactive point cloud coloring
     def trace_visibility(mode):
         visibilities = np.array([d.visible for d in fig.data], dtype='bool')
 
@@ -194,10 +207,11 @@ def visualize_3d(mm_data, class_names=None, class_colors=None, class_opacities=N
             pad={'r': 10, 't': 10},
             showactive=True,
             type='dropdown',
-            xanchor='center',
-            x=0.5,
+            direction='right',
+            xanchor='left',
+            x=0.02,
             yanchor='top',
-            y=1,
+            y=1.02,
         ),
     ]
     fig.update_layout(updatemenus=updatemenus)
@@ -273,7 +287,7 @@ def visualize_2d(mm_data, image_batch=None, figsize=800, width=None, height=None
     updatemenus = [
         dict(
             buttons=[
-                dict(label=f'Image {i_img}',
+                dict(label=f"{i_img}",
                      method='update',
                      args=trace_visibility(i_img))
                 for i_img in range(n_img_traces)
@@ -281,13 +295,14 @@ def visualize_2d(mm_data, image_batch=None, figsize=800, width=None, height=None
             pad={'r': 10, 't': 10},
             showactive=True,
             type='dropdown',
-            xanchor='center',
-            x=0.5,
+            direction='right',
+            xanchor='left',
+            x=0.02,
             yanchor='top',
-            y=1,
+            y=1.02,
         ),
-
     ]
+
     fig.update_layout(updatemenus=updatemenus)
 
     return fig
@@ -295,7 +310,7 @@ def visualize_2d(mm_data, image_batch=None, figsize=800, width=None, height=None
 
 def visualize_mm_data(mm_data, show_3d=True, show_2d=True, **kwargs):
     """Draw an interactive 3D visualization of the Data point cloud."""
-    #     assert isinstance(data, MMData)
+    assert isinstance(mm_data, MMData)
 
     # Draw a figure for 3D data visualization
     if show_3d:
@@ -306,5 +321,5 @@ def visualize_mm_data(mm_data, show_3d=True, show_2d=True, **kwargs):
     if show_2d:
         fig_2d = visualize_2d(mm_data, **kwargs)
         fig_2d.show(config={'displayModeBar': False})
-    
+
     return

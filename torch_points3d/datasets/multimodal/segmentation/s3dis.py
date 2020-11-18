@@ -5,11 +5,73 @@ from torch_points3d.datasets.segmentation.s3dis import *
 from torch_geometric.data import Data
 from torch_points3d.datasets.multimodal.data import MMData
 from torch_points3d.datasets.multimodal.image import ImageData
+from torch_points3d.core.data_transform.multimodal.image import PointImagePixelMappingFromId
 
 
 ################################################################################
 #                                 S3DIS Utils                                  #
 ################################################################################
+
+# Images that are located outside of the point clouds and for which we therefore
+# cannot recover a trustworthy projection with occlusions
+S3DIS_OUTSIDE_IMAGES = [
+    # Area 1
+    "camera_f62548d255d24e6983b698e34b343b60_hallway_8_frame_equirectangular_domain",
+    "camera_78d716cac81c4b0d85a90927b159b77e_hallway_4_frame_equirectangular_domain",
+    "camera_95fab66e5ca643cc97aaab4647f145e3_hallway_5_frame_equirectangular_domain",
+    "camera_684b940fafd64fd98aef16157c8a96e2_hallway_5_frame_equirectangular_domain",
+    "camera_24f42d6efff54b09a34897f69fa11064_hallway_5_frame_equirectangular_domain",
+    "camera_e0c041d3b2a94769b1dc86935f983f34_WC_1_frame_equirectangular_domain",
+    "camera_1edba7eece574027bab1fa5459fd8cd4_WC_1_frame_equirectangular_domain",
+
+    # Area 2
+    "camera_b1d0a684de5d4412bae05b5da4bd6058_conferenceRoom_1_frame_equirectangular_domain",
+    "camera_e0acda5a8a544aa8bf575ff0b1cc4557_conferenceRoom_1_frame_equirectangular_domain",
+    "camera_76f70ab0399b4062a8a174dac4a5b5d4_hallway_5_frame_equirectangular_domain",
+    "camera_087a5c7a06ac47db91f0b3239b9a568c_hallway_5_frame_equirectangular_domain",
+    "camera_c87ef2a2ea404851a1ed515e39c19ebc_hallway_12_frame_equirectangular_domain",
+
+    # Area 3
+    "camera_1672a6a767af4676a441d2872752d6b5_office_10_frame_equirectangular_domain",
+    "camera_711a8a2f5d1c477da742bddfe3b6c15a_office_10_frame_equirectangular_domain",
+    "camera_fed3d2b0206b428d836acd7d7a44f85b_office_9_frame_equirectangular_domain",
+    "camera_83f59b29737047b9a139cebb8612803d_office_9_frame_equirectangular_domain",
+    "camera_274fa02e9d7748589a4a3171fdc148cc_office_10_frame_equirectangular_domain",
+    "camera_ede7064adbbe490284373cf8c0cf8bae_lounge_2_frame_equirectangular_domain",
+    "camera_d911682267cf458a87bdfe2fbd491c46_lounge_2_frame_equirectangular_domain",
+    "camera_1c029f7dc23548cab4ac62429f96eb76_lounge_2_frame_equirectangular_domain",
+
+    # Area 4
+    "camera_21d093553b30417e80f382f09ff9173c_hallway_1_frame_equirectangular_domain",
+    "camera_b9eca4fa258e4160823cf6b1da447c8f_hallway_1_frame_equirectangular_domain",
+    "camera_887c83e5e56d4b4db6867ea493615ada_lobby_1_frame_equirectangular_domain",
+    "camera_161eb799efd24b548a8760ae98a16736_lobby_1_frame_equirectangular_domain",
+    "camera_3f70cae87b464ef9a9ad9a1b6118e8c1_lobby_1_frame_equirectangular_domain",
+    "camera_927a307dc7f5439faae8c42a35aa6e4c_lobby_1_frame_equirectangular_domain",
+    "camera_39e8345836e64d8d9d3bacde37f5ee12_hallway_2_frame_equirectangular_domain",
+    "camera_0e47c7ac0bfe4720bfff75f1a24cfb56_office_19_frame_equirectangular_domain",
+
+    # Area 6
+    "camera_7edd2f07f6be4b25bcc4b3bf330146ff_hallway_6_frame_equirectangular_domain",
+    "camera_af9f94170d54489d97d974a9cca06856_hallway_6_frame_equirectangular_domain",
+    "camera_247d69e9f0e64242a9330d70eca2ab0c_hallway_6_frame_equirectangular_domain",
+    "camera_932e85d85fd74cbb8c9e9e818e250a98_hallway_6_frame_equirectangular_domain",
+    "camera_29d9a627823449bb8df926f6ee29d946_hallway_6_frame_equirectangular_domain",
+    "camera_d1763aa9c28546efa570296046d7be26_hallway_6_frame_equirectangular_domain",
+    "camera_051e24918e884291aebf022719ad572a_office_23_frame_equirectangular_domain",
+    "camera_a642c69e7dec4c98aacc3595f1259b03_hallway_2_frame_equirectangular_domain",
+    "camera_cff198550a97439eae623dd55452c4c0_hallway_2_frame_equirectangular_domain",
+    "camera_5917b1f08a0143b0994d8b3946d02343_hallway_2_frame_equirectangular_domain",
+    "camera_629e301c74124597bd41c2ebe4b791b7_hallway_2_frame_equirectangular_domain",
+    "camera_8c334635cf8147549ddce70664d70a12_office_23_frame_equirectangular_domain",
+    "camera_699cc3c1b5084f828605bcfc8ed8264d_office_23_frame_equirectangular_domain",
+    "camera_76b92c8b42e844759a4561f3e67e1007_office_23_frame_equirectangular_domain",
+    "camera_d3e9dda66f31417c99c2d346b1797ebd_office_23_frame_equirectangular_domain",
+    "camera_49e8cb6e01a448809a7eda23eeb9d4e2_hallway_2_frame_equirectangular_domain",
+    "camera_87ea116ead10458e85a923d54be70fcb_hallway_2_frame_equirectangular_domain",
+]
+
+# -------------------------------------------------------------------------------
 
 def read_s3dis_pose(json_file):
     # Area 5b poses need a special treatment
@@ -44,7 +106,7 @@ def read_s3dis_pose(json_file):
 # -------------------------------------------------------------------------------
 
 def s3dis_image_pose_pairs(image_dir, pose_dir, image_suffix='_rgb.png', pose_suffix='_pose.json',
-                           verbose=False):
+                           skip_names=None, verbose=False):
     """
     Search for all image-pose correspondences in the directories.
     Return the list of image-pose pairs. Orphans are ignored.
@@ -58,6 +120,11 @@ def s3dis_image_pose_pairs(image_dir, pose_dir, image_suffix='_rgb.png', pose_su
         osp.basename(x).replace(pose_suffix, '')
         for x in glob.glob(osp.join(pose_dir, '*' + pose_suffix))
     ])
+    
+    # Remove images specified by skip_names
+    skip_names = skip_names if skip_names is not None else []
+    image_names = [x for x in image_names if x not in skip_names]
+    pose_names = [x for x in pose_names if x not in skip_names]
 
     # Print orphans
     if not image_names == pose_names:
@@ -222,7 +289,6 @@ class S3DISOriginalFusedMM(InMemoryDataset):
         raw_folders = os.listdir(self.raw_dir)
         if len(raw_folders) == 0:
             if not osp.exists(osp.join(self.root, self.zip_name)):
-                
                 ########################################################################
                 # 
                 """
@@ -291,23 +357,23 @@ class S3DISOriginalFusedMM(InMemoryDataset):
                                       debug=self.debug)
                     continue
                 else:
-                    xyz, rgb, room_labels, instance_labels, room_label = read_s3dis_format(
+                    xyz, rgb, labels, instance_labels, _ = read_s3dis_format(
                         file_path, room_name, label_out=True, verbose=self.verbose,
                         debug=self.debug)
-                    
+
                     # Room orientation correction
                     # 2 rooms need to be rotated by 180° around Z: Area_2/hallway_11 and Area_5/hallway_6
                     if (area_num == 1 and room_name == 'hallway_11') or (area_num == 4 and room_name == 'hallway_6'):
-                        xy_center = (xyz[:, 0:2].mean(dim=0)[0])
+                        xy_center = (xyz[:, 0:2].max(dim=0) + xyz[:, 0:2].min(dim=0)) / 2
                         xyz[:, 0:2] = 2 * xy_center - xyz[:, 0:2]  # equivalent to 180° Z-rotation around the XY-center
-                    
+
                     rgb_norm = rgb.float() / 255.0
-                    data = Data(pos=xyz, y=room_labels, room_label=room_label, rgb=rgb_norm)
+                    data = Data(pos=xyz, y=labels, rgb=rgb_norm)
 
                     if room_name in VALIDATION_ROOMS:
-                        data.validation_set = True
+                        data.is_val = torch.ones(data.num_nodes, dtype=bool)
                     else:
-                        data.validation_set = False
+                        data.is_val = torch.zeros(data.num_nodes, dtype=bool)
 
                     if self.keep_instance:
                         data.instance_labels = instance_labels
@@ -342,37 +408,38 @@ class S3DISOriginalFusedMM(InMemoryDataset):
         # Build the data splits and pre_collate them
         # -------------------------------------------
         print('Preparing 3D data splits...')
-        train_data_list = {}
-        val_data_list = {}
-        trainval_data_list = {}
+        # train_data_list = {}
+        # val_data_list = {}
+        # trainval_data_list = {}
 
-        for i in range(6):
-            if i != self.test_area - 1:
-                train_data_list[i] = []
-                val_data_list[i] = []
-                for data in data_list[i]:
-                    validation_set = data.validation_set
-                    del data.validation_set
-                    if validation_set:
-                        val_data_list[i].append(data)
-                    else:
-                        train_data_list[i].append(data)
-                trainval_data_list[i] = val_data_list[i] + train_data_list[i]
+        # for i in range(6):
+        #     if i != self.test_area - 1:
+        #         train_data_list[i] = []
+        #         val_data_list[i] = []
+        #         for data in data_list[i]:
+        #             is_val = data.is_val
+        #             del data.is_val
+        #             if is_val:
+        #                 val_data_list[i].append(data)
+        #             else:
+        #                 train_data_list[i].append(data)
+        #         trainval_data_list[i] = val_data_list[i] + train_data_list[i]
 
-        train_data_list = list(train_data_list.values())
-        val_data_list = list(val_data_list.values())
-        trainval_data_list = list(trainval_data_list.values())
+        # train_data_list = list(train_data_list.values())
+        # val_data_list = list(val_data_list.values())
+        # trainval_data_list = list(trainval_data_list.values())
+        trainval_data_list = data_list[:self.test_area - 1] + data_list[self.test_area:]
         test_data_list = data_list[self.test_area - 1]
         print('Done\n')
 
-        print('Train data')
-        for i_area, split_area in enumerate(train_data_list):
-            print(f"Area {i_area + 1 if i_area + 1 < self.test_area else i_area + 2} : {len(split_area)} rooms")
-        print()
-        print('Val data')
-        for i_area, split_area in enumerate(val_data_list):
-            print(f"Area {i_area + 1 if i_area + 1 < self.test_area else i_area + 2} : {len(split_area)} rooms")
-        print()
+        # print('Train data')
+        # for i_area, split_area in enumerate(train_data_list):
+        #     print(f"Area {i_area + 1 if i_area + 1 < self.test_area else i_area + 2} : {len(split_area)} rooms")
+        # print()
+        # print('Val data')
+        # for i_area, split_area in enumerate(val_data_list):
+        #     print(f"Area {i_area + 1 if i_area + 1 < self.test_area else i_area + 2} : {len(split_area)} rooms")
+        # print()
         print('Trainval data')
         for i_area, split_area in enumerate(trainval_data_list):
             print(f"Area {i_area + 1 if i_area + 1 < self.test_area else i_area + 2} : {len(split_area)} rooms")
@@ -388,8 +455,8 @@ class S3DISOriginalFusedMM(InMemoryDataset):
             print('Running pre-collate on 3D data...')
             log.info("pre_collate_transform ...")
             log.info(self.pre_collate_transform)
-            train_data_list = self.pre_collate_transform(train_data_list)
-            val_data_list = self.pre_collate_transform(val_data_list)
+            # train_data_list = self.pre_collate_transform(train_data_list)
+            # val_data_list = self.pre_collate_transform(val_data_list)
             test_data_list = self.pre_collate_transform(test_data_list)
             trainval_data_list = self.pre_collate_transform(trainval_data_list)
             print('Done\n')
@@ -404,9 +471,11 @@ class S3DISOriginalFusedMM(InMemoryDataset):
         ]
         rooms = [[r[1] for r in rooms if r[0] == i] for i in range(6)]
 
-        train_image_list = {}
-        val_image_list = {}
-        trainval_image_list = {}
+        # train_image_list = {}
+        # val_image_list = {}
+        # trainval_image_list = {}
+        test_image_list = []
+        trainval_image_list = []
 
         for i in range(6):
 
@@ -420,10 +489,11 @@ class S3DISOriginalFusedMM(InMemoryDataset):
                 for folder in folders
                 for i_file, p_file in s3dis_image_pose_pairs(
                     osp.join(self.image_dir, folder, 'pano', 'rgb'),
-                    osp.join(self.image_dir, folder, 'pano', 'pose')
+                    osp.join(self.image_dir, folder, 'pano', 'pose'),
+                    skip_names=S3DIS_OUTSIDE_IMAGES
                 )
             ]
-
+                        
             print(f"Area {i + 1}")
             print(f"    All image info list : {len(image_info_list)} images")
             print(f"    Area : {len(rooms[i])} rooms")
@@ -449,85 +519,125 @@ class S3DISOriginalFusedMM(InMemoryDataset):
             # Keep all images for the test area
             if i + 1 == self.test_area:
                 test_image_list = info_list_to_image_data(image_info_list)
-
-            # Split between train and val room images otherwise
             else:
-                train_image_list[i] = []
-                val_image_list[i] = []
+                trainval_image_list.append(info_list_to_image_data(image_info_list))
+            #
+            # # Split between train and val room images otherwise
+            # else:
+            #     train_image_list[i] = []
+            #     val_image_list[i] = []
+            #
+            #     for image_info in image_info_list:
+            #         if s3dis_image_room(image_info[0]) in VALIDATION_ROOMS:
+            #             val_image_list[i].append(image_info)
+            #         else:
+            #             train_image_list[i].append(image_info)
+            #
+            #     print(f"    Images in train : {len(train_image_list[i])}")
+            #     print(f"    Images in val : {len(val_image_list[i])}")
+            #     print()
+            #
+            #     trainval_image_list[i] = val_image_list[i] + train_image_list[i]
+            #
+            #     train_image_list[i] = info_list_to_image_data(train_image_list[i])
+            #     val_image_list[i] = info_list_to_image_data(val_image_list[i])
+            #     trainval_image_list[i] = info_list_to_image_data(trainval_image_list[i])
 
-                for image_info in image_info_list:
-                    if s3dis_image_room(image_info[0]) in VALIDATION_ROOMS:
-                        val_image_list[i].append(image_info)
-                    else:
-                        train_image_list[i].append(image_info)
-
-                print(f"    Images in train : {len(train_image_list[i])}")
-                print(f"    Images in val : {len(val_image_list[i])}")
-                print()
-
-                trainval_image_list[i] = val_image_list[i] + train_image_list[i]
-
-                train_image_list[i] = info_list_to_image_data(train_image_list[i])
-                val_image_list[i] = info_list_to_image_data(val_image_list[i])
-                trainval_image_list[i] = info_list_to_image_data(trainval_image_list[i])
-
-        train_image_list = list(train_image_list.values())
-        val_image_list = list(val_image_list.values())
-        trainval_image_list = list(trainval_image_list.values())
+        # train_image_list = list(train_image_list.values())
+        # val_image_list = list(val_image_list.values())
+        # trainval_image_list = list(trainval_image_list.values())
 
         # Build the mappings for each split, for each area
         print('Running the image pre-transforms...')
-        
-        print('    Train image pre-transforms...')
-#         train_data_list, train_image_list, train_mappings_list = self.pre_transform_image(
-#             train_data_list, train_image_list, None)
-        torch.save(self.pre_transform_image(train_data_list, train_image_list, None),
-            self.processed_paths[0])
-        del train_data_list, train_image_list
-        
-        print('    Val image pre-transforms...')
-#         val_data_list, val_image_list, val_mappings_list = self.pre_transform_image(
-#             val_data_list, val_image_list, None)
-        torch.save(self.pre_transform_image(val_data_list, val_image_list, None),
-            self.processed_paths[1])
-        del val_data_list, val_image_list
-        
-        print('    Test image pre-transforms...')
-#         test_data_list, test_image_list, test_mappings_list = self.pre_transform_image(
-#             test_data_list, test_image_list, None)
-        torch.save(self.pre_transform_image(test_data_list, test_image_list, None),
-            self.processed_paths[2])
-        del test_data_list, test_image_list
-        
+
+        # print('    Trainval image pre-transforms...')
+        # #         trainval_data_list, trainval_image_list, trainval_mappings_list = self.pre_transform_image(
+        # #             trainval_data_list, trainval_image_list, None)
+        # torch.save(self.pre_transform_image(trainval_data_list, trainval_image_list, None),
+        #            self.processed_paths[3])
+        # del trainval_data_list, trainval_image_list
+        # print('Done\n')
+
         print('    Trainval image pre-transforms...')
-#         trainval_data_list, trainval_image_list, trainval_mappings_list = self.pre_transform_image(
-#             trainval_data_list, trainval_image_list, None)
-        torch.save(self.pre_transform_image(trainval_data_list, trainval_image_list, None),
-            self.processed_paths[3])
-        del trainval_data_list, trainval_image_list
+        trainval_data_list, trainval_image_list, trainval_mappings_list = self.pre_transform_image(trainval_data_list,
+            trainval_image_list, None)
+        is_val_list = [data.is_val for data in trainval_data_list]
+        for data in trainval_data_list:
+            del data.is_val
+        torch.save((trainval_data_list, trainval_image_list, trainval_mappings_list), self.processed_paths[3])
+
+        # Local helper to slice a Data object with a torch.Tensor
+        def data_slicing(data, selection):
+            data_ = data.clone()
+            for key, item in data:
+                if torch.is_tensor(item) and item.size(0) == data.num_nodes:
+                    data_[key] = data_[key][selection]
+            return data_
+
+        # Extract and save train data, images mappings from trainval
+        torch.save(
+            PointImagePixelMappingFromId(key='point_index')(
+                [data_slicing(data, ~is_val) for data, is_val in zip(trainval_data_list, is_val_list)],
+                trainval_image_list,
+                trainval_mappings_list
+            ),
+            self.processed_paths[0]
+        )
+
+        # Extract and save val data, images mappings from trainval
+        torch.save(
+            PointImagePixelMappingFromId(key='point_index')(
+                [data_slicing(data, is_val) for data, is_val in zip(trainval_data_list, is_val_list)],
+                trainval_image_list,
+                trainval_mappings_list
+            ),
+            self.processed_paths[1]
+        )
+        del trainval_data_list, trainval_image_list, trainval_mappings_list
+
+        #         print('    Train image pre-transforms...')
+        # #         train_data_list, train_image_list, train_mappings_list = self.pre_transform_image(
+        # #             train_data_list, train_image_list, None)
+        #         torch.save(self.pre_transform_image(train_data_list, train_image_list, None),
+        #             self.processed_paths[0])
+        #         del train_data_list, train_image_list
+
+        #         print('    Val image pre-transforms...')
+        # #         val_data_list, val_image_list, val_mappings_list = self.pre_transform_image(
+        # #             val_data_list, val_image_list, None)
+        #         torch.save(self.pre_transform_image(val_data_list, val_image_list, None),
+        #             self.processed_paths[1])
+        #         del val_data_list, val_image_list
+
+        print('    Test image pre-transforms...')
+        #         test_data_list, test_image_list, test_mappings_list = self.pre_transform_image(
+        #             test_data_list, test_image_list, None)
+        torch.save(self.pre_transform_image(test_data_list, test_image_list, None),
+                   self.processed_paths[2])
+        del test_data_list, test_image_list
         print('Done\n')
 
         # Save the Data, ImageData and ForwardStar mappings for each split
-#         self._save_preprocessed_multimodal_data(
-#             (train_data_list, train_image_list, train_mappings_list),
-#             (val_data_list, val_image_list, val_mappings_list),
-#             (test_data_list, test_image_list, test_mappings_list),
-#             (trainval_data_list, trainval_image_list, trainval_mappings_list)
-#         )
-#         self._save_preprocessed_multimodal_data(
-#             (train_data_list, train_image_list, None),
-#             (val_data_list, val_image_list, None),
-#             (test_data_list, test_image_list, test_mappings_list),
-#             (trainval_data_list, trainval_image_list, None)
-#         )
 
-#     def _save_preprocessed_multimodal_data(self, mm_data_tuple, path):
-#         """
-#         Save the preprocessed data lists. Results are intended to be loaded with
-#         self._load_data().
-#         """
-#         torch.save(mm_data_tuple, path)
+    #         self._save_preprocessed_multimodal_data(
+    #             (train_data_list, train_image_list, train_mappings_list),
+    #             (val_data_list, val_image_list, val_mappings_list),
+    #             (test_data_list, test_image_list, test_mappings_list),
+    #             (trainval_data_list, trainval_image_list, trainval_mappings_list)
+    #         )
+    #         self._save_preprocessed_multimodal_data(
+    #             (train_data_list, train_image_list, None),
+    #             (val_data_list, val_image_list, None),
+    #             (test_data_list, test_image_list, test_mappings_list),
+    #             (trainval_data_list, trainval_image_list, None)
+    #         )
 
+    #     def _save_preprocessed_multimodal_data(self, mm_data_tuple, path):
+    #         """
+    #         Save the preprocessed data lists. Results are intended to be loaded with
+    #         self._load_data().
+    #         """
+    #         torch.save(mm_data_tuple, path)
 
     def _load_data(self, path):
         self.data, self.images, self.mappings = torch.load(path)
@@ -646,7 +756,7 @@ class S3DISSphereMM(S3DISOriginalFusedMM):
         centre_idx = int(random.random() * (valid_centres.shape[0] - 1))
         centre = valid_centres[centre_idx]
 
-#         centre_idx = int(random.random() * (self._centres_for_sampling.shape[0] - 1))
+        #         centre_idx = int(random.random() * (self._centres_for_sampling.shape[0] - 1))
         # centre_idx = 27026
         # 21155 # image 0 and 4
         # 5991  # image 1, 4 and 5
@@ -661,30 +771,27 @@ class S3DISSphereMM(S3DISOriginalFusedMM):
         # 5710  # image 4
         # 34181  # image 1
         # 2586  # image 0 and 1  # VERY interesting case
-#         """
-#         Hypotheses:
-#         Note the images-mappings are mainly correct.
-        
-#         Maybe it is a Image-Pixel mapping problem
-#         The errors are unlikely to come from the projection, so they arise from later processing.
-        
-#             - Area 2 seems worse off than other, is that correct ? Not only... but errors in the office in Area 2 are 
-#             worse than other areas...
-#             - global point indexing is too large and some points have the same point_index ?
-#             - +1/-1 index offset when slicing FWD* ?
-#             - get and visualize the point whose mapping creates errors ? See if it the last one, or the first, or 
-#             anything noteworthy
-#             - Some points were TOO close to the camera at projection time and created unrealistically large masks ?
-#             - point_index batch reindexing problem check that torch_geometric batch does what we want with the indeices
-            
-            
-             
-#         """
-#         centre = self._centres_for_sampling[centre_idx]
+        #         """
+        #         Hypotheses:
+        #         Note the images-mappings are mainly correct.
 
+        #         Maybe it is a Image-Pixel mapping problem
+        #         The errors are unlikely to come from the projection, so they arise from later processing.
 
-#         print(f"centre_idx = {centre_idx}")
-#         print(f"i_area = {centre[3].int()}")
+        #             - Area 2 seems worse off than other, is that correct ? Not only... but errors in the office in Area 2 are
+        #             worse than other areas...
+        #             - global point indexing is too large and some points have the same point_index ?
+        #             - +1/-1 index offset when slicing FWD* ?
+        #             - get and visualize the point whose mapping creates errors ? See if it the last one, or the first, or
+        #             anything noteworthy
+        #             - Some points were TOO close to the camera at projection time and created unrealistically large masks ?
+        #             - point_index batch reindexing problem check that torch_geometric batch does what we want with the indeices
+
+        #         """
+        #         centre = self._centres_for_sampling[centre_idx]
+
+        #         print(f"centre_idx = {centre_idx}")
+        #         print(f"i_area = {centre[3].int()}")
 
         i_area = centre[3].int()
         area_data = self._datas[i_area]
@@ -767,26 +874,37 @@ class S3DISFusedDataset(BaseDatasetMM):
         sampling_format = dataset_opt.get('sampling_format', 'sphere')
         assert sampling_format == 'sphere', f"Only sampling format 'sphere' is supported."
 
-        self.train_dataset = S3DISSphereMM(
+#         self.train_dataset = S3DISSphereMM(
+#             self._data_path,
+#             sample_per_epoch=3000,
+#             test_area=self.dataset_opt.fold,
+#             split="train",
+#             pre_collate_transform=self.pre_collate_transform,
+#             transform=self.train_transform,
+#             pre_transform_image=self.pre_transform_image,
+#             transform_image=self.train_transform_image,
+#         )
+
+#         self.val_dataset = S3DISSphereMM(
+#             self._data_path,
+#             sample_per_epoch=-1,
+#             test_area=self.dataset_opt.fold,
+#             split="val",
+#             pre_collate_transform=self.pre_collate_transform,
+#             transform=self.val_transform,
+#             pre_transform_image=self.pre_transform_image,
+#             transform_image=self.val_transform_image,
+#         )
+        
+        self.trainval_dataset = S3DISSphereMM(
             self._data_path,
             sample_per_epoch=3000,
             test_area=self.dataset_opt.fold,
-            split="train",
+            split="trainval",
             pre_collate_transform=self.pre_collate_transform,
             transform=self.train_transform,
             pre_transform_image=self.pre_transform_image,
             transform_image=self.train_transform_image,
-        )
-
-        self.val_dataset = S3DISSphereMM(
-            self._data_path,
-            sample_per_epoch=-1,
-            test_area=self.dataset_opt.fold,
-            split="val",
-            pre_collate_transform=self.pre_collate_transform,
-            transform=self.val_transform,
-            pre_transform_image=self.pre_transform_image,
-            transform_image=self.val_transform_image,
         )
 
         self.test_dataset = S3DISSphereMM(

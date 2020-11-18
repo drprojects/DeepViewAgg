@@ -265,8 +265,9 @@ class PointImagePixelMappingFromId(object):
     [0, ..., len(mappings)].
     """
 
-    def __init__(self, key='point_index'):
+    def __init__(self, key='point_index', keep_unseen_images=False):
         self.key = key
+        self.keep_unseen_images = keep_unseen_images
 
     def _process(self, data, images, mappings):
         assert isinstance(data, Data)
@@ -277,13 +278,20 @@ class PointImagePixelMappingFromId(object):
         # Point indices to subselect mappings.
         # The selected mappings are sorted by their order in point_indices. 
         # NB: just like images, the same point may be used multiple times. 
-        point_indices = torch.unique(data[self.key])
-        mappings = mappings[point_indices]
+        # point_indices = torch.unique(data[self.key])
+        # mappings = mappings[point_indices]
+        mappings = mappings[data[self.key]]
 
         # Update point indices to the new mappings length.
         # This is important to preserve the mappings and for multimodal data
         # batching mechanisms.
-        data[self.key] = torch.bucketize(data[self.key], point_indices)
+        data[self.key] = torch.arange(data.num_nodes)
+        # data[self.key] = torch.bucketize(data[self.key], torch.unique(data[self.key]))
+
+        # If unseen images must still be kept
+        # May be useful in case we want to keep track of global images
+        if self.keep_unseen_images:
+            return data, images, mappings
 
         # Subselect the images used in the mappings.
         # The selected images are sorted by their order in image_indices.
