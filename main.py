@@ -25,16 +25,10 @@ if __name__ == "__main__":
     # dataset_options.data.dataroot = "/mnt/fa444ffd-fdb4-4701-88e7-f00297a8e29b/projects/datasets/s3dis_multimodal"
     dataset_options.data.dataroot = "/media/drobert-admin/DATA/datasets/s3dis_tp3d_multimodal"
     dataset = S3DISFusedDataset(dataset_options.data)
-
-    print()
-    print()
-    print()
-    print(f"Total preprocessing time: {time() - start:0.0f}")
-    print()
-    print()
-    print()
-
+    
     print("Dataset")
     print(dataset)
     print("-" * 50 + "\n")
 
+    print()
+    print(f"Total preprocessing time: {time() - start:0.0f}")
