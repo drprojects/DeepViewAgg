@@ -286,7 +286,6 @@ class PointImagePixelMappingFromId(object):
         # This is important to preserve the mappings and for multimodal data
         # batching mechanisms.
         data[self.key] = torch.arange(data.num_nodes)
-        # data[self.key] = torch.bucketize(data[self.key], torch.unique(data[self.key]))
 
         # If unseen images must still be kept
         # May be useful in case we want to keep track of global images

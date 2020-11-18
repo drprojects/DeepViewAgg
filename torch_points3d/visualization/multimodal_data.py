@@ -2,6 +2,7 @@ from torch_points3d.datasets.multimodal.data import MMData
 from torch_geometric.transforms import FixedPoints
 from torch_points3d.core.data_transform import GridSampling3D
 from torch_points3d.core.data_transform.multimodal.projection import pose_to_rotation_matrix_numba
+from torch_points3d.core.data_transform.multimodal import PointImagePixelMappingFromId
 import plotly.graph_objects as go
 import numpy as np
 import torch
@@ -25,13 +26,18 @@ def visualize_3d(mm_data, class_names=None, class_colors=None, class_opacities=N
     assert isinstance(mm_data, MMData)
 
     # Subsample to limit the drawing time
-    data_sample = GridSampling3D(voxel)(mm_data.data.clone())
-    if data_sample.num_nodes > max_points:
-        data_sample = FixedPoints(max_points, replace=False, allow_duplicates=False)(data_sample)
-
+    data_ = GridSampling3D(voxel)(mm_data.data.clone())
+    if data_.num_nodes > max_points:
+        data_ = FixedPoints(max_points, replace=False, allow_duplicates=False)(data_)
+        
+    # Subsample the mappings accordingly
+    transform = PointImagePixelMappingFromId(key='point_index', keep_unseen_images=True)
+    data_, images_, mappings_ = transform(data_, mm_data.images, mm_data.mappings)
+    
     # Round to the cm for cleaner hover info
-    data_sample.pos = (data_sample.pos * 100).round() / 100
-
+    data_.pos = (data_.pos * 100).round() / 100
+    images_.pos = (images_.pos * 100).round() / 100
+    
     # Prepare figure
     width = width if width and height else figsize
     height = height if width and height else int(figsize / 2)
@@ -48,14 +54,15 @@ def visualize_3d(mm_data, class_names=None, class_colors=None, class_opacities=N
     fig.add_trace(
         go.Scatter3d(
             name='RGB',
-            x=data_sample.pos[:, 0],
-            y=data_sample.pos[:, 1],
-            z=data_sample.pos[:, 2],
+            x=data_.pos[:, 0],
+            y=data_.pos[:, 1],
+            z=data_.pos[:, 2],
             mode='markers',
             marker=dict(
                 size=pointsize,
-                color=rgb_to_plotly_rgb(data_sample.rgb),
+                color=rgb_to_plotly_rgb(data_.rgb),
             ),
+            hoverinfo='x+y+z',
             showlegend=False,
             visible=True,
         )
@@ -63,7 +70,7 @@ def visualize_3d(mm_data, class_names=None, class_colors=None, class_opacities=N
     n_rgb_traces = 1  # keep track of the number of traces
 
     # Draw a trace for labeled 3D point cloud
-    y = data_sample.y.numpy()
+    y = data_.y.numpy()
     n_classes = int(y.max() + 1)
     if class_names is None:
         class_names = [f"Class {i}" for i in range(n_classes)]
@@ -82,9 +89,9 @@ def visualize_3d(mm_data, class_names=None, class_colors=None, class_opacities=N
             go.Scatter3d(
                 name=class_names[label],
                 opacity=class_opacities[label],
-                x=data_sample.pos[indices, 0],
-                y=data_sample.pos[indices, 1],
-                z=data_sample.pos[indices, 2],
+                x=data_.pos[indices, 0],
+                y=data_.pos[indices, 1],
+                z=data_.pos[indices, 2],
                 mode='markers',
                 marker=dict(
                     size=pointsize,
@@ -96,34 +103,33 @@ def visualize_3d(mm_data, class_names=None, class_colors=None, class_opacities=N
         n_y_traces += 1  # keep track of the number of traces
 
     # Draw a trace for 3D point cloud of number of images seen
-    pos = data_sample.pos[torch.sort(data_sample.point_index).indices]
-    n_seen = torch.from_numpy(mm_data.mappings.jumps[1:] - mm_data.mappings.jumps[:-1])
+    n_seen = torch.from_numpy(mappings_.jumps[1:] - mappings_.jumps[:-1])
     fig.add_trace(
         go.Scatter3d(
             name='Times seen',
-            x=pos[:, 0],
-            y=pos[:, 1],
-            z=pos[:, 2],
+            x=data_.pos[:, 0],
+            y=data_.pos[:, 1],
+            z=data_.pos[:, 2],
             mode='markers',
             marker=dict(
                 size=pointsize,
                 color=n_seen,
                 colorscale='spectral',
-                colorbar=dict(thickness=10, len=0.5, tick0=0, dtick=1, ),
+                colorbar=dict(thickness=10, len=0.66, tick0=0, dtick=max(1, int(n_seen.max() / 10.)), ),
             ),
+            hovertext=[f"seen: {n}" for n in n_seen],
+            hoverinfo='x+y+z+text',
             showlegend=False,
             visible=False,
         )
     )
-    n_seen_traces = 1  # keep track of the number of traces
+    n_seen_traces = 1  # keep track of the number of traces   
 
     # Draw image positions
-    image_xyz = np.asarray(mm_data.images.pos.clone())
-    image_opk = np.asarray(mm_data.images.opk.clone())
+    image_xyz = np.asarray(images_.pos.clone())
+    image_opk = np.asarray(images_.opk.clone())
     if len(image_xyz.shape) == 1:
         image_xyz = image_xyz.reshape((1, -1))
-    image_xyz = np.around(image_xyz, decimals=2)
-    image_opk = np.around(image_opk, decimals=2)
     for i, (xyz, opk) in enumerate(zip(image_xyz, image_opk)):
 
         # Draw image coordinate system axes
@@ -161,8 +167,9 @@ def visualize_3d(mm_data, class_names=None, class_colors=None, class_opacities=N
                 text=f"<b>{i}</b>",
                 textposition="bottom center",
                 textfont=dict(
-                    size=12
+                    size=16
                 ),
+                hoverinfo='x+y+z+name',
                 showlegend=False,
                 visible=True,
             )
@@ -302,7 +309,7 @@ def visualize_2d(mm_data, image_batch=None, figsize=800, width=None, height=None
             y=1.02,
         ),
     ]
-
+        
     fig.update_layout(updatemenus=updatemenus)
 
     return fig
@@ -311,15 +318,15 @@ def visualize_2d(mm_data, image_batch=None, figsize=800, width=None, height=None
 def visualize_mm_data(mm_data, show_3d=True, show_2d=True, **kwargs):
     """Draw an interactive 3D visualization of the Data point cloud."""
     assert isinstance(mm_data, MMData)
-
+    
     # Draw a figure for 3D data visualization
     if show_3d:
         fig_3d = visualize_3d(mm_data, **kwargs)
         fig_3d.show(config={'displayModeBar': False})
-
+        
     # Draw a figure for 2D data visualization
     if show_2d:
         fig_2d = visualize_2d(mm_data, **kwargs)
         fig_2d.show(config={'displayModeBar': False})
-
+    
     return
