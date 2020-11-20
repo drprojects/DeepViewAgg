@@ -3,6 +3,7 @@ from torch_geometric.transforms import FixedPoints
 from torch_points3d.core.data_transform import GridSampling3D
 from torch_points3d.core.data_transform.multimodal.projection import pose_to_rotation_matrix_numba
 from torch_points3d.core.data_transform.multimodal import PointImagePixelMappingFromId
+import os.path as osp
 import plotly.graph_objects as go
 import numpy as np
 import torch
@@ -404,18 +405,61 @@ def visualize_2d(mm_data, image_batch=None, figsize=800, width=None, height=None
     return fig
 
 
-def visualize_mm_data(mm_data, show_3d=True, show_2d=True, **kwargs):
+def figure_html(fig):
+    # Save plotly figure to temp HTML
+    fig.write_html('/tmp/fig.html', config={'displayModeBar': False}, include_plotlyjs='cdn',
+        full_html=False)
+
+    # Read the HTML
+    with open("/tmp/fig.html", "r") as f:
+        fig_html = f.read()
+
+    # Center the figure div for cleaner display
+    fig_html = fig_html.replace('class="plotly-graph-div" style="', 
+        'class="plotly-graph-div" style="margin:0 auto;')
+
+    return fig_html
+
+
+def visualize_mm_data(mm_data, show_3d=True, show_2d=True, path=None, title=None, **kwargs):
     """Draw an interactive 3D visualization of the Data point cloud."""
     assert isinstance(mm_data, MMData)
+
+    # Sanitize title and path
+    if title is None:
+        title = "Multimodal data"
+    if path is not None:
+        if osp.isdir(path):
+            path = osp.join(path, f"{title}.html")
+        else:
+            path = osp.splitext(path)[0] + '.html'
+        fig_html = f'<h1 style="text-align: center;">{title}</h1>'
 
     # Draw a figure for 3D data visualization
     if show_3d:
         fig_3d = visualize_3d(mm_data, **kwargs)
-        fig_3d.show(config={'displayModeBar': False})
+        if path is None:
+            fig_3d.show(config={'displayModeBar': False})
+        else:
+            fig_html += figure_html(fig_3d)
 
     # Draw a figure for 2D data visualization
     if show_2d:
         fig_2d = visualize_2d(mm_data, **kwargs)
-        fig_2d.show(config={'displayModeBar': False})
+        if path is None:
+            fig_2d.show(config={'displayModeBar': False})
+        else:
+            fig_html += figure_html(fig_2d)
 
+    if path is not None:
+        with open(path, "w") as f:
+            f.write(fig_html)
+    
     return
+
+
+"""
+To go further with ipwidgets :
+	- https://plotly.com/python/figurewidget-app/
+	- https://ipywidgets.readthedocs.io/en/stable/
+"""
