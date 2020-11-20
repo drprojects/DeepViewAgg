@@ -1,4 +1,4 @@
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, Union
 import os
 import torch
 import logging
@@ -32,6 +32,7 @@ class Checkpoint:
         self.stats: Dict[str, List[Any]] = {"train": [], "test": [], "val": []}
         self.optimizer: Optional[Tuple[str, Any]] = None
         self.schedulers: Dict[str, Any] = {}
+        self.dataset_properties: DictConfig = DictConfig({})
 
     def save_objects(self, models_to_save: Dict[str, Any], stage, current_stat, optimizer, schedulers, **kwargs):
         """ Saves checkpoint with updated mdoels for the given stage
@@ -219,6 +220,16 @@ class ModelCheckpoint(object):
     @property
     def checkpoint_path(self):
         return self._checkpoint.path
+
+    @property
+    def dataset_properties(self) -> DictConfig:
+        return self._checkpoint.dataset_properties
+
+    @dataset_properties.setter
+    def dataset_properties(self, dataset_properties: Union[Dict[str, Any], DictConfig]):
+        if isinstance(dataset_properties, dict):
+            dataset_properties = DictConfig(dataset_properties)
+        self._checkpoint.dataset_properties = dataset_properties
 
     def get_starting_epoch(self):
         return len(self._checkpoint.stats["train"]) + 1

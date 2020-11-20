@@ -87,14 +87,19 @@ class Trainer:
             )
         else:
             self._dataset: BaseDataset = instantiate_dataset(self._cfg.data)
-            if not self._checkpoint.validate(self._dataset.used_properties):
-                log.warning(
-                    "The model will not be able to be used from pretrained weights without the corresponding dataset."
-                )
             self._model: BaseModel = instantiate_model(copy.deepcopy(self._cfg), self._dataset)
             self._model.instantiate_optimizers(self._cfg)
+            self._model.set_pretrained_weights()
+            if not self._checkpoint.validate(self._dataset.used_properties):
+                log.warning(
+                    "The model will not be able to be used from pretrained weights without the corresponding dataset. Current properties are {}".format(
+                        self._dataset.used_properties
+                    )
+                )
+        self._checkpoint.dataset_properties = self._dataset.used_properties
 
         log.info(self._model)
+
         self._model.log_optimizers()
         log.info("Model size = %i", sum(param.numel() for param in self._model.parameters() if param.requires_grad))
 
@@ -168,7 +173,7 @@ class Trainer:
         if self._is_training:
             metrics = self._tracker.publish(epoch)
             self._checkpoint.save_best_models_under_current_metrics(self._model, metrics, self._tracker.metric_func)
-            if self.wandb_log:
+            if self.wandb_log and self._cfg.wandb.public:
                 Wandb.add_file(self._checkpoint.checkpoint_path)
             if self._tracker._stage == "train":
                 log.info("Learning rate = %f" % self._model.learning_rate)
@@ -243,7 +248,7 @@ class Trainer:
                             self._tracker.track(self._model, data=data, **self.tracker_options)
                         tq_loader.set_postfix(**self._tracker.get_metrics(), color=COLORS.TEST_COLOR)
 
-                        if self._visualizer.is_active:
+                        if self.has_visualization and self._visualizer.is_active:
                             self._visualizer.save_visuals(self._model.get_current_visuals())
 
                         if self.early_break:

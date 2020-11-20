@@ -3,31 +3,31 @@ data:
   dataset_name: "scannet-sparse"
   task: segmentation
   dataroot: data
-  base_grid_size: 0.02
   grid_size: 0.05
   version: "v2"
   use_instance_labels: False
   use_instance_bboxes: False
   donotcare_class_ids: []
-  process_workers: 1
+  process_workers: 8
   apply_rotation: True
   mode: "last"
 
-  pre_transform:
-    - transform: GridSampling3D
+  train_pre_batch_collate_transform:
+    - transform: ClampBatchSize
       params:
-        size: ${data.base_grid_size}
+        num_points: 400000
 
   train_transform:
     - transform: ElasticDistortion
-      params:
-        spatial_resolution: ${data.base_grid_size}
     - transform: Random3AxisRotation
       params:
         apply_rotation: ${data.apply_rotation}
-        rot_x: 2
-        rot_y: 2
+        rot_x: 8
+        rot_y: 8
         rot_z: 180
+    - transform: RandomSymmetry
+      params:
+        axis: [True, True, False]
     - transform: RandomScaleAnisotropic
       params:
         scales: [0.9, 1.1]
@@ -36,11 +36,6 @@ data:
         size: ${data.grid_size}
         quantize_coords: True
         mode: ${data.mode}
-    - transform: FixedPoints
-      lparams: [100000]
-      params:
-        replace: False
-    - transform: ShiftVoxels
     - transform: AddFeatsByKeys
       params:
         list_add_to_x: [True]
@@ -53,11 +48,6 @@ data:
         size: ${data.grid_size}
         quantize_coords: True
         mode: ${data.mode}
-    - transform: FixedPoints
-      lparams: [100000]
-      params:
-        replace: False
-    - transform: ShiftVoxels
     - transform: AddFeatsByKeys
       params:
         list_add_to_x: [True]

@@ -72,7 +72,8 @@ class TestPairETH(BasePCRBTest):
                  min_size_block=2,
                  max_size_block=3,
                  min_points=500,
-                 ss_transform=None):
+                 ss_transform=None,
+                 use_fps=False):
         self.link_pairs = "https://cloud.mines-paristech.fr/index.php/s/aIRBieRybts3kEs/download"
         BasePCRBTest.__init__(self,
                               root=root,
@@ -86,7 +87,8 @@ class TestPairETH(BasePCRBTest):
                               min_size_block=min_size_block,
                               max_size_block=max_size_block,
                               min_points=min_points,
-                              ss_transform=ss_transform)
+                              ss_transform=ss_transform,
+                              use_fps=use_fps)
 
     def download(self):
         folder = osp.join(self.raw_dir, "test")
@@ -113,6 +115,10 @@ class TestPairETH(BasePCRBTest):
                     os.remove(file_to_remove)
             os.remove(osp.join(folder, name+".zip"))
         self.download_pairs(folder)
+
+    def process(self):
+        super().process()
+
 
 
 class ETHDataset(BaseSiameseDataset):
@@ -141,7 +147,8 @@ class ETHDataset(BaseSiameseDataset):
                                          max_size_block=dataset_opt.max_size_block,
                                          num_pos_pairs=dataset_opt.num_pos_pairs,
                                          min_points=dataset_opt.min_points,
-                                         ss_transform=ss_transform)
+                                         ss_transform=ss_transform,
+                                         use_fps=dataset_opt.use_fps)
         self.test_dataset = TestPairETH(root=self._data_path,
                                         pre_transform=pre_transform,
                                         transform=test_transform,

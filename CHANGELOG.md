@@ -7,9 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- Support for the IRALab benchmark (https://arxiv.org/abs/2003.12841), with data from the ETH, Canadian Planetary, Kaist and TUM datasets. (thanks @simone-fontana)
+- Added Kitti for semantic segmentation and registration (first outdoor dataset for semantic seg)
+- Possibility to load pretrained models by adding the path in the confs for finetuning.
+- Lottery transform to use randomly selected transforms for data augmentation
+- Batch size campling function to ensure that batches don't get too large
+- [TorchSparse](https://github.com/mit-han-lab/torchsparse) backend for sparse convolutions
+- Possibility to build sparse convolution networks with Minkowski Engine or TorchSparse
+- [PVCNN](https://arxiv.org/abs/1907.03739) model for semantic segmentation (thanks @CCInc)
+
+### Bug fix
+
+- Dataset configurations are saved in the checkpoints so that models can be created without requiring the actual dataset
+- Trainer was giving a warning for models that could not be re created when they actually could
+- BatchNorm1d fix (thanks @Wundersam)
+- Fix process hanging when processing scannet with multiprocessing (thanks @zetyquickly)
+- wandb does not log the weights when set in private mode (thanks @jamesjiro)
+
 ### Changed
 
 - More general API for Minkowski with support for Bottleneck blocks and Squeeze and excite.
+- Docker images tags on dockerhub are now `latest-gpu` and `latest-cpu` for the latest CPU adn GPU images.
 
 ## 1.1.1
 

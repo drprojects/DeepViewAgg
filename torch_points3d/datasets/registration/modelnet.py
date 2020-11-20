@@ -41,6 +41,7 @@ class SiameseModelNet(SampledModelNet, GeneralFragment):
                  num_pos_pairs=1024,
                  ss_transform=None,
                  min_points=500,
+                 use_fps=False
     ):
         SampledModelNet.__init__(self,
                                  root,
@@ -100,6 +101,12 @@ class SiameseModelNet(SampledModelNet, GeneralFragment):
         data = self.get_model(idx)
         return data.y.item(), "{}_source".format(idx), "{}_target".format(idx)
 
+    def process(self):
+        super().process()
+
+    def download(self):
+        super().download()
+
 
 class SiameseModelNetDataset(BaseSiameseDataset):
 
@@ -123,7 +130,8 @@ class SiameseModelNetDataset(BaseSiameseDataset):
             pre_filter=pre_filter,
             num_pos_pairs=dataset_opt.num_pos_pairs,
             ss_transform=ss_transform,
-            min_points=dataset_opt.min_points)
+            min_points=dataset_opt.min_points,
+            use_fps=dataset_opt.use_fps)
 
         self.test_dataset = SiameseModelNet(
             root=self._data_path,
