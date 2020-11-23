@@ -403,6 +403,12 @@ class S3DISOriginalFused(InMemoryDataset):
                         file_path, room_name, label_out=True, verbose=self.verbose, debug=self.debug
                     )
 
+                    # Room orientation correction
+                    # 2 rooms need to be rotated by 180° around Z: Area_2/hallway_11 and Area_5/hallway_6
+                    if (area_num == 1 and room_name == 'hallway_11') or (area_num == 4 and room_name == 'hallway_6'):
+                        xy_center = (xyz[:, 0:2].max(dim=0)[0] + xyz[:, 0:2].min(dim=0)[0]) / 2
+                        xyz[:, 0:2] = 2 * xy_center - xyz[:, 0:2]  # equivalent to 180° Z-rotation around the XY-center
+
                     rgb_norm = rgb.float() / 255.0
                     data = Data(pos=xyz, y=semantic_labels, rgb=rgb_norm)
                     if room_name in VALIDATION_ROOMS:

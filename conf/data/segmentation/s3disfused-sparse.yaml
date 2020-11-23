@@ -1,9 +1,10 @@
 data:
   task: segmentation
   class: s3dis.S3DISFusedDataset
-  dataroot: data
+  # dataroot: data
+  dataroot: /media/drobert-admin/DATA/datasets/s3dis_tp3d  # local path to S3DIS on my machine
   fold: 5
-  first_subsampling: 0.04
+  first_subsampling: 0.03
   use_category: False
   pre_collate_transform:
       - transform: PointCloudFusion   # One point cloud per area
