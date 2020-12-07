@@ -516,7 +516,7 @@ class RandomScaleAnisotropic:
     def __call__(self, data):
         scale = self.scales[0] + torch.rand((3,)) * (self.scales[1] - self.scales[0])
         data.pos = data.pos * scale
-        if(data.norm is not None):
+        if hasattr(data, 'norm') and data.norm is not None:
             data.norm = data.norm / scale
             data.norm = torch.nn.functional.normalize(data.norm, dim=1)
         return data
