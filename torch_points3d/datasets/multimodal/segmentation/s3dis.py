@@ -919,8 +919,7 @@ class S3DISFusedDataset(BaseDatasetMM):
         )
 
         if dataset_opt.class_weight_method:
-            self.train_dataset = add_weights(
-                self.train_dataset, True, dataset_opt.class_weight_method)
+            self.add_weights(class_weight_method=dataset_opt.class_weight_method)
 
     @property
     def test_data(self):
