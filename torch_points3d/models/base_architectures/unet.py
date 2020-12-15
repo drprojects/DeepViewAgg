@@ -435,7 +435,7 @@ class UnwrappedUnetBasedModel(BaseModel):
             getattr(opt, "metric_loss", None), getattr(opt, "miner", None)
         )
 
-    def _get_factory(self, model_name, modules_lib) -> BaseFactory:
+    def _get_factory(self, model_name, modules_lib):
         factory_module_cls = getattr(modules_lib, "{}Factory".format(model_name), None)
         if factory_module_cls is None:
             factory_module_cls = BaseFactory
