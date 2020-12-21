@@ -19,6 +19,11 @@ When electing items from the Forward Star format, special attention must be
 given to re-indexing and ordering.
 """
 
+# TODO : better naming convention, rather than CSR
+# TODO : modality-specific mappings (pixels, features, batching, resolution updates)
+# TODO : mappings must also carry projection features
+# TODO : mapping updates: main resolution resampling from idx, modality resampling from res ratio.
+#  Expand to modality-specific
 
 class ForwardStar(object):
     """

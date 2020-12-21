@@ -6,6 +6,11 @@ from torch_points3d.datasets.multimodal.forward_star import ForwardStar, Forward
 
 
 
+MODALITY_NAMES = ["image"]
+
+
+# TODO : modify MMData to fit the structure in torch_points3d/modules/multimodal/modules.py
+
 class MMData(object):
     """
     A holder for multimodal data.
@@ -49,7 +54,7 @@ class MMData(object):
         # Otherwise, some indexing errors may arise when batching.
         # In fact, we would only need to ensure that the largest image index in 
         # the mappings corresponds to the number of images, but this is safer
-        # and avoids loading uneccessary ImageData.
+        # and avoids loading unnecessary ImageData.
         assert np.array_equal(np.unique(self.mappings.values[0]),
             np.arange(self.images.num_images)), \
             "Mapping image indices must span the entire range of images."
@@ -89,6 +94,8 @@ class MMData(object):
         return f"{self.__class__.__name__}(\n{info}\n)"
 
 
+
+# TODO : modify MMBatch to fit the structure in torch_points3d/modules/multimodal/modules.py
 
 class MMBatch(MMData):
     """

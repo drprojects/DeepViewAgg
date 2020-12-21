@@ -16,11 +16,13 @@ from torch.nn import (
 from omegaconf.listconfig import ListConfig
 from omegaconf.dictconfig import DictConfig
 import logging
-
 from torch_points3d.datasets.base_dataset import BaseDataset
 from torch_points3d.models.base_model import BaseModel
 from torch_points3d.core.common_modules.base_modules import Identity
 from torch_points3d.utils.config import is_list
+from torch_points3d.modules.multimodal.modules import MultimodalBlockDown
+from torch_points3d.datasets.multimodal.data import MMData, MODALITY_NAMES
+import importlib
 
 
 log = logging.getLogger(__name__)
@@ -40,6 +42,27 @@ class BaseFactory:
             return getattr(self.modules_lib, self.module_name_up, None)
         else:
             return getattr(self.modules_lib, self.module_name_down, None)
+
+class ModalityFactory:
+    """Factory for building modality-specific convolutional modules and merge
+     modules.
+
+     Modules are expected to be found in:
+        torch_points3d.modules.multimodal.<modality>.module_name
+     """
+    def __init__(self, modality, module_name, merge_name):
+        self.modality = modality
+        self.module_name = module_name
+        self.merge_name = merge_name
+        self.modality_lib = importlib.import_module(f"torch_points3d.modules.multimodal.{modality}")
+
+    def get_module(self, flow):
+        if flow.upper() == "MERGE":
+            # Search for the modality merger in torch_points3d.modules.multimodal.{modality}
+            return getattr(self.modality_lib, self.merge_name, None)
+        else:
+            # Search for the modality conv in torch_points3d.modules.multimodal.{modality}
+            return getattr(self.modality_lib, self.module_name, None)
 
 
 ############################# UNET BASE ###################################
@@ -299,7 +322,136 @@ class UnetSkipConnectionBlock(nn.Module):
 
 
 class UnwrappedUnetBasedModel(BaseModel):
-    """Create a Unet unwrapped generator"""
+    """Create a Unet unwrapped generator. Supports multimodal encoding."""
+
+    def __init__(self, opt, model_type, dataset: BaseDataset, modules_lib):
+        """Construct a Unet unwrapped generator. Supports multimodal
+        encoding.
+
+        The layers will be appended within lists with the following names
+        * down_modules : Contains all the down module - may be multimodal
+        * inner_modules : Contain one or more inner modules
+        * up_modules: Contains all the up module
+
+        Parameters:
+            opt - options for the network generation
+            model_type - type of the model to be generated
+            num_class - output of the network
+            modules_lib - all modules that can be used in the UNet
+
+        For a recursive implementation. See UnetBaseModel.
+
+        opt is expected to have the following format:
+            down_conv:
+                module_name: ...
+                down_conv_nn: ...
+                *args
+
+                <modality_name>: [OPTIONAL]
+                    module_name: ...
+                    down_conv_nn: ...
+                    *args
+
+                    merge:
+                        module_name: ...
+                        *args
+
+            innermost: [OPTIONAL]
+                module_name: ...
+                *args
+
+            up_conv:
+                module_name: ...
+                up_conv_nn: ...
+                *args
+        """
+        super(UnwrappedUnetBasedModel, self).__init__(opt)
+        self._spatial_ops_dict = {"neighbour_finder": [], "sampler": [], "upsample_op": []}
+
+        # Detect which options format has been used to define the model
+        if is_list(opt.down_conv) or "down_conv_nn" not in opt.down_conv:
+            raise NotImplementedError
+        else:
+            self._init_from_compact_format(opt, model_type, dataset, modules_lib)
+
+    def _init_from_compact_format(self, opt, model_type, dataset, modules_lib):
+        """Create a unetbasedmodel from the compact options format - where the
+        same convolution is given for each layer, and arguments are given
+        in lists
+        """
+
+        # Check if one of the supported modalities is present in the config
+        self._modalities = self._fetch_modalities(self, opt)
+
+        self.save_sampling_id = opt.down_conv.save_sampling_id
+
+        self.down_modules = nn.ModuleList()
+        self.inner_modules = nn.ModuleList()
+        self.up_modules = nn.ModuleList()
+
+        # Factory for creating up and down modules for the main 3D modality
+        factory_module_cls = self._get_factory(model_type, modules_lib)
+        down_conv_cls_name = opt.down_conv.module_name
+        up_conv_cls_name = opt.up_conv.module_name if opt.up_conv is not None else None
+        self._module_factories = {
+            'main': factory_module_cls(down_conv_cls_name, up_conv_cls_name, modules_lib)}
+
+        # Factories for creating modules for additional modalities
+        if self.is_multimodal:
+            for m in self._modalities:
+                modality_opt = getattr(opt.down_conv, m)
+                self._module_factories[m] = ModalityFactory(modality_opt.module_name, modality_opt.merge.module_name, m)
+
+        # Innermost module
+        contains_global = hasattr(opt, "innermost") and opt.innermost is not None
+        if contains_global:
+            inners = self._create_inner_modules(opt.innermost, modules_lib)
+            for inner in inners:
+                self.inner_modules.append(inner)
+        else:
+            self.inner_modules.append(Identity())
+
+        # Down modules
+        if not self.is_multimodal:
+            # Build down modules for the uni-modal case
+            for i in range(len(opt.down_conv.down_conv_nn)):
+                down_module = self._build_module(opt.down_conv, i, flow="DOWN")
+                self._save_sampling_and_search(down_module)
+                self.down_modules.append(down_module)
+
+        else:
+            # Build multimodal down modules
+            for i in range(len(opt.down_conv.down_conv_nn) // 2):
+
+                # Build first 3D down conv module - affects sampling
+                down_conv_3d = self._build_module(opt.down_conv, 2 * i, flow="DOWN")
+                self._save_sampling_and_search(down_conv_3d)
+
+                # Build the second 3D conv module - should not affect sampling
+                conv_3d = self._build_module(opt.down_conv, 2 * i + 1, flow="DOWN")
+                self._save_sampling_and_search(conv_3d)
+
+                # Build the conv and merge modules for each modality
+                # Prepare MMBlockDown expected input format
+                modal_conv = {}
+                for m in self._modalities:
+                    conv = self._build_module(getattr(opt.down_conv, m), i, modality=m)
+                    merge = self._build_module(getattr(opt.down_conv, m).merge, i, modality=m, flow='MERGE')
+                    modal_conv[m] = {'conv': conv, 'merge': merge}
+
+                # Build the multimodal block
+                self.down_modules.append(MultimodalBlockDown(down_conv_3d, conv_3d, **modal_conv))
+
+        # Up modules
+        if up_conv_cls_name:
+            for i in range(len(opt.up_conv.up_conv_nn)):
+                up_module = self._build_module(opt.up_conv, i, flow="UP")
+                self._save_upsample(up_module)
+                self.up_modules.append(up_module)
+
+        self.metric_loss_module, self.miner_module = BaseModel.get_metric_loss_and_miner(
+            getattr(opt, "metric_loss", None), getattr(opt, "miner", None)
+        )
 
     def _save_sampling_and_search(self, down_conv):
         sampler = getattr(down_conv, "sampler", None)
@@ -319,38 +471,8 @@ class UnwrappedUnetBasedModel(BaseModel):
         if upsample_op:
             self._spatial_ops_dict["upsample_op"].append(upsample_op)
 
-    def __init__(self, opt, model_type, dataset: BaseDataset, modules_lib):
-        """Construct a Unet unwrapped generator
-
-        The layers will be appended within lists with the following names
-        * down_modules : Contains all the down module
-        * inner_modules : Contain one or more inner modules
-        * up_modules: Contains all the up module
-
-        Parameters:
-            opt - options for the network generation
-            model_type - type of the model to be generated
-            num_class - output of the network
-            modules_lib - all modules that can be used in the UNet
-
-        For a recursive implementation. See UnetBaseModel.
-
-        opt is expected to contains the following keys:
-        * down_conv
-        * up_conv
-        * OPTIONAL: innermost
-
-        """
-        super(UnwrappedUnetBasedModel, self).__init__(opt)
-        # detect which options format has been used to define the model
-        self._spatial_ops_dict = {"neighbour_finder": [], "sampler": [], "upsample_op": []}
-
-        if is_list(opt.down_conv) or "down_conv_nn" not in opt.down_conv:
-            raise NotImplementedError
-        else:
-            self._init_from_compact_format(opt, model_type, dataset, modules_lib)
-
     def _collect_sampling_ids(self, list_data):
+
         def extract_matching_key(keys, start_token):
             for key in keys:
                 if key.startswith(start_token):
@@ -360,6 +482,8 @@ class UnwrappedUnetBasedModel(BaseModel):
         d = {}
         if self.save_sampling_id:
             for idx, data in enumerate(list_data):
+                if isinstance(data, MMData):
+                    data = data.data
                 key = extract_matching_key(data.keys, "sampling_id")
                 if key:
                     d[key] = getattr(data, key)
@@ -385,55 +509,16 @@ class UnwrappedUnetBasedModel(BaseModel):
 
         return inners
 
-    def _init_from_compact_format(self, opt, model_type, dataset, modules_lib):
-        """Create a unetbasedmodel from the compact options format - where the
-        same convolution is given for each layer, and arguments are given
-        in lists
-        """
-
-        self.down_modules = nn.ModuleList()
-        self.inner_modules = nn.ModuleList()
-        self.up_modules = nn.ModuleList()
-
-        self.save_sampling_id = opt.down_conv.save_sampling_id
-
-        # Factory for creating up and down modules
-        factory_module_cls = self._get_factory(model_type, modules_lib)
-        down_conv_cls_name = opt.down_conv.module_name
-        up_conv_cls_name = opt.up_conv.module_name if opt.up_conv is not None else None
-        self._factory_module = factory_module_cls(
-            down_conv_cls_name, up_conv_cls_name, modules_lib
-        )  # Create the factory object
-
-        # Loal module
-        contains_global = hasattr(opt, "innermost") and opt.innermost is not None
-        if contains_global:
-            inners = self._create_inner_modules(opt.innermost, modules_lib)
-            for inner in inners:
-                self.inner_modules.append(inner)
-        else:
-            self.inner_modules.append(Identity())
-
-        # Down modules
-        for i in range(len(opt.down_conv.down_conv_nn)):
-            args = self._fetch_arguments(opt.down_conv, i, "DOWN")
-            conv_cls = self._get_from_kwargs(args, "conv_cls")
-            down_module = conv_cls(**args)
-            self._save_sampling_and_search(down_module)
-            self.down_modules.append(down_module)
-
-        # Up modules
-        if up_conv_cls_name:
-            for i in range(len(opt.up_conv.up_conv_nn)):
-                args = self._fetch_arguments(opt.up_conv, i, "UP")
-                conv_cls = self._get_from_kwargs(args, "conv_cls")
-                up_module = conv_cls(**args)
-                self._save_upsample(up_module)
-                self.up_modules.append(up_module)
-
-        self.metric_loss_module, self.miner_module = BaseModel.get_metric_loss_and_miner(
-            getattr(opt, "metric_loss", None), getattr(opt, "miner", None)
-        )
+    def _fetch_modalities(self, opt):
+        """Search for supported modalities in the compact format config."""
+        modalities = []
+        for o, v in opt.items():
+            name = str(o).lower()
+            if name in MODALITY_NAMES:
+                if getattr(v, "down_conv_nn", None) is not None and getattr(v, "merge", None) is not None:
+                    # Check the modality config has expected format
+                    modalities.append(name)
+        return modalities
 
     def _get_factory(self, model_name, modules_lib):
         factory_module_cls = getattr(modules_lib, "{}Factory".format(model_name), None)
@@ -461,18 +546,20 @@ class UnwrappedUnetBasedModel(BaseModel):
                 args[name] = v
         return args
 
-    def _fetch_arguments(self, conv_opt, index, flow):
-        """ Fetches arguments for building a convolution (up or down)
+    def _build_module(self, conv_opt, index, flow='DOWN', modality='main'):
+        """Builds a convolution (up or down) or a merge block in the case of
+        multimodal models.
 
         Arguments:
-            conv_opt
-            index in sequential order (as they come in the config)
-            flow "UP" or "DOWN"
+            conv_opt - model config subset describing the convolutional block
+            index - layer index in sequential order (as they come in the config)
+            flow - "UP" or "DOWN" or "MERGE"
+            modality - string among supported modalities
         """
         args = self._fetch_arguments_from_list(conv_opt, index)
-        args["conv_cls"] = self._factory_module.get_module(flow)
         args["index"] = index
-        return args
+        module = self._module_factories[modality].get_module(flow)
+        return module(**args)
 
     def _flatten_compact_options(self, opt):
         """Converts from a dict of lists, to a list of dicts
@@ -499,6 +586,8 @@ class UnwrappedUnetBasedModel(BaseModel):
         precomputed_up: torch.geometric.Data
             Precomputed data that will be passed to the up convs
         """
+        # TODO : edit this to handle multimodal data. Should mm_data hold everything
+        #  or should we explicitly call what we need in the input and outputs of forward ?
         stack_down = []
         for i in range(len(self.down_modules) - 1):
             data = self.down_modules[i](data, precomputed=precomputed_down)

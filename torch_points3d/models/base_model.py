@@ -62,6 +62,7 @@ class BaseModel(torch.nn.Module, TrackerInterface, DatasetInterface, CheckpointI
         self._grad_clip = -1
         self._update_lr_scheduler_on = "on_epoch"
         self._update_bn_scheduler_on = "on_epoch"
+        self._modalities = []
 
     @property
     def schedulers(self):
@@ -126,6 +127,10 @@ class BaseModel(torch.nn.Module, TrackerInterface, DatasetInterface, CheckpointI
     @conv_type.setter
     def conv_type(self, conv_type):
         self._conv_type = conv_type
+
+    @property
+    def is_multimodal(self):
+        return len(self._modalities) > 0
 
     def set_input(self, input, device):
         """Unpack input data from the dataloader and perform necessary pre-processing steps.

@@ -4,6 +4,7 @@ from torch_geometric.data import Data
 from torch_points3d.core.data_transform import SphereSampling
 from torch_points3d.datasets.multimodal.image import ImageData
 from torch_points3d.datasets.multimodal.forward_star import ForwardStar
+import torchvision.transforms as T
 from .projection import compute_index_map
 from tqdm.auto import tqdm as tq
 
@@ -14,7 +15,7 @@ allowing for multimodal transform composition : __call(data, images, mappings)__
 """
 
 
-class NonStaticImageMask(object):
+class NonStaticImageMask:
     """
     Transform-like structure. Find the mask of identical pixels across a list
     of images.
@@ -50,10 +51,9 @@ class NonStaticImageMask(object):
     def __repr__(self):
         return self.__class__.__name__
 
+#-------------------------------------------------------------------------------
 
-# -------------------------------------------------------------------------------
-
-class PointImagePixelMapping(object):
+class PointImagePixelMapping:
     """
     Transform-like structure. Computes the mappings between individual 3D points
     and image pixels. Point mappings are identified based on the self.key point
@@ -250,10 +250,9 @@ point-image-pixel mapping before re-running this transformation.")
     def __repr__(self):
         return self.__class__.__name__
 
+#-------------------------------------------------------------------------------
 
-# -------------------------------------------------------------------------------
-
-class PointImagePixelMappingFromId(object):
+class PointImagePixelMappingFromId:
     """
     Transform-like structure. Intended to be called on _datas and _images_datas.
 
@@ -324,3 +323,53 @@ class PointImagePixelMappingFromId(object):
 
     def __repr__(self):
         return self.__class__.__name__
+
+#-------------------------------------------------------------------------------
+
+class TorchvisionTransform:
+    """Torchvision-based transform on the images"""
+    def __init__(self):
+        raise NotImplementedError
+
+    def __call__(self, data, images, mappings):
+        images.x = self.transform(images.x)
+        return data, images, mappings
+
+    def __repr__(self):
+        return self.transform.__repr__()
+
+#-------------------------------------------------------------------------------
+
+class ColorJitter(TorchvisionTransform):
+    """Randomly change the brightness, contrast and saturation of an image."""
+
+    def __init__(self, brightness=0, contrast=0, saturation=0, hue=0):
+        self.brightness = brightness
+        self.contrast = contrast
+        self.saturation = saturation
+        self.hue = hue
+        self.transform = T.ColorJitter(brightness=brightness, contrast=contrast, saturation=saturation, hue=hue)
+
+#-------------------------------------------------------------------------------
+
+class RandomHorizontalFlip(TorchvisionTransform):
+    """Horizontally flip the given image randomly with a given probability."""
+
+    def __init__(self, p=0.50):
+        self.p = p
+        self.transform = T.RandomHorizontalFlip(p=p)
+
+#-------------------------------------------------------------------------------
+
+class GaussianBlur(TorchvisionTransform):
+    """Blurs image with randomly chosen Gaussian blur."""
+
+    def __init__(self, kernel_size=10, sigma=(0.1, 2.0)):
+        self.kernel_size = kernel_size
+        self.sigma = sigma
+        self.transform = T.GaussianBlur(kernel_size, sigma=sigma)
+
+# TODO : add invertible transforms from https://github.com/gregunz/invertransforms
+#  or modify the mappings when applying the geometric transforms.
+#  WARNING : if the image undergoes geometric transform, this may cause problems when
+#  doing image wrapping or in EquiConv. IDEA : spherical image rotation for augmentation
