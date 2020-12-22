@@ -381,7 +381,7 @@ class UnwrappedUnetBasedModel(BaseModel):
         """
 
         # Check if one of the supported modalities is present in the config
-        self._modalities = self._fetch_modalities(self, opt)
+        self._modalities = self._fetch_modalities(opt)
 
         self.save_sampling_id = opt.down_conv.save_sampling_id
 

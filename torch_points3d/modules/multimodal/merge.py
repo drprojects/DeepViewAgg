@@ -5,7 +5,7 @@ from .pooling import BimodalPool
 
 
 class BimodalMerge(nn.Module):
-    """Bimodal
+    """Bimodal pooling followed by bimodal fusion.
     Input
         X - 3D features [BxN, Cin]
         Xmod - features from modality
@@ -13,12 +13,17 @@ class BimodalMerge(nn.Module):
 
     Output
         X - merged features [BxN, Cout]
+
+    IMPORTANT: the order of 3D points in the main modality is expected to
+    match that of the indexes in the mappings. Any update of the mappings
+    following a reindexing, reordering or sampling of the 3D points must be
+    performed prior to the multimodal pooling.
     """
-    def __init__(self, fusion='residual', aggregation=None, **kwargs):
-        # TODO : parse opt to get the aggregation and fusion parameters
-        self.fusion = BimodalFusion(fusion)
-        self.aggregation = aggregation
+    def __init__(self, **kwargs):
+        self.pooling = BimodalPool(**kwargs)
+        self.fusion = BimodalFusion(**kwargs)
 
-
-    def forward(self, mm_data):
-        raise NotImplementedError
+    def forward(self, x_main, x_mod, mappings):
+        x_agg = self.poling(x_main, x_mod, mappings)
+        x_main = self.fusion(x_main, x_agg)
+        return x_main, x_mod, mappings

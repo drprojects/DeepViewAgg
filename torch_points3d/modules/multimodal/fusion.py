@@ -11,8 +11,8 @@ class BimodalFusion(nn.Module):
         assert mode in self.MODES, 'Unknown fusion mode: {mode}'
         self.mode = mode
 
-    def forward(self, X_main, X_mod):
+    def forward(self, x_main, x_mod):
         if self.mode == 'residual':
-            return X_main + X_mod
+            return x_main + x_mod
         elif self.mode == 'concatenation':
-            return torch.cat((X_main, X_mod), dim=-1)
+            return torch.cat((x_main, x_mod), dim=-1)

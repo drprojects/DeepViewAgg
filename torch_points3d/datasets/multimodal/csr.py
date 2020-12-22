@@ -1,8 +1,9 @@
 import numpy as np
 from numba import njit
+import torch
 
 """
-Forward Star format
+CSR format
 
 This format is adapted to store lists of lists of items in an array format. 
 
@@ -15,44 +16,45 @@ List(List(Items))[i].
 
 NB : by convention Jumps[0] = 0, to facilitate manipulation.
 
-When electing items from the Forward Star format, special attention must be 
-given to re-indexing and ordering.
+When selecting items from the CSR format, special attention must be given to 
+re-indexing and ordering.
 """
 
+# TODO : all torch, no NUMPY
 # TODO : better naming convention, rather than CSR
 # TODO : modality-specific mappings (pixels, features, batching, resolution updates)
 # TODO : mappings must also carry projection features
 # TODO : mapping updates: main resolution resampling from idx, modality resampling from res ratio.
 #  Expand to modality-specific
 
-class ForwardStar(object):
+class CSRData(object):
     """
-    Implements the ForwardStar format and associated mechanisms in Numpy.
+    Implements the CSRData format and associated mechanisms in Torch.
     """
 
-    def __init__(self, jumps, *args, dense=False, is_index_value=None):
+    def __init__(self, jumps: torch.LongTensor, *args, dense=False, is_index_value=None):
         """
         Initialize the jumps and values.
 
         Values are passed as args and stored in a list. They are expected to all
         have the same size and support numpy array indexing (i.e. they can be 
-        numpy arrays or ForwardStar objects themselves).
+        numpy arrays or CSRData objects themselves).
 
-        If dense=True, jumps are treated as a dense array of indices to be 
+        If `dense=True`, jumps are treated as a dense array of indices to be
         converted into jump indices. 
 
-        Optionnally, a list of booleans is_index_value can be passed. It must 
+        Optionally, a list of booleans `is_index_value` can be passed. It must
         be the same size as *args and indicates, for each value, whether it 
         holds elements that should be treated as indices when stacking 
-        ForwardStar objects into a ForwardStarBatch. If so, the indices will be 
+        CSRData objects into a CSRDataBatch. If so, the indices will be
         updated wrt the cumulative size of the batched values.
         """
-        self.jumps = ForwardStar.indices_to_jumps(jumps) if dense else jumps
+        self.jumps = CSRData.sorted_indices_to_jumps(jumps) if dense else jumps
         self.values = [*args] if len(args) > 0 else None
-        if is_index_value is None:
-            self.is_index_value = np.array([False] * self.num_values)
+        if is_index_value is None or is_index_value == []:
+            self.is_index_value = torch.zeros(self.num_values, dtype=torch.bool)
         else:
-            self.is_index_value = np.asarray(is_index_value)
+            self.is_index_value = np.BoolTensor(is_index_value)
         self.debug()
 
     def debug(self):
@@ -60,7 +62,7 @@ class ForwardStar(object):
             "Jump indices must cover at least one group."
         assert self.jumps[0] == 0, \
             "The first jump element must always be 0."
-        assert np.all(self.jumps[1:] - self.jumps[:-1] >= 0), \
+        assert torch.all(self.jumps[1:] - self.jumps[:-1] >= 0), \
             "Jump indices must be increasing."
 
         if self.values is not None:
@@ -71,13 +73,13 @@ class ForwardStar(object):
             assert len(self.values[0]) == self.num_items, \
                 "Jumps must cover the entire range of values."
             for v in self.values:
-                if isinstance(v, ForwardStar):
+                if isinstance(v, CSRData):
                     v.debug()
 
         if self.values is not None and self.is_index_value is not None:
-            assert isinstance(self.is_index_value, np.ndarray), \
+            assert isinstance(self.is_index_value, torch.BoolTensor), \
                 "is_index_value must be a numpy array."
-            assert self.is_index_value.dtype == np.bool, \
+            assert self.is_index_value.dtype == torch.bool, \
                 "is_index_value must be an array of booleans."
             assert self.is_index_value.ndim == 1, \
                 "is_index_value must be a 1D array."
@@ -97,18 +99,18 @@ class ForwardStar(object):
         return self.jumps[-1]
 
     @staticmethod
-    def indices_to_jumps(indices):
+    def sorted_indices_to_jumps(indices):
         """
-        Convert dense format to forward star. Indices are assumed to be ALREADY
+        Convert sorted dense format to CSR format. Indices are assumed to be ALREADY
         SORTED, if sorting is necessary.  
         """
         assert len(indices.shape) == 1, "Only 1D indices are accepted."
         assert indices.shape[0] >= 1, "At least one group index is required."
-        return ForwardStar.indices_to_jumps_numba(indices)
+        return torch.from_numpy(CSRData.sorted_indices_to_jumps_numba(np.asarray(indices)))
 
     @staticmethod
     @njit
-    def indices_to_jumps_numba(indices):
+    def sorted_indices_to_jumps_numba(indices):
         # Compute the jumps
         idx_previous = indices[0]
         jumps = [0]
@@ -161,14 +163,14 @@ class ForwardStar(object):
         group_indices = np.asarray(group_indices)
         assert self.num_groups == group_indices.shape[0], ("New group indices must correspond to ",
                                                            "the existing number of groups")
-        assert ForwardStar.is_sorted(group_indices), "New group indices must be sorted."
+        assert CSRData.is_sorted(group_indices), "New group indices must be sorted."
 
         if num_groups is not None:
             num_groups = max(group_indices.max() + 1, num_groups)
         else:
             num_groups = group_indices.max() + 1
 
-        self.jumps = ForwardStar.insert_empty_groups_numba(self.jumps, group_indices, num_groups)
+        self.jumps = CSRData.insert_empty_groups_numba(self.jumps, group_indices, num_groups)
 
     @staticmethod
     @njit
@@ -199,7 +201,7 @@ class ForwardStar(object):
         be used to update any values array associated with the input jumps.   
         """
         assert indices.max() <= jumps.shape[0] - 2
-        jumps_updated, val_indices = ForwardStar.index_select_jumps_numba(jumps, indices)
+        jumps_updated, val_indices = CSRData.index_select_jumps_numba(jumps, indices)
         return jumps_updated, np.concatenate(val_indices)
 
     @staticmethod
@@ -214,22 +216,22 @@ class ForwardStar(object):
 
     def __getitem__(self, idx):
         """
-        Indexing ForwardStar format. Supports Numpy indexing mechanisms.
+        Indexing CSRData format. Supports Numpy indexing mechanisms.
 
-        Return a new ForwardStar object with updated jumps and values.
+        Return a new CSRData object with updated jumps and values.
         """
         if isinstance(idx, int):
             idx = np.array([idx])
         idx = np.asarray(idx)
-        assert idx.dtype == np.int, "ForwardStar only supports int and numpy array indexing"
+        assert idx.dtype == np.int, "CSRData only supports int and numpy array indexing"
 
-        jumps, val_idx = ForwardStar.index_select_jumps(self.jumps, idx)
+        jumps, val_idx = CSRData.index_select_jumps(self.jumps, idx)
 
         if self.values is not None:
-            return ForwardStar(jumps, *[v[val_idx] for v in self.values], dense=False,
-                               is_index_value=self.is_index_value)
+            return CSRData(jumps, *[v[val_idx] for v in self.values], dense=False,
+                           is_index_value=self.is_index_value)
         else:
-            return ForwardStar(jumps, dense=False)
+            return CSRData(jumps, dense=False)
 
     def __len__(self):
         return self.num_groups
@@ -239,19 +241,19 @@ class ForwardStar(object):
         return f"{self.__class__.__name__}({', '.join(info)})"
 
 
-class ForwardStarBatch(ForwardStar):
+class CSRDataBatch(CSRData):
     """
-    Wrapper class of ForwardStar to build a batch from a list of ForwardStar 
+    Wrapper class of CSRData to build a batch from a list of CSRData
     data and reconstruct it afterwards.  
     """
 
     def __init__(self, jumps, *args, dense=False, is_index_value=None):
         """
-        Basic constructor for a ForwardStarBatch. Batches are rather
+        Basic constructor for a CSRDataBatch. Batches are rather
         intendended to be built using the from_forward_star_list() method.
         """
-        super(ForwardStarBatch, self).__init__(jumps, *args, dense=dense,
-                                               is_index_value=is_index_value)
+        super(CSRDataBatch, self).__init__(jumps, *args, dense=dense,
+                                           is_index_value=is_index_value)
         self.__sizes__ = None
 
     @property
@@ -270,8 +272,8 @@ class ForwardStarBatch(ForwardStar):
     @staticmethod
     def from_forward_star_list(fs_list):
         assert isinstance(fs_list, list) and len(fs_list) > 0
-        assert all([isinstance(fs, ForwardStar) for fs in fs_list]), \
-            "All provided items must be ForwardStar objects."
+        assert all([isinstance(fs, CSRData) for fs in fs_list]), \
+            "All provided items must be CSRData objects."
         for fs in fs_list:
             fs.debug()
 
@@ -301,8 +303,8 @@ class ForwardStarBatch(ForwardStar):
         values = []
         for i in range(num_values):
             val_list = [fs.values[i] for fs in fs_list]
-            if isinstance(fs_list[0].values[i], ForwardStar):
-                val = ForwardStarBatch.from_forward_star_list(val_list)
+            if isinstance(fs_list[0].values[i], CSRData):
+                val = CSRDataBatch.from_forward_star_list(val_list)
             elif is_index_value[i]:
                 # Index values are stacked with updated indices.
                 # For mappings, this implies all elements designed by the
@@ -314,16 +316,16 @@ class ForwardStarBatch(ForwardStar):
                 val = np.concatenate(val_list)
             values.append(val)
 
-        # Create the ForwardStarBatch
-        batch = ForwardStarBatch(jumps, *values, dense=False, is_index_value=is_index_value)
+        # Create the CSRDataBatch
+        batch = CSRDataBatch(jumps, *values, dense=False, is_index_value=is_index_value)
         batch.__sizes__ = np.array([fs.num_groups for fs in fs_list])
 
         return batch
 
     def to_forward_star_list(self):
         if self.__sizes__ is None:
-            raise RuntimeError(('Cannot reconstruct ForwardStar data list from batch because the ',
-                                'batch object was not created using `ForwardStarBatch.from_forward_star_list()`.'))
+            raise RuntimeError(('Cannot reconstruct CSRData data list from batch because the ',
+                                'batch object was not created using `CSRDataBatch.from_forward_star_list()`.'))
 
         group_jumps = self.batch_jumps
         item_jumps = self.jumps[group_jumps]
@@ -335,7 +337,7 @@ class ForwardStarBatch(ForwardStar):
         values = []
         for i in range(self.num_values):
             batch_value = self.values[i]
-            if isinstance(batch_value, ForwardStar):
+            if isinstance(batch_value, CSRData):
                 val = batch_value.to_forward_star_list()
             elif self.is_index_value[i]:
                 val = [batch_value[item_jumps[j]:item_jumps[j + 1]]
@@ -347,7 +349,28 @@ class ForwardStarBatch(ForwardStar):
             values.append(val)
         values = [list(x) for x in zip(*values)]
 
-        fs_list = [ForwardStar(j, *v, dense=False, is_index_value=self.is_index_value)
+        fs_list = [CSRData(j, *v, dense=False, is_index_value=self.is_index_value)
                    for j, v in zip(jumps, values)]
 
         return fs_list
+
+"""
+import torch
+from torch_points3d.datasets.multimodal.csr import CSRData, CSRDataBatch
+
+n_groups = 3
+n_items = 30
+n_items_nested = 100
+indices = torch.sort(torch.randint(0, size=(n_items,), high=n_groups))[0]
+
+CSRData.sorted_indices_to_jumps(indices)
+
+CSRData(indices, dense=True)
+
+float_values = torch.rand(n_items)
+
+indices_nested = torch.sort(torch.randint(0, size=(n_items_nested,), high=n_items))[0]
+csr_nested = CSRData(indices_nested, dense=True)
+
+CSRData(indices, float_values, csr_nested, dense=True)
+"""

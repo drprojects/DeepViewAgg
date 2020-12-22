@@ -1,5 +1,6 @@
 import torch.nn as nn
 from torch_points3d.datasets.multimodal.data import MODALITY_NAMES
+from torch_points3d.core.common_modules.base_modules import Identity
 
 
 class MultimodalBlockDown(nn.Module):
@@ -16,12 +17,18 @@ class MultimodalBlockDown(nn.Module):
                       ...
     """
     def __init__(self, down_block, conv_block, **kwargs):
+        """Build the Multimodal module from already-instantiated modules.
+        Modality-specific modules are expected to be passed in dictionaries
+        holding the conv and merge modules under 'conv' and 'merge' keys.
+        """
         # BaseModule initialization
         super().__init__()
 
-        # Blocks for the implicitly main modality : 3D
-        self.down_block = down_block
-        self.conv_block = conv_block
+        # Blocks for the implicitly main modality: 3D
+        self.down_block = down_block if down_block is not None else Identity
+        self.conv_block = conv_block if conv_block is not None else Identity
+        # TODO get the 3D conv type and set input from the down module ?
+        # TODO get the 3D sampling from the down module ?
 
         # Initialize the dict holding the conv and merge blocks for all modalities
         self.modality_blocks = {}
@@ -44,7 +51,7 @@ class MultimodalBlockDown(nn.Module):
                 elif 'merge' not in kwargs[m].keys():
                     raise ValueError(f"Modality '{m}' requires a 'merge' module.")
                 else:
-                   self.modality_blocks[m] = kwargs[m]
+                    self.modality_blocks[m] = kwargs[m]
 
     @property
     def modalities(self):
@@ -61,9 +68,11 @@ class MultimodalBlockDown(nn.Module):
 
         for m in self.modalities:
             # Update mappings after the 3D down conv
-            # TODO : recover sampling indices and update mappings based on the 3D downconv
-            # TODO : where should the mapping update function be ?
-            #mm_data.modalities[m].mappings = update_mappings(mm_data)
+            # TODO : recover sampling indices and update mappings based on the 3D downconv. KpConv uses GridSampling3D,
+            #  PointNet++ uses FPS sampler, SparseConv uses strides, ... Not uniform. Should store sampling idx in the
+            #  conv module after sampling ?
+            # TODO : where should the mapping update function be ? -> Carried by the Mapping class.
+            mm_data.modalities[m].mappings = update_mappings(mm_data)
 
             # Conv on the modality-specific data
             mm_data.modalities[m].data = self.modality_blocks[m]['conv'](mm_data.modalities[m].data)
@@ -71,7 +80,7 @@ class MultimodalBlockDown(nn.Module):
             # Update mappings after modality conv
             # TODO : update mappings after modality conv
             # TODO : where should the mapping update function be ?
-            #mm_data.modalities[m].mappings = update_mappings(mm_data)
+            mm_data.modalities[m].mappings = update_mappings(mm_data)
 
             # Merge the modality into the main 3D features
             # TODO : create merge blocks class. Are they modality-specific ?
