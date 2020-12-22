@@ -4,6 +4,8 @@ from PIL import Image
 import torch
 
 
+# TODO Hold loaded images in the ImageData ?
+# TODO if so, will ImageBatch must recover the proper indices ?
 
 class ImageData(object):
     """
@@ -29,21 +31,20 @@ class ImageData(object):
     """
 
     _keys = ['path', 'pos', 'opk', 'img_size', 'mask', 'map_size_high', 'map_size_low', 'crop_top',
-        'crop_bottom', 'voxel', 'r_max', 'r_min', 'growth_k', 'growth_r']
+             'crop_bottom', 'voxel', 'r_max', 'r_min', 'growth_k', 'growth_r']
     _numpy_keys = ['path']
     _torch_keys = ['pos', 'opk']
     _array_keys = _numpy_keys + _torch_keys
     _shared_keys = list(set(_keys) - set(_array_keys))
 
-
-    def __init__(self, path=np.empty(0, dtype='O'), pos=torch.empty([0,3]), opk=torch.empty([0,3]),
-            mask=None, img_size=(2048, 1024), map_size_high=(2048, 1024), map_size_low=(512, 256),
-            crop_top=0, crop_bottom=0, voxel=0.1, r_max=30, r_min=0.5, growth_k=0.2, growth_r=10,
-            **kwargs
-        ):
+    def __init__(self, path=np.empty(0, dtype='O'), pos=torch.empty([0, 3]), opk=torch.empty([0, 3]),
+                 mask=None, img_size=(2048, 1024), map_size_high=(2048, 1024), map_size_low=(512, 256),
+                 crop_top=0, crop_bottom=0, voxel=0.1, r_max=30, r_min=0.5, growth_k=0.2, growth_r=10,
+                 **kwargs
+                 ):
 
         assert path.shape[0] == pos.shape[0] and path.shape[0] == opk.shape[0], (f"Attributes ",
-            "'path', 'pos' and 'opk' must have the same length.")
+                                                                                 "'path', 'pos' and 'opk' must have the same length.")
 
         self.path = np.array(path)
         self.pos = pos.double()
@@ -60,20 +61,16 @@ class ImageData(object):
         self.growth_k = growth_k
         self.growth_r = growth_r
 
-
     def to_dict(self):
         return {key: getattr(self, key) for key in self._keys}
 
-
     @property
     def num_images(self):
-        return self.pos.shape[0] 
-
+        return self.pos.shape[0]
 
     @property
     def map_size_low(self):
-        return self.__map_size_low__ 
-
+        return self.__map_size_low__
 
     @map_size_low.setter
     def map_size_low(self, map_size_low):
@@ -84,7 +81,6 @@ class ImageData(object):
             if torch.iinfo(dtype).max >= max(self.map_size_low[0], self.map_size_low[1]):
                 break
         self.map_dtype = dtype
-
 
     def read_images(self, idx=None, size=None):
         """Read images and batch them into a tensor of size BxCxHxW."""
@@ -103,13 +99,11 @@ class ImageData(object):
             np.array(Image.open(path).convert('RGB').resize(size, Image.LANCZOS))
             for path in self.path[idx]
         ])).permute(0, 3, 1, 2)
-        
 
     def coarsen_coordinates(self, pixel_coordinates):
         """Convert pixel coordinates from high to low resolution."""
         ratio = self.map_size_low[0] / self.map_size_high[0]
         return torch.floor(torch.Tensor(pixel_coordinates) * ratio).type(self.map_dtype)
-
 
     def non_static_pixel_mask(self, size=None, n_sample=5):
         """
@@ -134,16 +128,13 @@ class ImageData(object):
 
         return mask
 
-
     def clone(self):
         """Returns a copy of the instance."""
         return self[np.arange(len(self))]
 
-
     def __len__(self):
         """Returns the number of images present."""
         return self.num_images
-
 
     def __getitem__(self, idx):
         """
@@ -172,19 +163,18 @@ class ImageData(object):
             path=self.path[idx_numpy].copy(),
             pos=self.pos[idx_torch].clone(),
             opk=self.opk[idx_torch].clone(),
-            mask=self.mask.clone() if self.mask is not None else self.mask, 
+            mask=self.mask.clone() if self.mask is not None else self.mask,
             img_size=copy.deepcopy(self.img_size),
             map_size_high=copy.deepcopy(self.map_size_high),
-            map_size_low=copy.deepcopy(self.map_size_low), 
-            crop_top=copy.deepcopy(self.crop_top), 
-            crop_bottom=copy.deepcopy(self.crop_bottom), 
-            voxel=copy.deepcopy(self.voxel), 
-            r_max=copy.deepcopy(self.r_max), 
-            r_min=copy.deepcopy(self.r_min),            
-            growth_k=copy.deepcopy(self.growth_k), 
+            map_size_low=copy.deepcopy(self.map_size_low),
+            crop_top=copy.deepcopy(self.crop_top),
+            crop_bottom=copy.deepcopy(self.crop_bottom),
+            voxel=copy.deepcopy(self.voxel),
+            r_max=copy.deepcopy(self.r_max),
+            r_min=copy.deepcopy(self.r_min),
+            growth_k=copy.deepcopy(self.growth_k),
             growth_r=copy.deepcopy(self.growth_r)
         )
-
 
     def __iter__(self):
         """
@@ -196,10 +186,8 @@ class ImageData(object):
         for i in range(self.__len__()):
             yield self[i]
 
-
     def __repr__(self):
         return f"{self.__class__.__name__}(num_images={self.num_images}, device={self.device})"
-
 
     def to(self, device):
         """Set torch.Tensor attribute device."""
@@ -208,17 +196,15 @@ class ImageData(object):
         self.mask = self.mask.to(device) if self.mask is not None else self.mask
         return self
 
-
     @property
     def device(self):
         """Get the device of the torch.Tensor attributes."""
         assert self.pos.device == self.opk.device, (f"Discrepancy in the devices of 'pos' and ",
-            "'opk' attributes. Please use `ImageData.to()` to set the device.")
+                                                    "'opk' attributes. Please use `ImageData.to()` to set the device.")
         if self.mask is not None:
             assert self.pos.device == self.mask.device, (f"Discrepancy in the devices of 'pos' ",
-                "and 'mask' attributes. Please use `ImageData.to()` to set the device.")
+                                                         "and 'mask' attributes. Please use `ImageData.to()` to set the device.")
         return self.pos.device
-
 
 
 class ImageBatch(ImageData):
@@ -231,22 +217,18 @@ class ImageBatch(ImageData):
         super(ImageBatch, self).__init__(**kwargs)
         self.__sizes__ = None
 
-
     @property
     def batch_jumps(self):
         return np.cumsum(np.concatenate(([0], self.__sizes__))) if self.__sizes__ is not None \
             else None
 
-
     @property
     def batch_items_sizes(self):
         return self.__sizes__ if self.__sizes__ is not None else None
 
-
     @property
     def num_batch_items(self):
         return len(self.__sizes__) if self.__sizes__ is not None else None
-
 
     @staticmethod
     def from_image_data_list(image_data_list):
@@ -259,19 +241,24 @@ class ImageBatch(ImageData):
         for key in ImageData._array_keys:
             batch_dict[key] = [batch_dict[key]]
 
-        # Only stack if all ImageData have the same shared attributes
+        # Only stack if all ImageData have the same shared attributes, except
+        # for the 'mask' attribute, for which the value of the first ImageData
+        # is taken for the whole batch. This is because masks may differ
+        # slightly when computed statistically with NonStaticImageMask.
         if len(image_data_list) > 1:
             for image_data in image_data_list[1:]:
-                
+
                 image_dict = image_data.to_dict()
 
                 for key, value in [(k, v) for (k, v) in image_dict.items()
-                        if k in ImageData._shared_keys]:
-                    assert batch_dict[key] == value, ("All ImageData values for shared keys ",
-                        f"{ImageData._shared_keys} must be the same.")
+                                   if k in ImageData._shared_keys]:
+                    if key != 'mask':
+                        assert batch_dict[key] == value, \
+                            (f"All ImageData values for shared keys {ImageData._shared_keys} ",
+                             "must be the same (except for the 'mask').")
 
                 for key, value in [(k, v) for (k, v) in image_dict.items()
-                        if k in ImageData._array_keys]:
+                                   if k in ImageData._array_keys]:
                     batch_dict[key] += [value]
                 sizes.append(image_data.num_images)
 
@@ -288,11 +275,10 @@ class ImageBatch(ImageData):
 
         return batch
 
-
     def to_image_data_list(self):
         if self.__sizes__ is None:
             raise RuntimeError(('Cannot reconstruct image data list from batch because the batch ',
-                'object was not created using `ImageBatch.from_image_data_list()`.'))
+                                'object was not created using `ImageBatch.from_image_data_list()`.'))
 
         batch_jumps = self.batch_jumps
-        return [self[batch_jumps[i]:batch_jumps[i+1]] for i in range(self.num_batch_items)]
+        return [self[batch_jumps[i]:batch_jumps[i + 1]] for i in range(self.num_batch_items)]

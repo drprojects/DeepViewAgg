@@ -5,12 +5,12 @@ import torch
 """
 CSR format
 
-This format is adapted to store lists of lists of items in an array format. 
+This format is adapted to store lists of lists of items in a tensor format. 
 
 Rather than manipulating lists of items of variable size, we stack all items in 
-a large Value array and keep track of the initial groupings with a Jump array.
+a large Value tensor and keep track of the initial groupings with a Jump tensor.
 
-The Jump array holds the indices where to slice the Value array to recover the
+The Jump tensor holds the indices where to slice the Value tensor to recover the
 initial list of lists. Values[Jump[i]:Jump[i+1]] will return the
 List(List(Items))[i].
 
@@ -18,10 +18,26 @@ NB : by convention Jumps[0] = 0, to facilitate manipulation.
 
 When selecting items from the CSR format, special attention must be given to 
 re-indexing and ordering.
+
+
+Example
+-------
+import torch
+from torch_points3d.datasets.multimodal.csr import CSRData, CSRDataBatch
+
+n_groups = 3
+n_items = 12
+n_items_nested = 1000
+
+indices = torch.sort(torch.randint(0, size=(n_items,), high=n_groups))[0]
+float_values = torch.rand(n_items)
+indices_nested = torch.sort(torch.randint(0, size=(n_items_nested,), high=n_items))[0]
+csr_nested = CSRData(indices_nested, dense=True)
+
+CSRData(indices, float_values, csr_nested, dense=True)
 """
 
-# TODO : all torch, no NUMPY
-# TODO : better naming convention, rather than CSR
+
 # TODO : modality-specific mappings (pixels, features, batching, resolution updates)
 # TODO : mappings must also carry projection features
 # TODO : mapping updates: main resolution resampling from idx, modality resampling from res ratio.
@@ -37,10 +53,10 @@ class CSRData(object):
         Initialize the jumps and values.
 
         Values are passed as args and stored in a list. They are expected to all
-        have the same size and support numpy array indexing (i.e. they can be 
-        numpy arrays or CSRData objects themselves).
+        have the same size and support torch tensor indexing (i.e. they can be
+        torch tensor or CSRData objects themselves).
 
-        If `dense=True`, jumps are treated as a dense array of indices to be
+        If `dense=True`, jumps are treated as a dense tensor of indices to be
         converted into jump indices. 
 
         Optionally, a list of booleans `is_index_value` can be passed. It must
@@ -49,12 +65,12 @@ class CSRData(object):
         CSRData objects into a CSRDataBatch. If so, the indices will be
         updated wrt the cumulative size of the batched values.
         """
-        self.jumps = CSRData.sorted_indices_to_jumps(jumps) if dense else jumps
+        self.jumps = CSRData._sorted_indices_to_jumps(jumps) if dense else jumps
         self.values = [*args] if len(args) > 0 else None
         if is_index_value is None or is_index_value == []:
             self.is_index_value = torch.zeros(self.num_values, dtype=torch.bool)
         else:
-            self.is_index_value = np.BoolTensor(is_index_value)
+            self.is_index_value = torch.BoolTensor(is_index_value)
         self.debug()
 
     def debug(self):
@@ -78,13 +94,13 @@ class CSRData(object):
 
         if self.values is not None and self.is_index_value is not None:
             assert isinstance(self.is_index_value, torch.BoolTensor), \
-                "is_index_value must be a numpy array."
+                "is_index_value must be a torch.BoolTensor."
             assert self.is_index_value.dtype == torch.bool, \
-                "is_index_value must be an array of booleans."
+                "is_index_value must be an tensor of booleans."
             assert self.is_index_value.ndim == 1, \
-                "is_index_value must be a 1D array."
-            assert self.is_index_value.size == self.num_values, \
-                "is_index_value size must match the number of value arrays."
+                "is_index_value must be a 1D tensor."
+            assert self.is_index_value.shape[0] == self.num_values, \
+                "is_index_value size must match the number of value tensors."
 
     @property
     def num_groups(self):
@@ -99,18 +115,18 @@ class CSRData(object):
         return self.jumps[-1]
 
     @staticmethod
-    def sorted_indices_to_jumps(indices):
+    def _sorted_indices_to_jumps(indices):
         """
-        Convert sorted dense format to CSR format. Indices are assumed to be ALREADY
-        SORTED, if sorting is necessary.  
+        Convert pre-sorted dense indices to CSR format.
         """
         assert len(indices.shape) == 1, "Only 1D indices are accepted."
         assert indices.shape[0] >= 1, "At least one group index is required."
-        return torch.from_numpy(CSRData.sorted_indices_to_jumps_numba(np.asarray(indices)))
+        assert CSRData._is_sorted_numba(np.asarray(indices)), "Indices must be sorted in increasing order."
+        return torch.from_numpy(CSRData._sorted_indices_to_jumps_numba(np.asarray(indices)))
 
     @staticmethod
     @njit
-    def sorted_indices_to_jumps_numba(indices):
+    def _sorted_indices_to_jumps_numba(indices: np.ndarray):
         # Compute the jumps
         idx_previous = indices[0]
         jumps = [0]
@@ -124,7 +140,7 @@ class CSRData(object):
 
         return np.asarray(jumps)
 
-    def reindex_groups(self, group_indices, num_groups=None):
+    def reindex_groups(self, group_indices: torch.LongTensor, num_groups=None):
         """
         Returns a copy of self with modified jumps to account for new groups.
         Affects the num_groups and the order of groups. Injects 0-length jumps 
@@ -135,46 +151,45 @@ class CSRData(object):
 
         Here we provide new group_indices for the existing jumps, with 
         group_indices[i] corresponding to the position of existing group i in 
-        the new array. The indices missing from group_indices account for empty 
+        the new tensor. The indices missing from group_indices account for empty
         groups to be injected.
 
-        The num_groups specifies the number of groups in the new array. If not
+        The num_groups specifies the number of groups in the new tensor. If not
         provided, it is inferred from the size of group_indices. 
         """
-        group_indices = np.asarray(group_indices)
-        order = np.argsort(group_indices)
+        order = torch.argsort(group_indices)
 
-        fs_new = self[order]
-        fs_new.__insert_empty_groups(group_indices[order], num_groups=num_groups)
-        return fs_new
+        csr_new = self[order]
+        csr_new._insert_empty_groups(group_indices[order], num_groups=num_groups)
+        return csr_new
 
-    def __insert_empty_groups(self, group_indices, num_groups=None):
+    def _insert_empty_groups(self, group_indices: torch.LongTensor, num_groups=None):
         """
         Private method called when in-place reindexing groups.
 
         The group_indices are assumed to be sorted and group_indices[i] 
-        corresponds to the position of existing group i in the new array. The 
+        corresponds to the position of existing group i in the new tensor. The
         indices missing from group_indices correspond to empty groups to be 
         injected.
 
-        The num_groups specifies the number of groups in the new array. If not
+        The num_groups specifies the number of groups in the new tensor. If not
         provided, it is inferred from the size of group_indices. 
         """
-        group_indices = np.asarray(group_indices)
-        assert self.num_groups == group_indices.shape[0], ("New group indices must correspond to ",
-                                                           "the existing number of groups")
-        assert CSRData.is_sorted(group_indices), "New group indices must be sorted."
+        assert self.num_groups == group_indices.shape[0], \
+            "New group indices must correspond to the existing number of groups"
+        assert CSRData._is_sorted_numba(group_indices), "New group indices must be sorted."
 
         if num_groups is not None:
             num_groups = max(group_indices.max() + 1, num_groups)
         else:
             num_groups = group_indices.max() + 1
 
-        self.jumps = CSRData.insert_empty_groups_numba(self.jumps, group_indices, num_groups)
+        self.jumps = torch.from_numpy(CSRData._insert_empty_groups_numba(
+            np.asarray(self.jumps), np.asarray(group_indices), num_groups))
 
     @staticmethod
     @njit
-    def insert_empty_groups_numba(jumps, group_indices, num_groups):
+    def _insert_empty_groups_numba(jumps: np.ndarray, group_indices: np.ndarray, num_groups):
         jumps_expanded = np.zeros(num_groups + 1, dtype=group_indices.dtype)
         jumps_expanded[group_indices + 1] = jumps[1:]
         jump_previous = 0
@@ -186,31 +201,31 @@ class CSRData(object):
 
     @staticmethod
     @njit
-    def is_sorted(a):
+    def _is_sorted_numba(a: np.ndarray):
         for i in range(a.size - 1):
             if a[i + 1] < a[i]:
                 return False
         return True
 
     @staticmethod
-    def index_select_jumps(jumps, indices):
+    def _index_select_jumps(jumps: torch.LongTensor, indices: torch.LongTensor):
         """
         Index selection of jumps. 
 
-        Returns a new jump array with updated jumps, along with an indices array to
-        be used to update any values array associated with the input jumps.   
+        Returns a new jump tensor with updated jumps, along with an indices tensor to
+        be used to update any values tensor associated with the input jumps.
         """
         assert indices.max() <= jumps.shape[0] - 2
-        jumps_updated, val_indices = CSRData.index_select_jumps_numba(jumps, indices)
-        return jumps_updated, np.concatenate(val_indices)
+        jumps_updated, val_indices = CSRData._index_select_jumps_numba(np.asarray(jumps), np.asarray(indices))
+        return torch.from_numpy(jumps_updated), torch.from_numpy(np.concatenate(val_indices))
 
     @staticmethod
     @njit
-    def index_select_jumps_numba(jumps, indices):
+    def _index_select_jumps_numba(jumps: np.ndarray, indices: np.ndarray):
         jumps_selection = np.zeros(indices.shape[0] + 1, dtype=jumps.dtype)
         jumps_selection[1:] = np.cumsum(jumps[indices + 1] - jumps[indices])
         val_indices = [np.arange(jumps[i], jumps[i + 1]) for i in indices]
-        # Can't np.concatenate  the nb.list here for some reason, so we need to 
+        # Can't np.concatenate the nb.list here for some reason, so we need to
         # np.concatenate outside of the @njit scope
         return jumps_selection, val_indices
 
@@ -221,11 +236,12 @@ class CSRData(object):
         Return a new CSRData object with updated jumps and values.
         """
         if isinstance(idx, int):
-            idx = np.array([idx])
-        idx = np.asarray(idx)
-        assert idx.dtype == np.int, "CSRData only supports int and numpy array indexing"
+            idx = torch.LongTensor([idx])
+        elif isinstance(idx, np.ndarray):
+            idx = torch.from_numpy(idx)
+        assert idx.dtype is torch.int64, "CSRData only supports int and torch.LongTensor indexing"
 
-        jumps, val_idx = CSRData.index_select_jumps(self.jumps, idx)
+        jumps, val_idx = CSRData._index_select_jumps(self.jumps, idx)
 
         if self.values is not None:
             return CSRData(jumps, *[v[val_idx] for v in self.values], dense=False,
@@ -250,7 +266,7 @@ class CSRDataBatch(CSRData):
     def __init__(self, jumps, *args, dense=False, is_index_value=None):
         """
         Basic constructor for a CSRDataBatch. Batches are rather
-        intendended to be built using the from_forward_star_list() method.
+        intendended to be built using the from_csr_list() method.
         """
         super(CSRDataBatch, self).__init__(jumps, *args, dense=dense,
                                            is_index_value=is_index_value)
@@ -258,7 +274,7 @@ class CSRDataBatch(CSRData):
 
     @property
     def batch_jumps(self):
-        return np.cumsum(np.concatenate(([0], self.__sizes__))) if self.__sizes__ is not None \
+        return torch.cumsum(np.concatenate(([0], self.__sizes__)), dim=0) if self.__sizes__ is not None \
             else None
 
     @property
@@ -270,62 +286,63 @@ class CSRDataBatch(CSRData):
         return len(self.__sizes__) if self.__sizes__ is not None else 0
 
     @staticmethod
-    def from_forward_star_list(fs_list):
-        assert isinstance(fs_list, list) and len(fs_list) > 0
-        assert all([isinstance(fs, CSRData) for fs in fs_list]), \
+    def from_csr_list(csr_list):
+        assert isinstance(csr_list, list) and len(csr_list) > 0
+        assert all([isinstance(csr, CSRData) for csr in csr_list]), \
             "All provided items must be CSRData objects."
-        for fs in fs_list:
-            fs.debug()
+        for csr in csr_list:
+            csr.debug()
 
-        num_values = fs_list[0].num_values
-        assert all([fs.num_values == num_values for fs in fs_list]), \
+        num_values = csr_list[0].num_values
+        assert all([csr.num_values == num_values for csr in csr_list]), \
             "All provided items must have the same number of values."
 
-        is_index_value = fs_list[0].is_index_value
+        is_index_value = csr_list[0].is_index_value
         if is_index_value is not None:
-            assert all([np.array_equal(fs.is_index_value, is_index_value) for fs in fs_list]), \
+            assert all([np.array_equal(csr.is_index_value, is_index_value) for csr in csr_list]), \
                 "All provided items must have the same is_index_value."
         else:
-            assert all([fs.is_index_value is None for fs in fs_list]), \
+            assert all([csr.is_index_value is None for csr in csr_list]), \
                 "All provided items must have the same is_index_value."
 
-        # Offsets are used to stack jump indices and values identified as 
-        # is_index_value without losing the indexing information they carry
-        offsets = np.cumsum(np.concatenate(([0], [fs.num_items for fs in fs_list[:-1]])))
+        # Offsets are used to stack jump indices and values identified as
+        # "index" value by `is_index_value` without losing the indexing
+        # information they carry.
+        offsets = torch.cumsum(torch.LongTensor([0] + [csr.num_items for csr in csr_list[:-1]]), dim=0)
 
         # Stack jumps
-        jumps = np.concatenate((
-            [0],
-            *[fs.jumps[1:] + offset for fs, offset in zip(fs_list, offsets)],
-        )).astype(np.int)
+        jumps = np.cat((
+            torch.LongTensor([0]),
+            *[csr.jumps[1:] + offset for csr, offset in zip(csr_list, offsets)],
+        ), dim=0)
 
         # Stack values
         values = []
         for i in range(num_values):
-            val_list = [fs.values[i] for fs in fs_list]
-            if isinstance(fs_list[0].values[i], CSRData):
-                val = CSRDataBatch.from_forward_star_list(val_list)
+            val_list = [csr.values[i] for csr in csr_list]
+            if isinstance(csr_list[0].values[i], CSRData):
+                val = CSRDataBatch.from_csr_list(val_list)
             elif is_index_value[i]:
-                # Index values are stacked with updated indices.
+                # "Index" values are stacked with updated indices.
                 # For mappings, this implies all elements designed by the
                 # index_values must be used in. There can be no element outside
                 # of the range of index_values  
-                idx_offsets = np.cumsum(np.concatenate(([0], [v.max() + 1 for v in val_list[:-1]])))
-                val = np.concatenate([v + o for v, o in zip(val_list, idx_offsets)])
+                idx_offsets = torch.cumsum(torch.LongTensor([0] + [v.max() + 1 for v in val_list[:-1]]), dim=0)
+                val = torch.cat([v + o for v, o in zip(val_list, idx_offsets)], dim=0)
             else:
-                val = np.concatenate(val_list)
+                val = torch.cat(val_list, dim=0)
             values.append(val)
 
         # Create the CSRDataBatch
         batch = CSRDataBatch(jumps, *values, dense=False, is_index_value=is_index_value)
-        batch.__sizes__ = np.array([fs.num_groups for fs in fs_list])
+        batch.__sizes__ = torch.LongTensor([csr.num_groups for csr in csr_list])
 
         return batch
 
-    def to_forward_star_list(self):
+    def to_csr_list(self):
         if self.__sizes__ is None:
             raise RuntimeError(('Cannot reconstruct CSRData data list from batch because the ',
-                                'batch object was not created using `CSRDataBatch.from_forward_star_list()`.'))
+                                'batch object was not created using `CSRDataBatch.from_csr_list()`.'))
 
         group_jumps = self.batch_jumps
         item_jumps = self.jumps[group_jumps]
@@ -338,7 +355,7 @@ class CSRDataBatch(CSRData):
         for i in range(self.num_values):
             batch_value = self.values[i]
             if isinstance(batch_value, CSRData):
-                val = batch_value.to_forward_star_list()
+                val = batch_value.to_csr_list()
             elif self.is_index_value[i]:
                 val = [batch_value[item_jumps[j]:item_jumps[j + 1]]
                        - (batch_value[:item_jumps[j]].max() + 1 if j > 0 else 0)
@@ -349,28 +366,12 @@ class CSRDataBatch(CSRData):
             values.append(val)
         values = [list(x) for x in zip(*values)]
 
-        fs_list = [CSRData(j, *v, dense=False, is_index_value=self.is_index_value)
-                   for j, v in zip(jumps, values)]
+        csr_list = [CSRData(j, *v, dense=False, is_index_value=self.is_index_value)
+                    for j, v in zip(jumps, values)]
 
-        return fs_list
+        return csr_list
 
-"""
-import torch
-from torch_points3d.datasets.multimodal.csr import CSRData, CSRDataBatch
 
-n_groups = 3
-n_items = 30
-n_items_nested = 100
-indices = torch.sort(torch.randint(0, size=(n_items,), high=n_groups))[0]
-
-CSRData.sorted_indices_to_jumps(indices)
-
-CSRData(indices, dense=True)
-
-float_values = torch.rand(n_items)
-
-indices_nested = torch.sort(torch.randint(0, size=(n_items_nested,), high=n_items))[0]
-csr_nested = CSRData(indices_nested, dense=True)
-
-CSRData(indices, float_values, csr_nested, dense=True)
-"""
+class BimodalMapping(CSRData):
+    def __init__(self, jumps: torch.LongTensor, *args, dense=False, is_index_value=None):
+        super(BimodalMapping, self).__init__()

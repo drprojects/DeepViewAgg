@@ -1,7 +1,7 @@
 import numpy as np
 from torch_geometric.data import Data
 from torch_points3d.datasets.multimodal.image import ImageData
-from torch_points3d.datasets.multimodal.forward_star import ForwardStar
+from torch_points3d.datasets.multimodal.csr import CSRData
 from .projection import compute_index_map
 
 

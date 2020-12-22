@@ -3,7 +3,7 @@ import torch
 from torch_geometric.data import Data
 from torch_points3d.core.data_transform import SphereSampling
 from torch_points3d.datasets.multimodal.image import ImageData
-from torch_points3d.datasets.multimodal.forward_star import ForwardStar
+from torch_points3d.datasets.multimodal.csr import CSRData
 import torchvision.transforms as T
 from .projection import compute_index_map
 from tqdm.auto import tqdm as tq
@@ -37,7 +37,7 @@ class NonStaticImageMask:
         images.
 
         Expects Data (or anything), ImageData or List(ImageData), 
-        ForwardStar mapping (or anything).
+        CSRData mapping (or anything).
 
         Returns the same input. The mask is saved in ImageData attributes, to 
         be used for any subsequent image processing.
@@ -51,8 +51,7 @@ class NonStaticImageMask:
     def __repr__(self):
         return self.__class__.__name__
 
-#-------------------------------------------------------------------------------
-
+# TODO: torch-oriented mappings
 class PointImagePixelMapping:
     """
     Transform-like structure. Computes the mappings between individual 3D points
@@ -144,7 +143,8 @@ class PointImagePixelMapping:
             # pixel coordinates. We use this heterogeneous soup to search for 
             # duplicate rows after resolution coarsening.
             # NB : no_id pixels are ignored
-            active_pixels = np.where(id_map != self.no_id)
+            id_map = torch.from_numpy(id_map)
+            active_pixels = torch.where(id_map != self.no_id)
             point_ids_pixel_soup = id_map[active_pixels]
             point_ids_pixel_soup = np.column_stack((point_ids_pixel_soup,
                                                     np.stack(active_pixels).transpose()))
@@ -158,6 +158,12 @@ class PointImagePixelMapping:
             # Sort by point id
             point_ids_pixel_soup = np.unique(point_ids_pixel_soup,
                                              axis=0)  # bottleneck here ! Custom unique-sort with numba ?
+            # TODO:
+            #  - create a composite value (pt_id * max_x * max_y + max_y * x + y)
+            #  - sort (will implicitly sort by point_id first) O(log(N))
+            #  - numba-search unique idx from sorted values O(N) / torch.unique_consecutive
+            #  - subselect from numba-computed index
+            #  - (no longer needed to manipulate the 'pixel_soup', point_ids and pixels can stay separate)
 
             # Cast pixel coordinates to a dtype minimizing memory use
             point_ids_ = point_ids_pixel_soup[:, 0]
@@ -184,6 +190,9 @@ the vicinity of your point cloud and that the projection parameters allow for at
 point-image-pixel mapping before re-running this transformation.")
 
         # Sort by point_ids first, image_ids second
+        # TODO: since we use a global opint-img idx later on for the nested CSR
+        #  initialization, why not just create it right away and argsort it rather than lexsort.
+        #  Experiments show this would be faster.
         sorting = np.lexsort((image_ids, point_ids))
         image_ids = image_ids[sorting]
         point_ids = point_ids[sorting]
@@ -201,14 +210,14 @@ point-image-pixel mapping before re-running this transformation.")
         # NB: The jumps are marked by non-successive point-image ids. Watch
         #     out for overflow in case the point_ids and image_ids are too
         #     large and stored in 32 bits.
-        image_pixel_mappings = ForwardStar(point_ids + image_ids * (point_ids.max() + 1), pixels, dense=True)
+        image_pixel_mappings = CSRData(point_ids + image_ids * (point_ids.max() + 1), pixels, dense=True)
 
         # Compress point_ids and image_ids by taking the last value of each jump
         image_ids = image_ids[image_pixel_mappings.jumps[1:] - 1]
         point_ids = point_ids[image_pixel_mappings.jumps[1:] - 1]
 
         # Compute point jumps in the image_ids array
-        mappings = ForwardStar(point_ids, image_ids, image_pixel_mappings, dense=True, is_index_value=[True, False])
+        mappings = CSRData(point_ids, image_ids, image_pixel_mappings, dense=True, is_index_value=[True, False])
 
         # Compress point_ids by taking the last value of each jump
         point_ids = point_ids[mappings.jumps[1:] - 1]
@@ -234,7 +243,7 @@ point-image-pixel mapping before re-running this transformation.")
         matching lengths.
 
         Returns the input data and the point-image-pixel mappings in a nested 
-        ForwardStar format.
+        CSRData format.
         """
         if isinstance(data, list):
             assert isinstance(images, list) and len(data) == len(images), \
@@ -250,17 +259,16 @@ point-image-pixel mapping before re-running this transformation.")
     def __repr__(self):
         return self.__class__.__name__
 
-#-------------------------------------------------------------------------------
-
+# TODO: torch-oriented mappings
 class PointImagePixelMappingFromId:
     """
     Transform-like structure. Intended to be called on _datas and _images_datas.
 
     Populate the passed Data sample in-place with attributes extracted from the 
-    input ForwardStar mappings, based on the self.key point identifiers.
+    input CSRData mappings, based on the self.key point identifiers.
     
     The indices in data are expected to be included in those in mappings. The 
-    ForwardStar format implicitly holds values for all self.key in 
+    CSRData format implicitly holds values for all self.key in
     [0, ..., len(mappings)].
     """
 
@@ -272,7 +280,7 @@ class PointImagePixelMappingFromId:
         assert isinstance(data, Data)
         assert hasattr(data, self.key)
         assert isinstance(images, ImageData)
-        assert isinstance(mappings, ForwardStar)
+        assert isinstance(mappings, CSRData)
 
         # Point indices to subselect mappings.
         # The selected mappings are sorted by their order in point_indices. 
@@ -324,10 +332,10 @@ class PointImagePixelMappingFromId:
     def __repr__(self):
         return self.__class__.__name__
 
-#-------------------------------------------------------------------------------
 
 class TorchvisionTransform:
     """Torchvision-based transform on the images"""
+
     def __init__(self):
         raise NotImplementedError
 
@@ -338,7 +346,6 @@ class TorchvisionTransform:
     def __repr__(self):
         return self.transform.__repr__()
 
-#-------------------------------------------------------------------------------
 
 class ColorJitter(TorchvisionTransform):
     """Randomly change the brightness, contrast and saturation of an image."""
@@ -350,7 +357,6 @@ class ColorJitter(TorchvisionTransform):
         self.hue = hue
         self.transform = T.ColorJitter(brightness=brightness, contrast=contrast, saturation=saturation, hue=hue)
 
-#-------------------------------------------------------------------------------
 
 class RandomHorizontalFlip(TorchvisionTransform):
     """Horizontally flip the given image randomly with a given probability."""
@@ -359,7 +365,6 @@ class RandomHorizontalFlip(TorchvisionTransform):
         self.p = p
         self.transform = T.RandomHorizontalFlip(p=p)
 
-#-------------------------------------------------------------------------------
 
 class GaussianBlur(TorchvisionTransform):
     """Blurs image with randomly chosen Gaussian blur."""
