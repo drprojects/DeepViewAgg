@@ -1,7 +1,8 @@
 import torch.nn as nn
 import sys
-
+from torch_points3d.utils.config import is_list
 from torch_points3d.core.common_modules import Seq, Identity
+
 
 class ResBlock(nn.Module):
     """
@@ -15,10 +16,11 @@ class ResBlock(nn.Module):
         number of output channels
     convolution
         Either Conv2d or ConvTranspose2d
-        TODO : look into from torchvision.ops.deform_conv to wrap spherical images and improve border features
-        TODO : extend to EquiConv https://github.com/palver7/EquiConvPytorch
-        TODO : optional maxpool with SegNet structure : https://github.com/say4n/pytorch-segnet/blob/master/src/model.py
     """
+
+    # TODO: look into Conv2d(padding_mode='circular') OR torchvision.ops.deform_conv to wrap spherical images and improve border features
+    # TODO: extend to EquiConv https: // github.com / palver7 / EquiConvPytorch
+    # TODO: optional maxpool with SegNet structure: https: // github.com / say4n / pytorch - segnet / blob / master / src / model.py
 
     def __init__(self, input_nc, output_nc, convolution):
         super().__init__()
@@ -53,7 +55,7 @@ class BottleneckBlock(nn.Module):
     Bottleneck block with residual
     """
 
-    def __init__(self, input_nc, output_nc, convolution, reduction=4):
+    def __init__(self, input_nc, output_nc, convolution, reduction=4, **kwargs):
         super().__init__()
 
         self.block = (
@@ -158,3 +160,127 @@ class ResNetUp(ResNetDown):
         else:
             inp = x
         return super().forward(inp)
+
+
+SPECIAL_NAMES = ["block_names"]
+
+
+class UNet(nn.Module):
+    """Generic UNet module for images.
+
+    Create the Unet from a dictionary of compact options.
+
+    For each part of the architecture, the blocks are implicitly pre-selected:
+      - Down  : ResNetDown
+      - Inner : BottleneckBlock
+      - Up    : ResNetUp
+
+    opt is expected to have the following format:
+            down_conv:
+                down_conv_nn: ...
+                *args
+
+            innermost: [OPTIONAL]
+                *args
+
+            up_conv:
+                up_conv_nn: ...
+                *args
+
+    Inspired from torch_points3d/models/base_architectures/unet.py
+    """
+
+    def __init__(self, opt):
+        super().__init__()
+
+        # Detect which options format has been used to define the model
+        if is_list(opt.down_conv) or "down_conv_nn" not in opt.down_conv \
+                or is_list(opt.up_conv) or 'up_conv_nn' not in opt.up_conv:
+            raise NotImplementedError
+        else:
+            self._init_from_compact_format(opt)
+
+    def _init_from_compact_format(self, opt):
+        self.down_modules = nn.ModuleList()
+        self.inner_modules = nn.ModuleList()
+        self.up_modules = nn.ModuleList()
+
+        # Down modules
+        for i in range(len(opt.down_conv.down_conv_nn)):
+            down_module = self._build_module(opt.down_conv, i, "DOWN")
+            self.down_modules.append(down_module)
+
+        # Innermost module
+        contains_global = hasattr(opt, "innermost") and opt.innermost is not None
+        if contains_global:
+            inners = self._build_module(opt.innermost, 0, "INNER")
+            self.inner_modules.append(inners)
+        else:
+            self.inner_modules.append(Identity())
+
+        # Up modules
+        for i in range(len(opt.up_conv.up_conv_nn)):
+            up_module = self._build_module(opt.up_conv, i, "UP")
+            self.up_modules.append(up_module)
+
+
+    def _fetch_arguments_from_list(self, opt, index):
+        """Fetch the arguments for a single convolution from multiple lists
+        of arguments - for models specified in the compact format.
+        """
+        args = {}
+        for o, v in opt.items():
+            name = str(o)
+            if is_list(v) and len(getattr(opt, o)) > 0:
+                if name[-1] == "s" and name not in SPECIAL_NAMES:
+                    name = name[:-1]
+                v_index = v[index]
+                if is_list(v_index):
+                    v_index = list(v_index)
+                args[name] = v_index
+            else:
+                if is_list(v):
+                    v = list(v)
+                args[name] = v
+        return args
+
+    def _build_module(self, opt, index, flow):
+        """Builds a convolution (up, down or inner) block.
+
+        Arguments:
+            conv_opt - model config subset describing the convolutional block
+            index - layer index in sequential order (as they come in the config)
+            flow - UP, DOWN or INNER
+        """
+        if flow.lower() == 'DOWN'.lower():
+            module_cls = ResNetDown
+        elif flow.lower() == 'INNER'.lower():
+            module_cls = BottleneckBlock
+        elif flow.lower() == 'UP'.lower():
+            module_cls = ResNetUp
+        else:
+            raise NotImplementedError
+        args = self._fetch_arguments_from_list(opt, index)
+        return module_cls(**args)
+
+    def forward(self, x, **kwargs):
+        """ This method does a forward on the Unet assuming symmetrical skip connections
+
+        Parameters
+        ----------
+        x: torch.Tensor of images [BxCxHxW]
+        """
+        stack_down = []
+        for i in range(len(self.down_modules) - 1):
+            x = self.down_modules[i](x)
+            stack_down.append(x)
+        x = self.down_modules[-1](x)
+
+        if not isinstance(self.inner_modules[0], Identity):
+            stack_down.append(x)
+            x = self.inner_modules[0](x)
+
+        for i in range(len(self.up_modules)):
+            x = self.up_modules[i]((x, stack_down.pop()))
+
+        return x

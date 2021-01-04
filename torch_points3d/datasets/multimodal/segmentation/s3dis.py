@@ -617,7 +617,7 @@ class S3DISOriginalFusedMM(InMemoryDataset):
         del test_data_list, test_image_list
         print('Done\n')
 
-        # Save the Data, ImageData and ForwardStar mappings for each split
+        # Save the Data, ImageData and CSRData mappings for each split
 
     #         self._save_preprocessed_multimodal_data(
     #             (train_data_list, train_image_list, train_mappings_list),
