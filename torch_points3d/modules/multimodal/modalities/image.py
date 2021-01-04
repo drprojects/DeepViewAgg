@@ -18,7 +18,7 @@ class ResBlock(nn.Module):
         Either Conv2d or ConvTranspose2d
     """
 
-    # TODO: look into from torchvision.ops.deform_conv to wrap spherical images and improve border features
+    # TODO: look into Conv2d(padding_mode='circular') OR torchvision.ops.deform_conv to wrap spherical images and improve border features
     # TODO: extend to EquiConv https: // github.com / palver7 / EquiConvPytorch
     # TODO: optional maxpool with SegNet structure: https: // github.com / say4n / pytorch - segnet / blob / master / src / model.py
 

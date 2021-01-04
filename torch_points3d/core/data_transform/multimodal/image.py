@@ -2,8 +2,9 @@ import numpy as np
 import torch
 from torch_geometric.data import Data
 from torch_points3d.core.data_transform import SphereSampling
-from torch_points3d.datasets.multimodal.image import ImageData
+from torch_points3d.datasets.multimodal.image import ImageData, ImageMapping
 from torch_points3d.datasets.multimodal.csr import CSRData
+from torch_points3d.utils.multimodal import composite_operation
 import torchvision.transforms as T
 from .projection import compute_index_map
 from tqdm.auto import tqdm as tq
@@ -51,7 +52,7 @@ class NonStaticImageMask:
     def __repr__(self):
         return self.__class__.__name__
 
-# TODO: torch-oriented mappings
+
 class PointImagePixelMapping:
     """
     Transform-like structure. Computes the mappings between individual 3D points
@@ -144,43 +145,45 @@ class PointImagePixelMapping:
             # duplicate rows after resolution coarsening.
             # NB : no_id pixels are ignored
             id_map = torch.from_numpy(id_map)
-            active_pixels = torch.where(id_map != self.no_id)
-            point_ids_pixel_soup = id_map[active_pixels]
-            point_ids_pixel_soup = np.column_stack((point_ids_pixel_soup,
-                                                    np.stack(active_pixels).transpose()))
+            pix_x_, pix_y_ = torch.where(id_map != self.no_id)
+            # point_ids_pixel_soup = id_map[active_pixels]
+            # point_ids_pixel_soup = np.column_stack((point_ids_pixel_soup,
+            #                                         torch.stack(active_pixels, dim=1).transpose()))
+            point_ids_ = id_map[(pix_x_, pix_y_)]
+            # pixels_ = torch.stack(active_pixels, dim=1)
+
+            # Skip image if no mapping was found
+            if point_ids_.shape[0] == 0:
+                continue
 
             # Convert to lower resolution coordinates
             # NB: we assume the resolution ratio is the same for both 
-            # dimensions 
-            point_ids_pixel_soup[:, 1:] = image.coarsen_coordinates(point_ids_pixel_soup[:, 1:])
+            # dimensions
+            ratio = image.map_size_high[0] / image.map_size_low[0]
+            pix_x_ = pix_x_ // ratio
+            pix_y_ = pix_y_ // ratio
+            # pixels_ = image.coarsen_coordinates(pixels_)
+            # point_ids_pixel_soup[:, 1:] = image.coarsen_coordinates(point_ids_pixel_soup[:, 1:])
 
             # Remove duplicate id-xy in low resolution
             # Sort by point id
-            point_ids_pixel_soup = np.unique(point_ids_pixel_soup,
-                                             axis=0)  # bottleneck here ! Custom unique-sort with numba ?
-            # TODO:
-            #  - create a composite value (pt_id * max_x * max_y + max_y * x + y)
-            #  - sort (will implicitly sort by point_id first) O(log(N))
-            #  - numba-search unique idx from sorted values O(N) / torch.unique_consecutive
-            #  - subselect from numba-computed index
-            #  - (no longer needed to manipulate the 'pixel_soup', point_ids and pixels can stay separate)
+            # point_ids_pixel_soup = np.unique(point_ids_pixel_soup,
+            #                                  axis=0)  # bottleneck here ! Custom unique-sort with numba ?
+            point_ids_, pix_x_, pix_y_ = composite_operation(point_ids_, pix_x_, pix_y_,
+                                                             op='unique', torch_out=True)
 
             # Cast pixel coordinates to a dtype minimizing memory use
-            point_ids_ = point_ids_pixel_soup[:, 0]
-            pixels_ = np.asarray(torch.from_numpy(point_ids_pixel_soup[:, 1:]).type(image.map_dtype))
-            del point_ids_pixel_soup
+            # point_ids_ = point_ids_pixel_soup[:, 0]
+            # pixels_ = np.asarray(torch.from_numpy(point_ids_pixel_soup[:, 1:]).type(image.map_dtype))
+            pixels_ = torch.stack((pix_x_, pix_y_), dim=1).type(image.map_dtype)
+            # del point_ids_pixel_soup
 
             # Gather per-image mappings in list structures, only to be
-            # numpy-stacked once all images are processed
+            # torch-concatenated once all images are processed
             image_ids.append(i_image)
             point_ids.append(point_ids_)
             pixels.append(pixels_)
             del pixels_, point_ids_
-
-        # Concatenate mappings
-        image_ids = np.repeat(image_ids, [x.shape[0] for x in point_ids])
-        point_ids = np.concatenate(point_ids)
-        pixels = np.vstack(pixels)
 
         # Raise error if no point-image-pixel mapping was found
         if pixels.shape[0] == 0:
@@ -188,48 +191,30 @@ class PointImagePixelMapping:
 images. This will cause errors in the subsequent operations. Make sure your images are located in \
 the vicinity of your point cloud and that the projection parameters allow for at least one \
 point-image-pixel mapping before re-running this transformation.")
+# TODO: fit the image unique indices check here... Then the mappings init
 
-        # Sort by point_ids first, image_ids second
-        # TODO: since we use a global opint-img idx later on for the nested CSR
-        #  initialization, why not just create it right away and argsort it rather than lexsort.
-        #  Experiments show this would be faster.
-        sorting = np.lexsort((image_ids, point_ids))
-        image_ids = image_ids[sorting]
-        point_ids = point_ids[sorting]
-        pixels = pixels[sorting]
-        del sorting
-
-        # We want all images present in the mappings and in ImageData to have 
+        # Reindex seen images
+        # We want all images present in the mappings and in ImageData to have
         # been seen. If an image has not been seen, we remove it here.
-        seen_image_ids = np.unique(image_ids)
-        images = images[np.isin(np.arange(images.num_images), seen_image_ids)]
-        image_ids = np.digitize(image_ids, seen_image_ids) - 1
+        # NB: The reindexing here works because the `unique` values are
+        #     expected to be returned sorted.
+        # seen_image_ids = np.unique(image_ids)
+        # images = images[np.isin(np.arange(images.num_images), seen_image_ids)]
+        # image_ids = np.digitize(image_ids, seen_image_ids) - 1
+        seen_image_ids = composite_operation(image_ids, op='unique', torch_out=True)[0]
+        images = images[seen_image_ids]
+        image_ids = torch.bucketize(image_ids, seen_image_ids)
 
-        # Convert to "nested Forward Star" format.
-        # Compute point-image jumps in the pixels array.
-        # NB: The jumps are marked by non-successive point-image ids. Watch
-        #     out for overflow in case the point_ids and image_ids are too
-        #     large and stored in 32 bits.
-        image_pixel_mappings = CSRData(point_ids + image_ids * (point_ids.max() + 1), pixels, dense=True)
+        # Concatenate mappings data
+        # image_ids = np.repeat(image_ids, [x.shape[0] for x in point_ids])
+        # point_ids = np.concatenate(point_ids)
+        # pixels = np.vstack(pixels)
+        image_ids = torch.repeat_interleave(image_ids, [x.shape[0] for x in point_ids])
+        point_ids = torch.cat(point_ids)
+        pixels = torch.cat(pixels)
 
-        # Compress point_ids and image_ids by taking the last value of each jump
-        image_ids = image_ids[image_pixel_mappings.jumps[1:] - 1]
-        point_ids = point_ids[image_pixel_mappings.jumps[1:] - 1]
-
-        # Compute point jumps in the image_ids array
-        mappings = CSRData(point_ids, image_ids, image_pixel_mappings, dense=True, is_index_value=[True, False])
-
-        # Compress point_ids by taking the last value of each jump
-        point_ids = point_ids[mappings.jumps[1:] - 1]
-
-        # Some points may have been seen by no image so we need to inject 
-        # 0-sized jumps to account for these.
-        # NB: we assume all relevant points are present in data.point_index, 
-        #     if a point with an id larger than max(data.point_index) were to 
-        #     exist, we would not be able to take it into account in the jumps.
-        num_points = getattr(data, self.key).numpy().max() + 1
-        mappings = mappings.reindex_groups(point_ids,
-                                           num_groups=num_points)
+        mappings = ImageMapping(point_ids, image_ids, pixels,
+            num_points=getattr(data, self.key).numpy().max() + 1)
 
         return data, images, mappings
 
@@ -259,7 +244,7 @@ point-image-pixel mapping before re-running this transformation.")
     def __repr__(self):
         return self.__class__.__name__
 
-# TODO: torch-oriented mappings
+
 class PointImagePixelMappingFromId:
     """
     Transform-like structure. Intended to be called on _datas and _images_datas.
@@ -280,13 +265,11 @@ class PointImagePixelMappingFromId:
         assert isinstance(data, Data)
         assert hasattr(data, self.key)
         assert isinstance(images, ImageData)
-        assert isinstance(mappings, CSRData)
+        assert isinstance(mappings, ImageMapping)
 
         # Point indices to subselect mappings.
         # The selected mappings are sorted by their order in point_indices. 
-        # NB: just like images, the same point may be used multiple times. 
-        # point_indices = torch.unique(data[self.key])
-        # mappings = mappings[point_indices]
+        # NB: just like images, the same point may be used multiple times.
         mappings = mappings[data[self.key]]
 
         # Update point indices to the new mappings length.
@@ -301,13 +284,15 @@ class PointImagePixelMappingFromId:
 
         # Subselect the images used in the mappings.
         # The selected images are sorted by their order in image_indices.
-        image_indices = np.unique(mappings.values[0])
-        images = images[image_indices]
+        # seen_image_ids = np.unique(mappings.values[0])
+        seen_image_ids = composite_operation(mappings.images, op='unique', torch_out=True)[0]
+        images = images[seen_image_ids]
 
         # Update image indices to the new images length
         # This is important to preserve the mappings and for multimodal data
         # batching mechanisms.
-        mappings.values[0] = np.digitize(mappings.values[0], image_indices) - 1
+        # mappings.values[0] = np.digitize(mappings.values[0], seen_image_ids) - 1
+        mappings.images = torch.bucketize(mappings.images, seen_image_ids)
 
         return data, images, mappings
 

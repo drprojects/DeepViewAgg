@@ -125,7 +125,7 @@ class CSRData(object):
         return torch.from_numpy(CSRData._sorted_indices_to_jumps_numba(np.asarray(indices)))
 
     @staticmethod
-    @njit
+    @njit(cache=True, nogil=True)
     def _sorted_indices_to_jumps_numba(indices: np.ndarray):
         # Compute the jumps
         idx_previous = indices[0]
@@ -188,7 +188,7 @@ class CSRData(object):
             np.asarray(self.jumps), np.asarray(group_indices), num_groups))
 
     @staticmethod
-    @njit
+    @njit(cache=True, nogil=True)
     def _insert_empty_groups_numba(jumps: np.ndarray, group_indices: np.ndarray, num_groups):
         jumps_expanded = np.zeros(num_groups + 1, dtype=group_indices.dtype)
         jumps_expanded[group_indices + 1] = jumps[1:]
@@ -200,7 +200,7 @@ class CSRData(object):
         return jumps_expanded
 
     @staticmethod
-    @njit
+    @njit(cache=True, nogil=True)
     def _is_sorted_numba(a: np.ndarray):
         for i in range(a.size - 1):
             if a[i + 1] < a[i]:
@@ -220,7 +220,7 @@ class CSRData(object):
         return torch.from_numpy(jumps_updated), torch.from_numpy(np.concatenate(val_indices))
 
     @staticmethod
-    @njit
+    @njit(cache=True, nogil=True)
     def _index_select_jumps_numba(jumps: np.ndarray, indices: np.ndarray):
         jumps_selection = np.zeros(indices.shape[0] + 1, dtype=jumps.dtype)
         jumps_selection[1:] = np.cumsum(jumps[indices + 1] - jumps[indices])
@@ -371,7 +371,3 @@ class CSRDataBatch(CSRData):
 
         return csr_list
 
-
-class BimodalMapping(CSRData):
-    def __init__(self, jumps: torch.LongTensor, *args, dense=False, is_index_value=None):
-        super(BimodalMapping, self).__init__()

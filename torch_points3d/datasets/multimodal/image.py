@@ -2,6 +2,8 @@ import copy
 import numpy as np
 from PIL import Image
 import torch
+from torch_points3d.datasets.multimodal.csr import CSRData, CSRDataBatch
+from torch_points3d.utils.multimodal import composite_operation
 
 
 # TODO Hold loaded images in the ImageData ?
@@ -282,3 +284,135 @@ class ImageBatch(ImageData):
 
         batch_jumps = self.batch_jumps
         return [self[batch_jumps[i]:batch_jumps[i + 1]] for i in range(self.num_batch_items)]
+
+
+class ImageMapping(CSRData):
+    def __init__(self, point_ids, image_ids, pixels, num_points=None):
+        assert point_ids.ndim == 1, \
+            'point_ids and image_ids must be 1D tensors'
+        assert point_ids.shape == image_ids.shape, \
+            'point_ids and image_ids must have the same shape'
+        assert point_ids.shape[0] == pixels.shape[0], \
+            'pixels and indices must have the same shape'
+
+        # Sort by point_ids first, image_ids second
+        sorting, composite_ids = composite_operation(point_ids, image_ids,
+            op='argsort', torch_out=True)
+        image_ids = image_ids[sorting]
+        point_ids = point_ids[sorting]
+        pixels = pixels[sorting]
+        del sorting
+
+        # Convert to "nested CSRData" format.
+        # Compute point-image jumps in the pixels array.
+        # NB: The jumps are marked by non-successive point-image ids. Watch
+        #     out for overflow in case the point_ids and image_ids are too
+        #     large and stored in 32 bits.
+        image_pixel_mappings = CSRData(composite_ids, pixels, dense=True)
+        del composite_ids
+
+        # Compress point_ids and image_ids by taking the last value of each
+        # jump
+        image_ids = image_ids[image_pixel_mappings.jumps[1:] - 1]
+        point_ids = point_ids[image_pixel_mappings.jumps[1:] - 1]
+
+        # Instantiate the main CSRData object
+        # Compute point jumps in the image_ids array
+        super(ImageMapping, self).__init__(point_ids, image_ids, image_pixel_mappings,
+            dense=True, is_index_value=[True, False])
+
+        # Some points may have been seen by no image so we need to inject
+        # 0-sized jumps to account for these.
+        # NB: we assume all relevant points are present in range(num_points),
+        #     if a point with an id larger than num_points were to exist, we
+        #     would not be able to take it into account in the jumps.
+        if num_points is None or num_points < point_ids.max() + 1:
+            num_points = point_ids.max() + 1
+
+        # Compress point_ids by taking the last value of each jump
+        point_ids = point_ids[self.jumps[1:] - 1]
+        self._insert_empty_groups(point_ids, num_groups=num_points)
+
+    @property
+    def points(self):
+        return torch.arange(self.num_groups)
+
+    @property
+    def images(self):
+        return self.values[0]
+
+    @property
+    def pixels(self):
+        return self.values[1].values[0]
+
+    def get_batch_features_indexing(self):
+        """
+        Return indices for extracting unit-level data from image features
+        batch.
+
+        When the image features batch X is expected to have the shape
+        [B, C, W, H], the returned indices idx_1, idx_2, idx_3 are intended to
+        be used so that X[idx_1, :, idx_2, idx_3] are the unit-level features
+        of the mapping.
+        """
+        idx_batch = torch.repeat_interleave(
+            self.images,
+            self.values[1].jumps[1:] - self.values[1].jumps[:-1]
+        )
+        idx_width = self.pixels[0]
+        idx_height = self.pixels[1]
+        return idx_batch, idx_width, idx_height
+
+    def get_unit_pooling_indices(self):
+        """
+        Return the indices that will be used for unit-level pooling.
+        """
+        raise NotImplementedError
+
+    def get_unit_pooling_csr_indices(self):
+        """
+        Return the indices that will be used for unit-level pooling on
+        CSR-formatted data.
+        """
+        return self.values[1].jumps
+
+    def get_view_pooling_indices(self):
+        """
+        Return the indices that will be used for view-level pooling.
+        """
+        raise NotImplementedError
+
+    def get_view_pooling_csr_indices(self):
+        """
+        Return the indices that will be used for view-level pooling on
+        CSR-formatted data.
+        """
+        return self.jumps
+
+    # TODO: update mappings after image pooling
+    # TODO: update mappings after 3D sampling. Case1: sampling. Case2: voxel pooling
+
+    def reduce_2d_resolution(self, ratio):
+        """
+        Update the image resolution after subsampling. Typically called after
+        a pooling layer in an image CNN encoder.
+        """
+        assert ratio >= 1, \
+            f"Invalid image resampling ratio: {ratio}. Must be larger than 1."
+
+        # expand all mappings to 'dense' format
+
+        # floor divide pixels
+
+        # search duplicates
+
+        # Update unit-level and view-level mappings
+        # keep the first instances only
+        # Assuming this does not cause issues for other potential unit-level CSR-nested values
+
+        #
+
+
+
+    def reduce_3d_resolution(self, idx, volumetric=False):
+        pass
