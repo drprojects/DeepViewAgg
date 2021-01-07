@@ -372,3 +372,13 @@ def compute_index_map(
     idx_map = np.concatenate((cropped_map_top, idx_map, cropped_map_bottom), axis=1)
 
     return idx_map, depth_map
+
+# TODO : projection features construction and extraction (depth, normal
+#  orientation, distortion level, ...)
+
+# TODO : all-torch GPU-parallelized projection ? Rather than iteratively
+#  populating the depth map, create a set of target pixel coordinates and
+#  associated meta-data (distance, point ID, normal orientation, ...). Then
+#  use torch-GPU operations to extract the meta-data with the smallest
+#  distance for each pixel coordinate ? This seems tricky to get an argsort
+#  index from torch_scatter ...

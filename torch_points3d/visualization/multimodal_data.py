@@ -104,7 +104,7 @@ def visualize_3d(mm_data, class_names=None, class_colors=None, class_opacities=N
         n_y_traces += 1  # keep track of the number of traces
 
     # Draw a trace for 3D point cloud of number of images seen
-    n_seen = torch.from_numpy(mappings_.jumps[1:] - mappings_.jumps[:-1])
+    n_seen = mappings_.jumps[1:] - mappings_.jumps[:-1]
     fig.add_trace(
         go.Scatter3d(
             name='Times seen',
@@ -283,8 +283,8 @@ def visualize_2d(mm_data, image_batch=None, figsize=800, width=None, height=None
     # Get the mapping of all points in the sample
     point_mapping = mm_data.mappings
     point_image_indices = torch.repeat_interleave(
-        torch.from_numpy(point_mapping.values[0]),
-        torch.from_numpy(point_mapping.values[1].jumps[1:] - point_mapping.values[1].jumps[:-1])
+        point_mapping.values[0],
+        point_mapping.values[1].jumps[1:] - point_mapping.values[1].jumps[:-1]
     )
     point_pixels = point_mapping.values[1].values[0]
 
@@ -306,12 +306,12 @@ def visualize_2d(mm_data, image_batch=None, figsize=800, width=None, height=None
         color = (mm_data.data.rgb * 255).type(torch.uint8)
         color = torch.repeat_interleave(
             color,
-            torch.from_numpy(point_mapping.jumps[1:] - point_mapping.jumps[:-1]),
+            point_mapping.jumps[1:] - point_mapping.jumps[:-1],
             dim=0
         )
         color = torch.repeat_interleave(
             color,
-            torch.from_numpy(point_mapping.values[1].jumps[1:] - point_mapping.values[1].jumps[:-1]),
+            point_mapping.values[1].jumps[1:] - point_mapping.values[1].jumps[:-1],
             dim=0
         )
 
@@ -321,12 +321,12 @@ def visualize_2d(mm_data, image_batch=None, figsize=800, width=None, height=None
         color = ((mm_data.data.pos - mm_data.data.pos.mean(dim=0)) / (2 * radius) * 255 + 127).type(torch.uint8)
         color = torch.repeat_interleave(
             color,
-            torch.from_numpy(point_mapping.jumps[1:] - point_mapping.jumps[:-1]),
+            point_mapping.jumps[1:] - point_mapping.jumps[:-1],
             dim=0
         )
         color = torch.repeat_interleave(
             color,
-            torch.from_numpy(point_mapping.values[1].jumps[1:] - point_mapping.values[1].jumps[:-1]),
+            point_mapping.values[1].jumps[1:] - point_mapping.values[1].jumps[:-1],
             dim=0
         )
 
@@ -335,12 +335,12 @@ def visualize_2d(mm_data, image_batch=None, figsize=800, width=None, height=None
         color = torch.ByteTensor(class_colors)[mm_data.data.y]
         color = torch.repeat_interleave(
             color,
-            torch.from_numpy(point_mapping.jumps[1:] - point_mapping.jumps[:-1]),
+            point_mapping.jumps[1:] - point_mapping.jumps[:-1],
             dim=0
         )
         color = torch.repeat_interleave(
             color,
-            torch.from_numpy(point_mapping.values[1].jumps[1:] - point_mapping.values[1].jumps[:-1]),
+            point_mapping.values[1].jumps[1:] - point_mapping.values[1].jumps[:-1],
             dim=0
         )
 

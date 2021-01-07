@@ -71,7 +71,6 @@ class MultimodalBlockDown(nn.Module):
             # TODO : recover sampling indices and update mappings based on the 3D downconv. KpConv uses GridSampling3D,
             #  PointNet++ uses FPS sampler, SparseConv uses strides, ... Not uniform. Should store sampling idx in the
             #  conv module after sampling ?
-            # TODO : where should the mapping update function be ? -> Carried by the Mapping class.
             mm_data.modalities[m].mappings = update_mappings(mm_data)
 
             # Conv on the modality-specific data
@@ -79,7 +78,6 @@ class MultimodalBlockDown(nn.Module):
 
             # Update mappings after modality conv
             # TODO : update mappings after modality conv
-            # TODO : where should the mapping update function be ?
             mm_data.modalities[m].mappings = update_mappings(mm_data)
 
             # Merge the modality into the main 3D features

@@ -4,7 +4,7 @@ from torch_geometric.data import Data
 from torch_points3d.core.data_transform import SphereSampling
 from torch_points3d.datasets.multimodal.image import ImageData, ImageMapping
 from torch_points3d.datasets.multimodal.csr import CSRData
-from torch_points3d.utils.multimodal import composite_operation
+from torch_points3d.utils.multimodal import cpu_lex_op
 import torchvision.transforms as T
 from .projection import compute_index_map
 from tqdm.auto import tqdm as tq
@@ -12,14 +12,15 @@ from tqdm.auto import tqdm as tq
 """
 Image-based transforms for multimodal data processing. Inspired by 
 torch_points3d and torch_geometric transforms on data, with a signature 
-allowing for multimodal transform composition : __call(data, images, mappings)__
+allowing for multimodal transform composition: 
+__call(data, images, mappings)__
 """
 
 
 class NonStaticImageMask:
     """
-    Transform-like structure. Find the mask of identical pixels across a list
-    of images.
+    Transform-like structure. Find the mask of identical pixels across
+    a list of images.
     """
 
     def __init__(self, mask_size=(2048, 1024), n_sample=5):
@@ -28,20 +29,21 @@ class NonStaticImageMask:
 
     def _process(self, images):
         images.map_size_high = self.mask_size
-        images.mask = images.non_static_pixel_mask(size=self.mask_size, n_sample=self.n_sample)
+        images.mask = images.non_static_pixel_mask(
+            size=self.mask_size, n_sample=self.n_sample)
         return images
 
     def __call__(self, data, images, mappings=None):
         """
-        Compute the projection of data points into images and return the input 
-        data augmented with attributes mapping points to pixels in provided 
-        images.
+        Compute the projection of data points into images and return
+        the input data augmented with attributes mapping points to
+        pixels in provided images.
 
         Expects Data (or anything), ImageData or List(ImageData), 
         CSRData mapping (or anything).
 
-        Returns the same input. The mask is saved in ImageData attributes, to 
-        be used for any subsequent image processing.
+        Returns the same input. The mask is saved in ImageData
+        attributes, to be used for any subsequent image processing.
         """
         if isinstance(images, list):
             images = [self._process(img) for img in images]
@@ -55,9 +57,9 @@ class NonStaticImageMask:
 
 class PointImagePixelMapping:
     """
-    Transform-like structure. Computes the mappings between individual 3D points
-    and image pixels. Point mappings are identified based on the self.key point
-    identifiers.
+    Transform-like structure. Computes the mappings between individual
+    3D points and image pixels. Point mappings are identified based on
+    the self.key point identifiers.
     """
 
     def __init__(
@@ -80,7 +82,8 @@ class PointImagePixelMapping:
         self.empty = empty
         self.no_id = no_id
 
-        # Store the projection parameters destined for the ImageData attributes.
+        # Store the projection parameters destined for the ImageData
+        # attributes.
         self.map_size_high = tuple(map_size_high)
         self.map_size_low = tuple(map_size_low)
         self.crop_top = crop_top
@@ -94,7 +97,8 @@ class PointImagePixelMapping:
     def _process(self, data, images):
         assert hasattr(data, self.key)
         assert isinstance(images, ImageData)
-        assert images.num_images >= 1, "At least one image must be provided."
+        assert images.num_images >= 1, \
+            "At least one image must be provided."
 
         # Pass the projection attributes to the ImageData
         images.map_size_high = self.map_size_high
@@ -140,10 +144,11 @@ class PointImagePixelMapping:
             )
 
             # Convert the id_map to id-xy coordinate soup
-            # First column holds the point indices, subsequent columns hold the 
-            # pixel coordinates. We use this heterogeneous soup to search for 
-            # duplicate rows after resolution coarsening.
-            # NB : no_id pixels are ignored
+            # First column holds the point indices, subsequent columns
+            # hold the  pixel coordinates. We use this heterogeneous
+            # soup to search for duplicate rows after resolution
+            # coarsening.
+            # NB: no_id pixels are ignored
             id_map = torch.from_numpy(id_map)
             pix_x_, pix_y_ = torch.where(id_map != self.no_id)
             # point_ids_pixel_soup = id_map[active_pixels]
@@ -169,8 +174,8 @@ class PointImagePixelMapping:
             # Sort by point id
             # point_ids_pixel_soup = np.unique(point_ids_pixel_soup,
             #                                  axis=0)  # bottleneck here ! Custom unique-sort with numba ?
-            point_ids_, pix_x_, pix_y_ = composite_operation(point_ids_, pix_x_, pix_y_,
-                                                             op='unique', torch_out=True)
+            point_ids_, pix_x_, pix_y_ = cpu_lex_op(
+                point_ids_, pix_x_, pix_y_, op='unique', torch_out=True)
 
             # Cast pixel coordinates to a dtype minimizing memory use
             # point_ids_ = point_ids_pixel_soup[:, 0]
@@ -187,21 +192,26 @@ class PointImagePixelMapping:
 
         # Raise error if no point-image-pixel mapping was found
         if pixels.shape[0] == 0:
-            raise ValueError("No mappings were found between the 3D points and any of the provided \
-images. This will cause errors in the subsequent operations. Make sure your images are located in \
-the vicinity of your point cloud and that the projection parameters allow for at least one \
-point-image-pixel mapping before re-running this transformation.")
-# TODO: fit the image unique indices check here... Then the mappings init
+            raise ValueError(
+                "No mappings were found between the 3D points and any "
+                "of the provided images. This will cause errors in the "
+                "subsequent operations. Make sure your images are "
+                "located in the vicinity of your point cloud and that "
+                "the projection parameters allow for at least one "
+                "point-image-pixel mapping before re-running this "
+                "transformation.")
 
         # Reindex seen images
-        # We want all images present in the mappings and in ImageData to have
-        # been seen. If an image has not been seen, we remove it here.
-        # NB: The reindexing here works because the `unique` values are
-        #     expected to be returned sorted.
+        # We want all images present in the mappings and in ImageData to
+        # have been seen. If an image has not been seen, we remove it
+        # here.
+        # NB: The reindexing here relies on the fact that `unique`
+        #  values are expected to be returned sorted.
         # seen_image_ids = np.unique(image_ids)
         # images = images[np.isin(np.arange(images.num_images), seen_image_ids)]
         # image_ids = np.digitize(image_ids, seen_image_ids) - 1
-        seen_image_ids = composite_operation(image_ids, op='unique', torch_out=True)[0]
+        seen_image_ids = cpu_lex_op(
+            image_ids, op='unique', torch_out=True)[0]
         images = images[seen_image_ids]
         image_ids = torch.bucketize(image_ids, seen_image_ids)
 
@@ -209,30 +219,33 @@ point-image-pixel mapping before re-running this transformation.")
         # image_ids = np.repeat(image_ids, [x.shape[0] for x in point_ids])
         # point_ids = np.concatenate(point_ids)
         # pixels = np.vstack(pixels)
-        image_ids = torch.repeat_interleave(image_ids, [x.shape[0] for x in point_ids])
+        image_ids = torch.repeat_interleave(
+            image_ids, [x.shape[0] for x in point_ids])
         point_ids = torch.cat(point_ids)
         pixels = torch.cat(pixels)
 
-        mappings = ImageMapping(point_ids, image_ids, pixels,
+        mappings = ImageMapping.from_dense(
+            point_ids, image_ids, pixels,
             num_points=getattr(data, self.key).numpy().max() + 1)
 
         return data, images, mappings
 
     def __call__(self, data, images, mappings=None):
         """
-        Compute the projection of data points into images and return the input 
-        data augmented with attributes mapping points to pixels in provided 
-        images.
+        Compute the projection of data points into images and return
+        the input data augmented with attributes mapping points to
+        pixels in provided images.
 
-        Expects a Data and a ImageData or a List(Data) and a List(ImageData) of 
-        matching lengths.
+        Expects a Data and a ImageData or a List(Data) and a
+        List(ImageData) of matching lengths.
 
-        Returns the input data and the point-image-pixel mappings in a nested 
-        CSRData format.
+        Returns the input data and the point-image-pixel mappings in a
+        nested CSRData format.
         """
         if isinstance(data, list):
             assert isinstance(images, list) and len(data) == len(images), \
-                f"List(Data) items and List(ImageData) must have the same lengths."
+                f"List(Data) items and List(ImageData) must have the same " \
+                f"lengths."
             out = [self._process(d, i) for d, i in zip(data, images)]
             data, images, mappings = [list(x) for x in zip(*out)]
 
@@ -247,14 +260,16 @@ point-image-pixel mapping before re-running this transformation.")
 
 class PointImagePixelMappingFromId:
     """
-    Transform-like structure. Intended to be called on _datas and _images_datas.
+    Transform-like structure. Intended to be called on _datas and
+    _images_datas.
 
-    Populate the passed Data sample in-place with attributes extracted from the 
-    input CSRData mappings, based on the self.key point identifiers.
+    Populate the passed Data sample in-place with attributes extracted
+    from the input CSRData mappings, based on the self.key point
+    identifiers.
     
-    The indices in data are expected to be included in those in mappings. The 
-    CSRData format implicitly holds values for all self.key in
-    [0, ..., len(mappings)].
+    The indices in data are expected to be included in those in
+    mappings. The CSRData format implicitly holds values for all
+    self.key in [0, ..., len(mappings)].
     """
 
     def __init__(self, key='point_index', keep_unseen_images=False):
@@ -268,13 +283,15 @@ class PointImagePixelMappingFromId:
         assert isinstance(mappings, ImageMapping)
 
         # Point indices to subselect mappings.
-        # The selected mappings are sorted by their order in point_indices. 
-        # NB: just like images, the same point may be used multiple times.
+        # The selected mappings are sorted by their order in
+        # point_indices.
+        # NB: just like images, the same point may be used multiple
+        # times.
         mappings = mappings[data[self.key]]
 
         # Update point indices to the new mappings length.
-        # This is important to preserve the mappings and for multimodal data
-        # batching mechanisms.
+        # This is important to preserve the mappings and for multimodal
+        # data batching mechanisms.
         data[self.key] = torch.arange(data.num_nodes)
 
         # If unseen images must still be kept
@@ -282,14 +299,15 @@ class PointImagePixelMappingFromId:
         if self.keep_unseen_images:
             return data, images, mappings
 
-        # Subselect the images used in the mappings.
-        # The selected images are sorted by their order in image_indices.
+        # Subselect the images used in the mappings. The selected
+        # images are sorted by their order in image_indices.
         # seen_image_ids = np.unique(mappings.values[0])
-        seen_image_ids = composite_operation(mappings.images, op='unique', torch_out=True)[0]
+        seen_image_ids = cpu_lex_op(
+            mappings.images, op='unique', torch_out=True)[0]
         images = images[seen_image_ids]
 
-        # Update image indices to the new images length
-        # This is important to preserve the mappings and for multimodal data
+        # Update image indices to the new images length. This is
+        # important for preserving the mappings and for multimodal data
         # batching mechanisms.
         # mappings.values[0] = np.digitize(mappings.values[0], seen_image_ids) - 1
         mappings.images = torch.bucketize(mappings.images, seen_image_ids)
@@ -304,7 +322,8 @@ class PointImagePixelMappingFromId:
         if isinstance(data, list):
             if isinstance(images, list) and isinstance(mappings, list) and \
                     len(images) == len(data) and len(mappings) == len(data):
-                out = [self._process(d, i, m) for d, i, m in zip(data, images, mappings)]
+                out = [self._process(d, i, m)
+                       for d, i, m in zip(data, images, mappings)]
             else:
                 out = [self._process(d, images, mappings) for d in data]
             data, images, mappings = [list(x) for x in zip(*out)]
@@ -340,7 +359,9 @@ class ColorJitter(TorchvisionTransform):
         self.contrast = contrast
         self.saturation = saturation
         self.hue = hue
-        self.transform = T.ColorJitter(brightness=brightness, contrast=contrast, saturation=saturation, hue=hue)
+        self.transform = T.ColorJitter(
+            brightness=brightness, contrast=contrast, saturation=saturation,
+            hue=hue)
 
 
 class RandomHorizontalFlip(TorchvisionTransform):

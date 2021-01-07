@@ -45,6 +45,7 @@ class BimodalCSRPool(nn.Module):
     def __init__(self, mode='max'):
         super().__init__()
         if mode in ['max', 'mean', 'min', 'sum']:
+            # TODO: beware of empty group index after torch scatter !
             self.pool = lambda x_main, x_mod, csr_idx: torch_scatter.segment_csr(x_mod, csr_idx, reduce=mode)
         else:
             # TODO create the attention-based pooling (see notes below for softmax on CSR)

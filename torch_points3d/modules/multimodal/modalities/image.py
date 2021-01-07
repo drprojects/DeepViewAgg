@@ -19,6 +19,8 @@ class ResBlock(nn.Module):
     """
 
     # TODO: look into Conv2d(padding_mode='circular') OR torchvision.ops.deform_conv to wrap spherical images and improve border features
+    # TODO: padding circular affects coordinates, beware of mappings, beware of mappings validity
+    # TODO: mask and crop affects coordinates, beware of mappings validity
     # TODO: extend to EquiConv https: // github.com / palver7 / EquiConvPytorch
     # TODO: optional maxpool with SegNet structure: https: // github.com / say4n / pytorch - segnet / blob / master / src / model.py
 

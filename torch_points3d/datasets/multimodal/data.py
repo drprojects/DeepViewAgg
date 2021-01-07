@@ -142,3 +142,4 @@ class MMBatch(MMData):
         return [MMData(data, images, mappings, key=self.key)
                 for data, images, mappings
                 in zip(data_list, images_list, mappings_list)]
+

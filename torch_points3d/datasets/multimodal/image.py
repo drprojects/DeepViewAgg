@@ -3,7 +3,7 @@ import numpy as np
 from PIL import Image
 import torch
 from torch_points3d.datasets.multimodal.csr import CSRData, CSRDataBatch
-from torch_points3d.utils.multimodal import composite_operation
+from torch_points3d.utils.multimodal import cpu_lex_op
 
 
 # TODO Hold loaded images in the ImageData ?
@@ -13,7 +13,7 @@ class ImageData(object):
     """
     Class to hold arrays of images information, along with shared 3D-2D 
     projection information.
-    
+
     Attributes
         path            numpy.ndarray     image paths
         pos             torch.Tensor      image position
@@ -236,17 +236,18 @@ class ImageBatch(ImageData):
     def from_image_data_list(image_data_list):
         assert isinstance(image_data_list, list) and len(image_data_list) > 0
 
-        # Recover the attributes of the first ImageData to compare the shared
-        # attributes with the other ImageData
+        # Recover the attributes of the first ImageData to compare the
+        # shared attributes with the other ImageData
         batch_dict = image_data_list[0].to_dict()
         sizes = [image_data_list[0].num_images]
         for key in ImageData._array_keys:
             batch_dict[key] = [batch_dict[key]]
 
-        # Only stack if all ImageData have the same shared attributes, except
-        # for the 'mask' attribute, for which the value of the first ImageData
-        # is taken for the whole batch. This is because masks may differ
-        # slightly when computed statistically with NonStaticImageMask.
+        # Only stack if all ImageData have the same shared attributes,
+        # except for the 'mask' attribute, for which the value of the
+        # first ImageData is taken for the whole batch. This is because
+        # masks may differ slightly when computed statistically with
+        # NonStaticImageMask.
         if len(image_data_list) > 1:
             for image_data in image_data_list[1:]:
 
@@ -256,8 +257,9 @@ class ImageBatch(ImageData):
                                    if k in ImageData._shared_keys]:
                     if key != 'mask':
                         assert batch_dict[key] == value, \
-                            (f"All ImageData values for shared keys {ImageData._shared_keys} ",
-                             "must be the same (except for the 'mask').")
+                            f"All ImageData values for shared keys " \
+                            f"{ImageData._shared_keys} must be the " \
+                            f"same (except for the 'mask')."
 
                 for key, value in [(k, v) for (k, v) in image_dict.items()
                                    if k in ImageData._array_keys]:
@@ -279,15 +281,28 @@ class ImageBatch(ImageData):
 
     def to_image_data_list(self):
         if self.__sizes__ is None:
-            raise RuntimeError(('Cannot reconstruct image data list from batch because the batch ',
-                                'object was not created using `ImageBatch.from_image_data_list()`.'))
+            raise RuntimeError(
+                'Cannot reconstruct image data list from batch because '
+                'the batch object was not created using '
+                '`ImageBatch.from_image_data_list()`.')
 
         batch_jumps = self.batch_jumps
-        return [self[batch_jumps[i]:batch_jumps[i + 1]] for i in range(self.num_batch_items)]
+        return [self[batch_jumps[i]:batch_jumps[i + 1]]
+                for i in range(self.num_batch_items)]
 
 
 class ImageMapping(CSRData):
-    def __init__(self, point_ids, image_ids, pixels, num_points=None):
+    """
+    CSRData format for point-image-pixel mappings.
+    """
+
+    # TODO: optional projection features in the view-level mappings
+
+    @staticmethod
+    def from_dense(point_ids, image_ids, pixels, num_points=None):
+        """
+        Recommended method for building an ImageMapping from dense data.
+        """
         assert point_ids.ndim == 1, \
             'point_ids and image_ids must be 1D tensors'
         assert point_ids.shape == image_ids.shape, \
@@ -296,8 +311,8 @@ class ImageMapping(CSRData):
             'pixels and indices must have the same shape'
 
         # Sort by point_ids first, image_ids second
-        sorting, composite_ids = composite_operation(point_ids, image_ids,
-            op='argsort', torch_out=True)
+        sorting, composite_ids = cpu_lex_op(
+            point_ids, image_ids, op='argsort', torch_out=True)
         image_ids = image_ids[sorting]
         point_ids = point_ids[sorting]
         pixels = pixels[sorting]
@@ -305,33 +320,55 @@ class ImageMapping(CSRData):
 
         # Convert to "nested CSRData" format.
         # Compute point-image jumps in the pixels array.
-        # NB: The jumps are marked by non-successive point-image ids. Watch
-        #     out for overflow in case the point_ids and image_ids are too
-        #     large and stored in 32 bits.
+        # NB: The jumps are marked by non-successive point-image ids.
+        #     Watch out for overflow in case the point_ids and
+        #     image_ids are too large and stored in 32 bits.
         image_pixel_mappings = CSRData(composite_ids, pixels, dense=True)
         del composite_ids
 
-        # Compress point_ids and image_ids by taking the last value of each
-        # jump
+        # Compress point_ids and image_ids by taking the last value of
+        # each jump
         image_ids = image_ids[image_pixel_mappings.jumps[1:] - 1]
         point_ids = point_ids[image_pixel_mappings.jumps[1:] - 1]
 
         # Instantiate the main CSRData object
         # Compute point jumps in the image_ids array
-        super(ImageMapping, self).__init__(point_ids, image_ids, image_pixel_mappings,
-            dense=True, is_index_value=[True, False])
+        mapping = ImageMapping(
+            point_ids, image_ids, image_pixel_mappings, dense=True,
+            is_index_value=[True, False])
 
-        # Some points may have been seen by no image so we need to inject
-        # 0-sized jumps to account for these.
-        # NB: we assume all relevant points are present in range(num_points),
-        #     if a point with an id larger than num_points were to exist, we
-        #     would not be able to take it into account in the jumps.
+        # Some points may have been seen by no image so we need to
+        # inject 0-sized jumps to account for these.
+        # NB: we assume all relevant points are present in
+        # range(num_points), if a point with an id larger than
+        # num_points were to exist, we would not be able to take it
+        # into account in the jumps.
         if num_points is None or num_points < point_ids.max() + 1:
             num_points = point_ids.max() + 1
 
         # Compress point_ids by taking the last value of each jump
-        point_ids = point_ids[self.jumps[1:] - 1]
-        self._insert_empty_groups(point_ids, num_groups=num_points)
+        point_ids = point_ids[mapping.jumps[1:] - 1]
+        mapping._insert_empty_groups(point_ids, num_groups=num_points)
+
+        return mapping
+
+    def debug(self):
+        # CSRData debug
+        super(ImageMapping, self).debug()
+
+        # ImageMapping-specific debug
+        # TODO: change here to account for projection features
+        assert len(self.values) == 2, \
+            f"CSRData format does not match that of ImageMapping: " \
+            f"len(values) should be 2 but is {len(self.values)}."
+        assert isinstance(self.values[1], CSRData), \
+            f"CSRData format does not match that of ImageMapping: " \
+            f"values[1] is {type(self.values[1])} but should inherit " \
+            f"from CSRData"
+        assert len(self.values[1].values) == 1, \
+            f"CSRData format does not match that of ImageMapping: " \
+            f"len(values[1].values) should be 1 but is " \
+            f"{len(self.values[1].values)}."
 
     @property
     def points(self):
@@ -344,6 +381,11 @@ class ImageMapping(CSRData):
     @property
     def pixels(self):
         return self.values[1].values[0]
+
+    @staticmethod
+    def get_batch_type():
+        """Required by CSRDataBatch.from_csr_list."""
+        return ImageMappingBatch
 
     def get_batch_features_indexing(self):
         """
@@ -369,6 +411,8 @@ class ImageMapping(CSRData):
         """
         raise NotImplementedError
 
+    # TODO: padding circular affects coordinates, beware of mappings, beware of mappings validity
+    # TODO: mask and crop affects coordinates, beware of mappings validity
     def get_unit_pooling_csr_indices(self):
         """
         Return the indices that will be used for unit-level pooling on
@@ -389,30 +433,174 @@ class ImageMapping(CSRData):
         """
         return self.jumps
 
-    # TODO: update mappings after image pooling
-    # TODO: update mappings after 3D sampling. Case1: sampling. Case2: voxel pooling
-
-    def reduce_2d_resolution(self, ratio):
+    def subsample_2d(self, ratio):
         """
-        Update the image resolution after subsampling. Typically called after
-        a pooling layer in an image CNN encoder.
+        Update the image resolution after subsampling. Typically called
+        after a pooling layer in an image CNN encoder.
+
+        To update the image resolution in the mappings, the pixel
+        coordinates are converted to lower resolutions. This operation
+        is likely to produce duplicates. Searching and removing these
+        duplicates only affects the unit-level mappings, so only the
+        pixel-level nested CSRData is modified by this function.
+
+        Returns a new ImageMapping object.
         """
         assert ratio >= 1, \
-            f"Invalid image resampling ratio: {ratio}. Must be larger than 1."
+            f"Invalid image subsampling ratio: {ratio}. Must be larger than 1."
 
-        # expand all mappings to 'dense' format
+        # Create a copy of self
+        out = copy.deepcopy(self)
 
-        # floor divide pixels
+        # Expand unit-level mappings to 'dense' format
+        # TODO: this does not support projection features or any other
+        #  value than the required point_id, img_id, pixels. If we want
+        #  to use other attributes in the mapping, use
+        #  `composite_operation(op='argunique')`
 
-        # search duplicates
+        ids = torch.repeat_interleave(
+            torch.arange(out.values[1].num_groups),
+            out.values[1].jumps[1:] - out.values[1].jumps[:-1])
+        pix_x = out.values[1].values[0][:, 0]
+        pix_y = out.values[1].values[0][:, 1]
+        pix_dtype = pix_x.dtype
 
-        # Update unit-level and view-level mappings
-        # keep the first instances only
-        # Assuming this does not cause issues for other potential unit-level CSR-nested values
+        # Convert pixel coordinates to new resolution
+        pix_x = pix_x // ratio
+        pix_y = pix_y // ratio
 
-        #
+        # Remove duplicates and sort wrt ids
+        # Assuming this does not cause issues for other potential
+        # unit-level CSR-nested values
+        ids, pix_x, pix_y = cpu_lex_op(
+            ids, pix_x, pix_y, op='unique', torch_out=True)
+
+        # Build the new unit-level CSR mapping
+        if isinstance(out.values[1], CSRDataBatch):
+            sizes = out.values[1].__sizes__
+            out.values[1] = CSRDataBatch(
+                ids,
+                torch.stack((pix_x, pix_y), dim=1).type(pix_dtype),
+                dense=True
+            )
+            out.values[1].__sizes__ = sizes
+        elif isinstance(out.values[1], CSRData):
+            out.values[1] = CSRData(
+                ids,
+                torch.stack((pix_x, pix_y), dim=1).type(pix_dtype),
+                dense=True
+            )
+        else:
+            raise NotImplementedError(
+                "The unit-level mappings must be either a CSRData or "
+                "CSRDataBatch object.")
+
+        return out
+
+    # TODO: update mappings after 3D sampling.
+    #  Case1: sampling
+    #  Case2: voxel pooling
+
+    # TODO: will the 3D indexing break the CSRDataBatch after sampling ?
+    def subsample_3d(self, idx, merge=False):
+        """
+        Update the 3D resolution after subsampling. Typically called
+        after a 3D sampling or sampling layer in a 3D CNN encoder.
+
+        To update the 3D resolution in the mappings, two methods may
+        be used picking and merging, ruled by the  `merge` parameter.
+
+          - Picking (default): only a subset of points is sampled, the
+            rest is discarded. In this case, a 1D indexing array must be
+            provided.
+
+          - Merging: points are agglomerated. The mappings are combined,
+            duplicates are removed. If any other value (such as
+            projection features) is present in the mapping, the value
+            of one of the duplicates is picked at random. In this case,
+            the correspondence map for the N points in the mapping must
+            be provided as a 1D array of size N.
+
+        Returns a new ImageMapping object.
+        """
+        assert isinstance(idx, torch.LongTensor)
+
+        # Picking mode by default
+        if not merge:
+            return self[idx]
+
+        # Merge mode
+        assert idx.shape[0] == self.num_groups,\
+            f"Merge correspondences has size {idx.shape[0]} but size " \
+            f"{self.num_groups} was expected."
+        assert torch.equal(torch.arange(idx.max()), torch.unique(idx)), \
+            "Merge correspondences must map to a compact set of " \
+            "indices."
+
+        # Expand to dense format
+        point_ids = torch.repeat_interleave(
+            idx, self.jumps[1:] - self.jumps[:-1])
+        point_ids = torch.repeat_interleave(
+            point_ids, self.values[1].jumps[1:] - self.values[1].jumps[:-1])
+        image_ids = torch.repeat_interleave(
+            self.images,
+            self.values[1].jumps[1:] - self.values[1].jumps[:-1])
+        pixels = self.pixels
+        # expand projection features
+
+        # Remove duplicates and aggregate projection features
+        # TODO: this does not support projection features or any other
+        #  value than the required point_id, img_id, pixels. If we want
+        #  to use other attributes in the mapping, use
+        #  `composite_operation(op='argunique')`
+        # argunique multiple torch GPU
+
+
+        # from_dense on the remains
+        ------------
 
 
 
-    def reduce_3d_resolution(self, idx, volumetric=False):
-        pass
+class ImageMappingBatch(ImageMapping, CSRDataBatch):
+    pass
+
+"""
+
+import torch
+from torch_points3d.datasets.multimodal.csr import *
+from torch_points3d.datasets.multimodal.image import *
+from torch_points3d.utils.multimodal import composite_operation
+
+n_groups = 20
+n_items = 200
+idx = torch.randint(low=0, high=n_groups, size=(n_items,))
+img_idx = torch.randint(low=0, high=3, size=(n_items,))
+pixels = torch.randint(low=0, high=10, size=(n_items,2))
+
+idx, img_idx = composite_operation(idx, img_idx, op='sort', torch_out=True)
+
+m = ImageMapping.from_dense(idx, img_idx, pixels)
+
+b = ImageMappingBatch.from_csr_list([m[2], m[1:3], m, m[0]])
+
+a = m[2].num_groups + m[1:3].num_groups
+print(torch.all(b[a : a + m.num_groups].values[1].values[0] == m.values[1].values[0]))
+
+print(torch.all(b.to_csr_list()[2].jumps == m.jumps))
+print(torch.all(b.to_csr_list()[2].values[1].values[0] == m.values[1].values[0]))
+
+b[[0,0,1]]
+
+b = CSRDataBatch.from_csr_list([m[2], m[1:3], m, m[0]])
+
+#-----------------------------------------------
+
+jumps = torch.LongTensor([0, 0,  5, 12, 12, 15])
+val = torch.arange(15)
+m = CSRData(jumps, val, dense=False)
+b = CSRDataBatch.from_csr_list([m, m, m])
+
+# b[[0, 1, 7, 8, 14]]
+b[[0,0,5]]
+
+"""
