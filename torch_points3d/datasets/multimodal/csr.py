@@ -274,11 +274,14 @@ class CSRData(object):
             idx = torch.arange(self.num_groups)[idx]
         elif isinstance(idx, np.ndarray):
             idx = torch.from_numpy(idx)
+        else:
+            raise NotImplementedError
         assert idx.dtype is torch.int64, \
             "CSRData only supports int and torch.LongTensor indexing."
         assert idx.shape[0] > 0, \
             "CSRData only supports non-empty indexing. At least one " \
             "index must be provided."
+        idx = idx.to(self.device)
 
         # Select the jumps and prepare the values indexing
         jumps, val_idx = CSRData._index_select_jumps(self.jumps, idx)

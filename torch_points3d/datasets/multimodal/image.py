@@ -7,9 +7,8 @@ from torch_points3d.utils.multimodal import lexargsort, lexargunique, \
     CompositeTensor
 
 
-# TODO: ImageData + ImageBatch full torch
-# TODO Hold loaded images in the ImageData ?
-# TODO if so, will ImageBatch must recover the proper indices ?
+# TODO: Hold loaded images in the ImageData ? init, property, getitem, to, batch
+# TODO if so, will ImageBatch recover the proper indices ?
 
 class ImageData(object):
     """
@@ -109,15 +108,9 @@ class ImageData(object):
             for path in self.path[idx]
         ])).permute(0, 3, 1, 2)
 
-    def coarsen_coordinates(self, pixel_coordinates):
-        """Convert pixel coordinates from high to low resolution."""
-        ratio = self.map_size_low[0] / self.map_size_high[0]
-        return torch.floor(torch.Tensor(pixel_coordinates) * ratio).type(
-            self.map_dtype)
-
     def non_static_pixel_mask(self, size=None, n_sample=5):
         """
-        Find the mask of identical pixels accross a list of images.
+        Find the mask of identical pixels across a list of images.
         """
         if size is None:
             size = self.map_size_high
@@ -147,34 +140,35 @@ class ImageData(object):
         """Returns the number of images present."""
         return self.num_images
 
-    # TODO: allow slice objects for indexing
     def __getitem__(self, idx):
         """
         Indexing mechanism.
 
-        Returns a new copy of the indexed ImadeData. Supports torch and
+        Returns a new copy of the indexed ImageData. Supports torch and
         numpy indexing.
         """
         if isinstance(idx, int):
-            idx = np.array([idx])
-
-        if isinstance(idx, slice):
-            idx_torch = idx
-            idx_numpy = idx
+            idx = torch.LongTensor([idx])
+        elif isinstance(idx, list):
+            idx = torch.LongTensor(idx)
+        elif isinstance(idx, slice):
+            idx = torch.arange(self.num_images)[idx]
+        elif isinstance(idx, np.ndarray):
+            idx = torch.from_numpy(idx)
         else:
-            if isinstance(idx, np.ndarray):
-                idx_torch = torch.from_numpy(idx)
-                idx_numpy = idx
-            elif isinstance(idx, torch.Tensor):
-                idx_torch = idx
-                idx_numpy = np.asarray(idx)
-            else:
-                raise NotImplementedError
+            raise NotImplementedError
+        assert idx.dtype is torch.int64, \
+            "ImageData only supports int and torch.LongTensor indexing."
+        assert idx.shape[0] > 0, \
+            "ImageData only supports non-empty indexing. At least one " \
+            "index must be provided."
+        idx = idx.to(self.device)
+        idx_numpy = np.asarray(idx)
 
         return self.__class__(
             path=self.path[idx_numpy].copy(),
-            pos=self.pos[idx_torch].clone(),
-            opk=self.opk[idx_torch].clone(),
+            pos=self.pos[idx].clone(),
+            opk=self.opk[idx].clone(),
             mask=self.mask.clone() if self.mask is not None else self.mask,
             img_size=copy.deepcopy(self.img_size),
             map_size_high=copy.deepcopy(self.map_size_high),
