@@ -39,10 +39,8 @@ CSRData(indices, float_values, csr_nested, dense=True)
 """
 
 
-# TODO: to_device
 # TODO: modality-specific mappings (pixels, features, batching, resolution updates)
 # TODO: mappings must also carry projection features
-# TODO: mapping updates: main resolution resampling from idx, modality resampling from res ratio. Expand to modality-specific
 # TODO: beware of empty group index after torch scatter !
 
 class CSRData(object):
@@ -109,6 +107,25 @@ class CSRData(object):
             assert self.is_index_value.shape[0] == self.num_values, \
                 "is_index_value size must match the number of value tensors."
 
+    def to(self, device):
+        """Move the CSRData to the specified device."""
+        self.jumps = self.jumps.to(device)
+        for i in range(self.num_values):
+            self.values[i] = self.values[i].to(device)
+        return self
+
+    def cpu(self):
+        """Move the CSRData to the CPU."""
+        return self.to('cpu')
+
+    def cuda(self):
+        """Move the CSRData to the first available GPU."""
+        return self.to('cuda')
+
+    @property
+    def device(self):
+        return self.jumps.device
+
     @property
     def num_groups(self):
         return self.jumps.shape[0] - 1
@@ -119,7 +136,7 @@ class CSRData(object):
 
     @property
     def num_items(self):
-        return self.jumps[-1]
+        return self.jumps[-1].item()
 
     @staticmethod
     def get_batch_type():
@@ -320,6 +337,13 @@ class CSRDataBatch(CSRData):
     def num_batch_items(self):
         return len(self.__sizes__) if self.__sizes__ is not None else 0
 
+    def to(self, device):
+        """Move the CSRDataBatch to the specified device."""
+        self = super(CSRDataBatch, self).to(device)
+        self.__sizes__ = self.__sizes__.to(device) \
+            if self.__sizes__ is not None else None
+        return self
+
     @staticmethod
     def from_csr_list(csr_list):
         assert isinstance(csr_list, list) and len(csr_list) > 0
@@ -414,61 +438,78 @@ class CSRDataBatch(CSRData):
 
         return csr_list
 
+    # def __getitem__(self, idx):
+    #     """
+    #     Indexing CSRDataBatch format. Supports Numpy and torch indexing
+    #     mechanisms.
+    #
+    #     Only allows for batch-contiguous indexing as other indexes would
+    #     break the batches. This means indices linking to the same batch
+    #     are contiguous and preserve the original batch order.
+    #
+    #     Return a copy of self with updated batches, jumps and values.
+    #     """
+    #     if isinstance(idx, int):
+    #         idx = torch.LongTensor([idx])
+    #     elif isinstance(idx, list):
+    #         idx = torch.LongTensor(idx)
+    #     elif isinstance(idx, slice):
+    #         idx = torch.arange(self.num_groups)[idx]
+    #     elif isinstance(idx, np.ndarray):
+    #         idx = torch.from_numpy(idx)
+    #     assert idx.dtype is torch.int64, \
+    #         "CSRData only supports int and torch.LongTensor indexing"
+    #
+    #     # Find the batch each index falls into and ensure indices are
+    #     # batch-contiguous. Otherwise indexing the CSRDataBatch would
+    #     # break the batching.
+    #     idx_batch_ids = torch.bucketize(idx, self.batch_jumps[1:], right=True)
+    #     print(f"idx_batch_ids={idx_batch_ids}")
+    #
+    #     # Recover the indexing to be separately applied to each CSRData
+    #     # item in the CSRDataBatch. If the index is not sorted in a
+    #     # batch-contiguous fashion, this will raise an error.
+    #     # TODO: if this causes issues, consider making CSRDataBatch
+    #     #  indexation return results as a single CSRData.
+    #     idx_batch_jumps = CSRData._sorted_indices_to_jumps(idx_batch_ids)
+    #     print(f"idx_batch_jumps={idx_batch_jumps}")
+    #     idx_list = [
+    #         (
+    #             idx_batch_ids[idx_batch_jumps[i]],
+    #             idx[idx_batch_jumps[i]:idx_batch_jumps[i+1]] - self.batch_jumps[idx_batch_ids[idx_batch_jumps[i]]]
+    #         )
+    #         for i in range(len(idx_batch_jumps) - 1)
+    #     ]
+    #     print(f"idx_list={idx_list}")
+    #
+    #     # Convert the CSRDataBatch to its list of CSRData and index the
+    #     # proper CSRData objects with the associated indices.
+    #     # REMARK: some CSRData items may be discarded in the process,
+    #     # if not all batch items are represented in the input idx.
+    #     csr_list = self.to_csr_list()
+    #     csr_list = [
+    #         csr_list[i_csr][idx_csr] for i_csr, idx_csr in idx_list
+    #     ]
+    #     print(f"csr_list={csr_list}")
+    #
+    #     return CSRDataBatch.from_csr_list(csr_list)
+
     def __getitem__(self, idx):
         """
         Indexing CSRDataBatch format. Supports Numpy and torch indexing
         mechanisms.
 
-        Only allows for batch-contiguous indexing as other indexes would
-        break the batches. This means indices linking to the same batch
-        are contiguous and preserve the original batch order.
-
-        Return a copy of self with updated batches, jumps and values.
+        Indexing a CSRDataBatch breaks the reversible batching
+        mechanism between `from_csr_list` and `to_csr_list`. As a
+        result, the indexed output is a __csr_type__ from which the
+        original items can no longer be retrieved with to_csr_list`.
         """
-        if isinstance(idx, int):
-            idx = torch.LongTensor([idx])
-        elif isinstance(idx, list):
-            idx = torch.LongTensor(idx)
-        elif isinstance(idx, slice):
-            idx = torch.arange(self.num_groups)[idx]
-        elif isinstance(idx, np.ndarray):
-            idx = torch.from_numpy(idx)
-        assert idx.dtype is torch.int64, \
-            "CSRData only supports int and torch.LongTensor indexing"
-
-        # Find the batch each index falls into and ensure indices are
-        # batch-contiguous. Otherwise indexing the CSRDataBatch would
-        # break the batching.
-        idx_batch_ids = torch.bucketize(idx, self.batch_jumps[1:], right=True)
-        print(f"idx_batch_ids={idx_batch_ids}")
-
-        # Recover the indexing to be separately applied to each CSRData
-        # item in the CSRDataBatch. If the index is not sorted in a
-        # batch-contiguous fashion, this will raise an error.
-        # TODO: if this causes issues, consider making CSRDataBatch
-        #  indexation return results as a single CSRData.
-        idx_batch_jumps = CSRData._sorted_indices_to_jumps(idx_batch_ids)
-        print(f"idx_batch_jumps={idx_batch_jumps}")
-        idx_list = [
-            (
-                idx_batch_ids[idx_batch_jumps[i]],
-                idx[idx_batch_jumps[i]:idx_batch_jumps[i+1]] - self.batch_jumps[idx_batch_ids[idx_batch_jumps[i]]]
-            )
-            for i in range(len(idx_batch_jumps) - 1)
-        ]
-        print(f"idx_list={idx_list}")
-
-        # Convert the CSRDataBatch to its list of CSRData and index the
-        # proper CSRData objects with the associated indices.
-        # REMARK: some CSRData items may be discarded in the process,
-        # if not all batch items are represented in the input idx.
-        csr_list = self.to_csr_list()
-        csr_list = [
-            csr_list[i_csr][idx_csr] for i_csr, idx_csr in idx_list
-        ]
-        print(f"csr_list={csr_list}")
-
-        return CSRDataBatch.from_csr_list(csr_list)
+        csr_batch_indexed = super(CSRDataBatch, self).__getitem__(idx)
+        out = self.__csr_type__(torch.arange(2))
+        out.jumps = csr_batch_indexed.jumps
+        for i in range(csr_batch_indexed.num_values):
+            out.values[i] = csr_batch_indexed.values[i]
+        return out
 
     def __repr__(self):
         info = [f"{key}={getattr(self, key)}"

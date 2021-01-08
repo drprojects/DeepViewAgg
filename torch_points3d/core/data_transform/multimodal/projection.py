@@ -380,5 +380,7 @@ def compute_index_map(
 #  populating the depth map, create a set of target pixel coordinates and
 #  associated meta-data (distance, point ID, normal orientation, ...). Then
 #  use torch-GPU operations to extract the meta-data with the smallest
-#  distance for each pixel coordinate ? This seems tricky to get an argsort
-#  index from torch_scatter ...
+#  distance for each pixel coordinate ? This seems possible with torch.scatter_.
+#  To understand how, see:
+#    - torch_points3d.utils.multimodal.lexargunique
+#    - https://medium.com/@yang6367/understand-torch-scatter-b0fd6275331c

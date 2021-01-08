@@ -3,9 +3,11 @@ import numpy as np
 from PIL import Image
 import torch
 from torch_points3d.datasets.multimodal.csr import CSRData, CSRDataBatch
-from torch_points3d.utils.multimodal import cpu_lex_op
+from torch_points3d.utils.multimodal import lexargsort, lexargunique, \
+    CompositeTensor
 
 
+# TODO: ImageData + ImageBatch full torch
 # TODO Hold loaded images in the ImageData ?
 # TODO if so, will ImageBatch must recover the proper indices ?
 
@@ -32,21 +34,24 @@ class ImageData(object):
         growth_r        float             projection pixel growth radius
     """
 
-    _keys = ['path', 'pos', 'opk', 'img_size', 'mask', 'map_size_high', 'map_size_low', 'crop_top',
-             'crop_bottom', 'voxel', 'r_max', 'r_min', 'growth_k', 'growth_r']
+    _keys = [
+        'path', 'pos', 'opk', 'img_size', 'mask', 'map_size_high',
+        'map_size_low', 'crop_top', 'crop_bottom', 'voxel', 'r_max', 'r_min',
+        'growth_k', 'growth_r']
     _numpy_keys = ['path']
     _torch_keys = ['pos', 'opk']
     _array_keys = _numpy_keys + _torch_keys
     _shared_keys = list(set(_keys) - set(_array_keys))
 
-    def __init__(self, path=np.empty(0, dtype='O'), pos=torch.empty([0, 3]), opk=torch.empty([0, 3]),
-                 mask=None, img_size=(2048, 1024), map_size_high=(2048, 1024), map_size_low=(512, 256),
-                 crop_top=0, crop_bottom=0, voxel=0.1, r_max=30, r_min=0.5, growth_k=0.2, growth_r=10,
-                 **kwargs
-                 ):
+    def __init__(
+            self, path=np.empty(0, dtype='O'), pos=torch.empty([0, 3]),
+            opk=torch.empty([0, 3]), mask=None, img_size=(2048, 1024),
+            map_size_high=(2048, 1024), map_size_low=(512, 256), crop_top=0,
+            crop_bottom=0, voxel=0.1, r_max=30, r_min=0.5, growth_k=0.2,
+            growth_r=10, **kwargs):
 
-        assert path.shape[0] == pos.shape[0] and path.shape[0] == opk.shape[0], (f"Attributes ",
-                                                                                 "'path', 'pos' and 'opk' must have the same length.")
+        assert path.shape[0] == pos.shape[0] and path.shape[0] == opk.shape[0],\
+            f"Attributes 'path', 'pos' and 'opk' must have the same length."
 
         self.path = np.array(path)
         self.pos = pos.double()
@@ -80,7 +85,8 @@ class ImageData(object):
 
         # Update the optimal xy mapping dtype allowed by the resolution
         for dtype in [torch.uint8, torch.int16, torch.int32, torch.int64]:
-            if torch.iinfo(dtype).max >= max(self.map_size_low[0], self.map_size_low[1]):
+            if torch.iinfo(dtype).max >= max(
+                    self.map_size_low[0], self.map_size_low[1]):
                 break
         self.map_dtype = dtype
 
@@ -98,14 +104,16 @@ class ImageData(object):
             size = self.img_size
 
         return torch.from_numpy(np.stack([
-            np.array(Image.open(path).convert('RGB').resize(size, Image.LANCZOS))
+            np.array(Image.open(path).convert('RGB').resize(
+                size, Image.LANCZOS))
             for path in self.path[idx]
         ])).permute(0, 3, 1, 2)
 
     def coarsen_coordinates(self, pixel_coordinates):
         """Convert pixel coordinates from high to low resolution."""
         ratio = self.map_size_low[0] / self.map_size_high[0]
-        return torch.floor(torch.Tensor(pixel_coordinates) * ratio).type(self.map_dtype)
+        return torch.floor(torch.Tensor(pixel_coordinates) * ratio).type(
+            self.map_dtype)
 
     def non_static_pixel_mask(self, size=None, n_sample=5):
         """
@@ -121,7 +129,8 @@ class ImageData(object):
             return mask
 
         # Iteratively update the mask w.r.t. a reference image
-        idx = torch.multinomial(torch.arange(self.num_images, dtype=torch.float), n_sample)
+        idx = torch.multinomial(
+            torch.arange(self.num_images, dtype=torch.float), n_sample)
         img_1 = self.read_images(idx=idx[0], size=size).squeeze()
         for i in idx[1:]:
             img_2 = self.read_images(idx=i, size=size).squeeze()
@@ -138,12 +147,13 @@ class ImageData(object):
         """Returns the number of images present."""
         return self.num_images
 
+    # TODO: allow slice objects for indexing
     def __getitem__(self, idx):
         """
         Indexing mechanism.
 
-        Returns a new copy of the indexed ImadeData. Supports torch and numpy 
-        indexing.
+        Returns a new copy of the indexed ImadeData. Supports torch and
+        numpy indexing.
         """
         if isinstance(idx, int):
             idx = np.array([idx])
@@ -182,37 +192,41 @@ class ImageData(object):
         """
         Iteration mechanism.
         
-        Looping over the ImageData will return an ImageData for each individual
-        item.
+        Looping over the ImageData will return an ImageData for each
+        individual item.
         """
         for i in range(self.__len__()):
             yield self[i]
 
     def __repr__(self):
-        return f"{self.__class__.__name__}(num_images={self.num_images}, device={self.device})"
+        return f"{self.__class__.__name__}(num_images={self.num_images}, " \
+               f"device={self.device})"
 
     def to(self, device):
         """Set torch.Tensor attribute device."""
         self.pos = self.pos.to(device)
         self.opk = self.opk.to(device)
-        self.mask = self.mask.to(device) if self.mask is not None else self.mask
+        self.mask = self.mask.to(device) if self.mask is not None \
+            else self.mask
         return self
 
     @property
     def device(self):
         """Get the device of the torch.Tensor attributes."""
-        assert self.pos.device == self.opk.device, (f"Discrepancy in the devices of 'pos' and ",
-                                                    "'opk' attributes. Please use `ImageData.to()` to set the device.")
+        assert self.pos.device == self.opk.device, \
+            f"Discrepancy in the devices of 'pos' and 'opk' attributes. " \
+            f"Please use `ImageData.to()` to set the device."
         if self.mask is not None:
-            assert self.pos.device == self.mask.device, (f"Discrepancy in the devices of 'pos' ",
-                                                         "and 'mask' attributes. Please use `ImageData.to()` to set the device.")
+            assert self.pos.device == self.mask.device, \
+                f"Discrepancy in the devices of 'pos' and 'mask' attributes." \
+                f" Please use `ImageData.to()` to set the device."
         return self.pos.device
 
 
 class ImageBatch(ImageData):
     """
-    Wrapper class of ImageData to build a batch from a list of ImageData and 
-    reconstruct it afterwards.  
+    Wrapper class of ImageData to build a batch from a list of
+    ImageData and reconstruct it afterwards.
     """
 
     def __init__(self, **kwargs):
@@ -221,8 +235,8 @@ class ImageBatch(ImageData):
 
     @property
     def batch_jumps(self):
-        return np.cumsum(np.concatenate(([0], self.__sizes__))) if self.__sizes__ is not None \
-            else None
+        return np.cumsum(np.concatenate(([0], self.__sizes__))) \
+            if self.__sizes__ is not None else None
 
     @property
     def batch_items_sizes(self):
@@ -273,7 +287,8 @@ class ImageBatch(ImageData):
         for key in ImageData._torch_keys:
             batch_dict[key] = torch.cat(batch_dict[key])
 
-        # Initialize the batch from dict and keep track of the item sizes
+        # Initialize the batch from dict and keep track of the item
+        # sizes
         batch = ImageBatch(**batch_dict)
         batch.__sizes__ = np.array(sizes)
 
@@ -296,7 +311,7 @@ class ImageMapping(CSRData):
     CSRData format for point-image-pixel mappings.
     """
 
-    # TODO: optional projection features in the view-level mappings
+    # TODO: expand to optional projection features in the view-level mappings
 
     @staticmethod
     def from_dense(point_ids, image_ids, pixels, num_points=None):
@@ -311,19 +326,21 @@ class ImageMapping(CSRData):
             'pixels and indices must have the same shape'
 
         # Sort by point_ids first, image_ids second
-        sorting, composite_ids = cpu_lex_op(
-            point_ids, image_ids, op='argsort', torch_out=True)
-        image_ids = image_ids[sorting]
-        point_ids = point_ids[sorting]
-        pixels = pixels[sorting]
-        del sorting
+        # sorting, composite_ids = cpu_lex_op(
+        #     point_ids, image_ids, op='argsort', torch_out=True)
+        idx_sort = lexargsort(point_ids, image_ids, device='cuda').cpu()
+        image_ids = image_ids[idx_sort]
+        point_ids = point_ids[idx_sort]
+        pixels = pixels[idx_sort]
+        del idx_sort
 
         # Convert to "nested CSRData" format.
         # Compute point-image jumps in the pixels array.
         # NB: The jumps are marked by non-successive point-image ids.
         #     Watch out for overflow in case the point_ids and
         #     image_ids are too large and stored in 32 bits.
-        image_pixel_mappings = CSRData(composite_ids, pixels, dense=True)
+        composite_ids = CompositeTensor(point_ids, image_ids, device='cpu')
+        image_pixel_mappings = CSRData(composite_ids.data, pixels, dense=True)
         del composite_ids
 
         # Compress point_ids and image_ids by taking the last value of
@@ -387,25 +404,26 @@ class ImageMapping(CSRData):
         """Required by CSRDataBatch.from_csr_list."""
         return ImageMappingBatch
 
-    def get_batch_features_indexing(self):
+    @property
+    def feature_map_indexing(self):
         """
-        Return indices for extracting unit-level data from image features
-        batch.
+        Return the indices for extracting mapped data from the
+        corresponding batch of image feature maps.
 
-        When the image features batch X is expected to have the shape
-        [B, C, W, H], the returned indices idx_1, idx_2, idx_3 are intended to
-        be used so that X[idx_1, :, idx_2, idx_3] are the unit-level features
-        of the mapping.
+        The batch of image feature maps X is expected to have the shape
+        `[B, C, W, H]`. The returned indices idx_1, idx_2, idx_3 are
+        intended to be used for recovering the mapped features as:
+        `X[idx_1, :, idx_2, idx_3]`.
         """
         idx_batch = torch.repeat_interleave(
             self.images,
-            self.values[1].jumps[1:] - self.values[1].jumps[:-1]
-        )
+            self.values[1].jumps[1:] - self.values[1].jumps[:-1])
         idx_width = self.pixels[0]
         idx_height = self.pixels[1]
         return idx_batch, idx_width, idx_height
 
-    def get_unit_pooling_indices(self):
+    @property
+    def unit_pooling_indices(self):
         """
         Return the indices that will be used for unit-level pooling.
         """
@@ -413,20 +431,23 @@ class ImageMapping(CSRData):
 
     # TODO: padding circular affects coordinates, beware of mappings, beware of mappings validity
     # TODO: mask and crop affects coordinates, beware of mappings validity
-    def get_unit_pooling_csr_indices(self):
+    @property
+    def unit_pooling_csr_indices(self):
         """
         Return the indices that will be used for unit-level pooling on
         CSR-formatted data.
         """
         return self.values[1].jumps
 
-    def get_view_pooling_indices(self):
+    @property
+    def view_pooling_indices(self):
         """
         Return the indices that will be used for view-level pooling.
         """
         raise NotImplementedError
 
-    def get_view_pooling_csr_indices(self):
+    @property
+    def view_pooling_csr_indices(self):
         """
         Return the indices that will be used for view-level pooling on
         CSR-formatted data.
@@ -453,11 +474,6 @@ class ImageMapping(CSRData):
         out = copy.deepcopy(self)
 
         # Expand unit-level mappings to 'dense' format
-        # TODO: this does not support projection features or any other
-        #  value than the required point_id, img_id, pixels. If we want
-        #  to use other attributes in the mapping, use
-        #  `composite_operation(op='argunique')`
-
         ids = torch.repeat_interleave(
             torch.arange(out.values[1].num_groups),
             out.values[1].jumps[1:] - out.values[1].jumps[:-1])
@@ -472,8 +488,10 @@ class ImageMapping(CSRData):
         # Remove duplicates and sort wrt ids
         # Assuming this does not cause issues for other potential
         # unit-level CSR-nested values
-        ids, pix_x, pix_y = cpu_lex_op(
-            ids, pix_x, pix_y, op='unique', torch_out=True)
+        idx_unique = lexargunique(ids, pix_x, pix_y, device='cuda').cpu()
+        ids = ids[idx_unique]
+        pix_x = pix_x[idx_unique]
+        pix_y = pix_y[idx_unique]
 
         # Build the new unit-level CSR mapping
         if isinstance(out.values[1], CSRDataBatch):
@@ -497,11 +515,6 @@ class ImageMapping(CSRData):
 
         return out
 
-    # TODO: update mappings after 3D sampling.
-    #  Case1: sampling
-    #  Case2: voxel pooling
-
-    # TODO: will the 3D indexing break the CSRDataBatch after sampling ?
     def subsample_3d(self, idx, merge=False):
         """
         Update the 3D resolution after subsampling. Typically called
@@ -546,19 +559,15 @@ class ImageMapping(CSRData):
             self.images,
             self.values[1].jumps[1:] - self.values[1].jumps[:-1])
         pixels = self.pixels
-        # expand projection features
 
         # Remove duplicates and aggregate projection features
-        # TODO: this does not support projection features or any other
-        #  value than the required point_id, img_id, pixels. If we want
-        #  to use other attributes in the mapping, use
-        #  `composite_operation(op='argunique')`
-        # argunique multiple torch GPU
+        idx_unique = lexargunique(point_ids, image_ids, pixels, device='cuda').cpu()
+        point_ids = point_ids[idx_unique]
+        image_ids = image_ids[idx_unique]
+        pixels = pixels[idx_unique]
 
-
-        # from_dense on the remains
-        ------------
-
+        # Convert to CSR format
+        return ImageMapping.from_dense(point_ids, image_ids, pixels)
 
 
 class ImageMappingBatch(ImageMapping, CSRDataBatch):
