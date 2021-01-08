@@ -245,9 +245,6 @@ class CSRData(object):
         Returns a new jump tensor with updated jumps, along with an indices tensor to
         be used to update any values tensor associated with the input jumps.
         """
-        print()
-        print(f"Indices : {indices}, max : {indices.max()}")
-        print(f"Jumps : {jumps}, shape : {jumps.shape}")
         assert indices.max() <= jumps.shape[0] - 2
         jumps_updated, val_indices = CSRData._index_select_jumps_numba(np.asarray(jumps), np.asarray(indices))
         return torch.from_numpy(jumps_updated), torch.from_numpy(np.concatenate(val_indices))
@@ -464,7 +461,6 @@ class CSRDataBatch(CSRData):
     #     # batch-contiguous. Otherwise indexing the CSRDataBatch would
     #     # break the batching.
     #     idx_batch_ids = torch.bucketize(idx, self.batch_jumps[1:], right=True)
-    #     print(f"idx_batch_ids={idx_batch_ids}")
     #
     #     # Recover the indexing to be separately applied to each CSRData
     #     # item in the CSRDataBatch. If the index is not sorted in a
@@ -472,7 +468,6 @@ class CSRDataBatch(CSRData):
     #     # TODO: if this causes issues, consider making CSRDataBatch
     #     #  indexation return results as a single CSRData.
     #     idx_batch_jumps = CSRData._sorted_indices_to_jumps(idx_batch_ids)
-    #     print(f"idx_batch_jumps={idx_batch_jumps}")
     #     idx_list = [
     #         (
     #             idx_batch_ids[idx_batch_jumps[i]],
@@ -480,7 +475,6 @@ class CSRDataBatch(CSRData):
     #         )
     #         for i in range(len(idx_batch_jumps) - 1)
     #     ]
-    #     print(f"idx_list={idx_list}")
     #
     #     # Convert the CSRDataBatch to its list of CSRData and index the
     #     # proper CSRData objects with the associated indices.
@@ -490,7 +484,6 @@ class CSRDataBatch(CSRData):
     #     csr_list = [
     #         csr_list[i_csr][idx_csr] for i_csr, idx_csr in idx_list
     #     ]
-    #     print(f"csr_list={csr_list}")
     #
     #     return CSRDataBatch.from_csr_list(csr_list)
 
@@ -504,11 +497,11 @@ class CSRDataBatch(CSRData):
         result, the indexed output is a __csr_type__ from which the
         original items can no longer be retrieved with to_csr_list`.
         """
-        csr_batch_indexed = super(CSRDataBatch, self).__getitem__(idx)
-        out = self.__csr_type__(torch.arange(2))
-        out.jumps = csr_batch_indexed.jumps
-        for i in range(csr_batch_indexed.num_values):
-            out.values[i] = csr_batch_indexed.values[i]
+        csr_batch = super(CSRDataBatch, self).__getitem__(idx)
+        out = self.__csr_type__(
+            csr_batch.jumps, *csr_batch.values, dense=False,
+            is_index_value=csr_batch.is_index_value)
+        out.debug()
         return out
 
     def __repr__(self):

@@ -578,25 +578,25 @@ class ImageMappingBatch(ImageMapping, CSRDataBatch):
 import torch
 from torch_points3d.datasets.multimodal.csr import *
 from torch_points3d.datasets.multimodal.image import *
-from torch_points3d.utils.multimodal import composite_operation
+from torch_points3d.utils.multimodal import lexsort
 
-n_groups = 20
-n_items = 200
+n_groups = 10**5
+n_items = 10**6
 idx = torch.randint(low=0, high=n_groups, size=(n_items,))
 img_idx = torch.randint(low=0, high=3, size=(n_items,))
 pixels = torch.randint(low=0, high=10, size=(n_items,2))
 
-idx, img_idx = composite_operation(idx, img_idx, op='sort', torch_out=True)
+idx, img_idx = lexsort(idx, img_idx)
 
 m = ImageMapping.from_dense(idx, img_idx, pixels)
 
 b = ImageMappingBatch.from_csr_list([m[2], m[1:3], m, m[0]])
 
 a = m[2].num_groups + m[1:3].num_groups
-print(torch.all(b[a : a + m.num_groups].values[1].values[0] == m.values[1].values[0]))
+print((b[a : a + m.num_groups].values[1].values[0] == m.values[1].values[0]).all().item())
 
-print(torch.all(b.to_csr_list()[2].jumps == m.jumps))
-print(torch.all(b.to_csr_list()[2].values[1].values[0] == m.values[1].values[0]))
+print((b.to_csr_list()[2].jumps == m.jumps).all().item())
+print((b.to_csr_list()[2].values[1].values[0] == m.values[1].values[0]).all().item())
 
 b[[0,0,1]]
 

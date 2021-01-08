@@ -5,7 +5,9 @@ import copy
 
 def lexsort(*args, device='cuda'):
     """Return input tensors sorted in lexicographic order."""
-    if torch.cuda.is_available() and device == 'cuda':
+    if not torch.cuda.is_available():
+        device = 'cpu'
+    if device == 'cuda':
         out = cuda_lex_op(*args, op='sort')
     else:
         out = cpu_lex_op(*args, op='sort', torch_out=True)
@@ -14,7 +16,9 @@ def lexsort(*args, device='cuda'):
 
 def lexargsort(*args, device='cuda'):
     """Return indices to sort input tensors in lexicographic order."""
-    if torch.cuda.is_available() and device == 'cuda':
+    if not torch.cuda.is_available():
+        device = 'cpu'
+    if device == 'cuda':
         out = cuda_lex_op(*args, op='argsort')
     else:
         out = cpu_lex_op(*args, op='argsort', torch_out=True)
@@ -24,7 +28,9 @@ def lexargsort(*args, device='cuda'):
 def lexunique(*args, device='cuda'):
     """Return unique values in the input tensors sorted in lexicographic
      order."""
-    if torch.cuda.is_available() and device == 'cuda':
+    if not torch.cuda.is_available():
+        device = 'cpu'
+    if device == 'cuda':
         out = cuda_lex_op(*args, op='unique')
     else:
         out = cpu_lex_op(*args, op='unique', torch_out=True)
@@ -35,7 +41,9 @@ def lexargunique(*args, device='cuda'):
     """Return indices to mapping input tensors to their unique values
     sorted sorted in lexicographic order.
     """
-    if torch.cuda.is_available() and device == 'cuda':
+    if not torch.cuda.is_available():
+        device = 'cpu'
+    if device == 'cuda':
         out = cuda_lex_op(*args, op='argunique')
     else:
         out = cpu_lex_op(*args, op='argunique', torch_out=True)
