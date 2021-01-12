@@ -9,6 +9,10 @@ import numpy as np
 import torch
 
 
+# TODO: To go further with ipwidgets :
+#  - https://plotly.com/python/figurewidget-app/
+#  - https://ipywidgets.readthedocs.io/en/stable/
+
 def rgb_to_plotly_rgb(rgb):
     """Convert torch.Tensor of float RGB values in [0, 1] to
     plotly-friendly RGB format.
@@ -457,9 +461,3 @@ def visualize_mm_data(mm_data, show_3d=True, show_2d=True, path=None, title=None
     
     return
 
-
-"""
-To go further with ipwidgets :
-	- https://plotly.com/python/figurewidget-app/
-	- https://ipywidgets.readthedocs.io/en/stable/
-"""

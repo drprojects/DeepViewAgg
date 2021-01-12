@@ -1,6 +1,6 @@
 data_multimodal:
   point_id: point_index
-  img_size: [2048, 1024]
+  img_size: [512, 256]
   map_size_high: [2048, 1024]
   map_size_low: [512, 256]
 data:
@@ -8,7 +8,7 @@ data:
   class: s3dis.S3DISFusedDataset
   dataroot: data
   fold: 5
-  first_subsampling: 0.04
+  first_subsampling: 0.05
   use_category: False
   pre_collate_transform:
       - transform: PointCloudFusion        # One point cloud per area
@@ -25,7 +25,7 @@ data:
       - transform: NonStaticImageMask      # Find acquisition mask
         params:
           mask_size: ${data_multimodal.map_size_high}
-          n_sample: 5
+          n_sample: 10
       - transform: PointImagePixelMapping  # Define the 3D-2D mapping
         params:
           map_size_high: ${data_multimodal.map_size_high}
@@ -34,7 +34,7 @@ data:
           crop_bottom: 0
           voxel: ${data.first_subsampling}
           r_max: 8
-          r_min: 0.1
+          r_min: 0.05
           growth_k: 0.5
           growth_r: 100  # growth_k and growth_r set so that correction factor is ~1.1 at r_max=8
           empty: 0

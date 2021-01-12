@@ -3,8 +3,7 @@ import torch
 from torch_geometric.data import Data
 from torch_points3d.core.data_transform import SphereSampling
 from torch_points3d.datasets.multimodal.image import ImageData, ImageMapping
-from torch_points3d.datasets.multimodal.csr import CSRData
-from torch_points3d.utils.multimodal import cpu_lex_op
+from torch_points3d.utils.multimodal import lexunique
 import torchvision.transforms as T
 from .projection import compute_index_map
 from tqdm.auto import tqdm as tq
@@ -119,13 +118,26 @@ class PointImagePixelMapping:
         point_ids = []
         pixels = []
 
+        from time import time
+        t_sphere_sampling = 0
+        t_projection = 0
+        t_init_torch_pixels = 0
+        t_ratio_pixels = 0
+        t_unique_pixels = 0
+        t_stack_pixels = 0
+        t_append = 0
+
         # Project each image and gather the point-pixel mappings
         for i_image, image in tq(enumerate(images)):
             # Subsample the surrounding point cloud
+            start = time()
             sampler = SphereSampling(image.r_max, image.pos, align_origin=False)
-            data_sample = sampler(data.clone())
+            data_sample = sampler(data)
+            # data_sample = sampler(data.clone())
+            t_sphere_sampling += time() - start
 
             # Projection to build the index map
+            start = time()
             id_map, _ = compute_index_map(
                 (data_sample.pos - image.pos.squeeze()).numpy(),
                 getattr(data_sample, self.key).numpy(),
@@ -142,6 +154,7 @@ class PointImagePixelMapping:
                 empty=self.empty,
                 no_id=self.no_id,
             )
+            t_projection += time() - start
 
             # Convert the id_map to id-xy coordinate soup
             # First column holds the point indices, subsequent columns
@@ -149,6 +162,7 @@ class PointImagePixelMapping:
             # soup to search for duplicate rows after resolution
             # coarsening.
             # NB: no_id pixels are ignored
+            start = time()
             id_map = torch.from_numpy(id_map)
             pix_x_, pix_y_ = torch.where(id_map != self.no_id)
             # point_ids_pixel_soup = id_map[active_pixels]
@@ -160,13 +174,16 @@ class PointImagePixelMapping:
             # Skip image if no mapping was found
             if point_ids_.shape[0] == 0:
                 continue
+            t_init_torch_pixels += time() - start
 
             # Convert to lower resolution coordinates
             # NB: we assume the resolution ratio is the same for both 
             # dimensions
+            start = time()
             ratio = image.map_size_high[0] / image.map_size_low[0]
-            pix_x_ = pix_x_ // ratio
-            pix_y_ = pix_y_ // ratio
+            pix_x_ = (pix_x_ // ratio).long()
+            pix_y_ = (pix_y_ // ratio).long()
+            t_ratio_pixels += time() - start
             # pixels_ = image.coarsen_coordinates(pixels_)
             # point_ids_pixel_soup[:, 1:] = image.coarsen_coordinates(point_ids_pixel_soup[:, 1:])
 
@@ -174,24 +191,42 @@ class PointImagePixelMapping:
             # Sort by point id
             # point_ids_pixel_soup = np.unique(point_ids_pixel_soup,
             #                                  axis=0)  # bottleneck here ! Custom unique-sort with numba ?
-            point_ids_, pix_x_, pix_y_ = cpu_lex_op(
-                point_ids_, pix_x_, pix_y_, op='unique', torch_out=True)
+            start = time()
+            point_ids_, pix_x_, pix_y_ = lexunique(point_ids_, pix_x_, pix_y_)
+            t_unique_pixels += time() - start
 
             # Cast pixel coordinates to a dtype minimizing memory use
             # point_ids_ = point_ids_pixel_soup[:, 0]
             # pixels_ = np.asarray(torch.from_numpy(point_ids_pixel_soup[:, 1:]).type(image.map_dtype))
+            start = time()
             pixels_ = torch.stack((pix_x_, pix_y_), dim=1).type(image.map_dtype)
             # del point_ids_pixel_soup
+            t_stack_pixels += time() - start
 
             # Gather per-image mappings in list structures, only to be
             # torch-concatenated once all images are processed
+            start = time()
             image_ids.append(i_image)
             point_ids.append(point_ids_)
             pixels.append(pixels_)
             del pixels_, point_ids_
+            t_append += time() - start
+
+        print(f"    Cumulated times")
+        print(f"        t_sphere_sampling: {t_sphere_sampling:0.3f}")
+        print(f"        t_projection: {t_projection:0.3f}")
+        print(f"        t_init_torch_pixels: {t_init_torch_pixels:0.3f}")
+        print(f"        t_ratio_pixels: {t_ratio_pixels:0.3f}")
+        print(f"        t_unique_pixels: {t_unique_pixels:0.3f}")
+        print(f"        t_stack_pixels: {t_stack_pixels:0.3f}")
+        print(f"        t_append: {t_append:0.3f}")
+
+        # Drop the KD-tree attribute saved in data by the SphereSampling
+        delattr(data, SphereSampling.KDTREE_KEY)
 
         # Raise error if no point-image-pixel mapping was found
-        if pixels.shape[0] == 0:
+        image_ids = torch.LongTensor(image_ids)
+        if image_ids.shape[0] == 0:
             raise ValueError(
                 "No mappings were found between the 3D points and any "
                 "of the provided images. This will cause errors in the "
@@ -210,23 +245,28 @@ class PointImagePixelMapping:
         # seen_image_ids = np.unique(image_ids)
         # images = images[np.isin(np.arange(images.num_images), seen_image_ids)]
         # image_ids = np.digitize(image_ids, seen_image_ids) - 1
-        seen_image_ids = cpu_lex_op(
-            image_ids, op='unique', torch_out=True)[0]
+        start = time()
+        seen_image_ids = lexunique(image_ids)
         images = images[seen_image_ids]
         image_ids = torch.bucketize(image_ids, seen_image_ids)
+        print(f"        t_index_image_data: {time() - start:0.3f}")
 
         # Concatenate mappings data
         # image_ids = np.repeat(image_ids, [x.shape[0] for x in point_ids])
         # point_ids = np.concatenate(point_ids)
         # pixels = np.vstack(pixels)
+        start = time()
         image_ids = torch.repeat_interleave(
-            image_ids, [x.shape[0] for x in point_ids])
+            image_ids, torch.LongTensor([x.shape[0] for x in point_ids]))
         point_ids = torch.cat(point_ids)
         pixels = torch.cat(pixels)
+        print(f"        t_concat_dense_mappings_data: {time() - start:0.3f}")
 
+        start = time()
         mappings = ImageMapping.from_dense(
             point_ids, image_ids, pixels,
             num_points=getattr(data, self.key).numpy().max() + 1)
+        print(f"        t_ImageMapping_init: {time() - start:0.3f}\n")
 
         return data, images, mappings
 
@@ -256,6 +296,34 @@ class PointImagePixelMapping:
 
     def __repr__(self):
         return self.__class__.__name__
+
+
+class DropPoorMappings:
+    """
+    Transform to drop images and corresponding mappings when mappings
+    account for less than a given ratio of the image area.
+    """
+    def __init__(self, ratio=0.05):
+        self.ratio = 0.05
+
+    def __call__(self, data, images, mappings):
+        # TODO: DropPoorMappings
+        pass
+
+    def __repr__(self):
+        return self.__class__.__name__
+
+
+class CropFromMask:
+    """Transform to crop top and bottom from images and mappings based on mask."""
+    # TODO: CropFromMask
+    pass
+
+
+class PadMappings:
+    """Transform to update the mappings to account for image padding."""
+    # TODO: PadMappings
+    pass
 
 
 class PointImagePixelMappingFromId:
@@ -302,8 +370,7 @@ class PointImagePixelMappingFromId:
         # Subselect the images used in the mappings. The selected
         # images are sorted by their order in image_indices.
         # seen_image_ids = np.unique(mappings.values[0])
-        seen_image_ids = cpu_lex_op(
-            mappings.images, op='unique', torch_out=True)[0]
+        seen_image_ids = lexunique(mappings.images)
         images = images[seen_image_ids]
 
         # Update image indices to the new images length. This is
@@ -380,7 +447,16 @@ class GaussianBlur(TorchvisionTransform):
         self.sigma = sigma
         self.transform = T.GaussianBlur(kernel_size, sigma=sigma)
 
+
 # TODO : add invertible transforms from https://github.com/gregunz/invertransforms
 #  or modify the mappings when applying the geometric transforms.
-#  WARNING : if the image undergoes geometric transform, this may cause problems when
-#  doing image wrapping or in EquiConv. IDEA : spherical image rotation for augmentation
+#  WARNING : if the image undergoes geometric transform, this may cause
+#  problems when doing image wrapping or in EquiConv. IDEA : spherical
+#  image rotation for augmentation
+
+# TODO: consider impact of padding on mappings. Should we pad only once
+#  as an image transform operation or should we pad in the convolution
+#  blocks ? It seems cleaner to do it in the convolutions, rather doing
+#  only 1 big padding at the beginning (that would require knowing how
+#  many conv layers the image will go through). So, how and where do we
+#  edit the mappings based on the paddings ?

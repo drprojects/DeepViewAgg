@@ -39,10 +39,6 @@ CSRData(indices, float_values, csr_nested, dense=True)
 """
 
 
-# TODO: modality-specific mappings (pixels, features, batching, resolution updates)
-# TODO: mappings must also carry projection features
-# TODO: beware of empty group index after torch scatter !
-
 class CSRData(object):
     """
     Implements the CSRData format and associated mechanisms in Torch.
@@ -61,8 +57,8 @@ class CSRData(object):
         have the same size and support torch tensor indexing (i.e. they can be
         torch tensor or CSRData objects themselves).
 
-        If `dense=True`, jumps are treated as a dense tensor of indices to be
-        converted into jump indices. 
+        If `dense=True`, jumps are treated as a sorted dense tensor of
+        indices to be converted into jump indices.
 
         Optionally, a list of booleans `is_index_value` can be passed. It must
         be the same size as *args and indicates, for each value, whether it 
@@ -206,7 +202,7 @@ class CSRData(object):
         """
         assert self.num_groups == group_indices.shape[0], \
             "New group indices must correspond to the existing number of groups"
-        assert CSRData._is_sorted_numba(np.asarray(group_indices)),\
+        assert CSRData._is_sorted_numba(np.asarray(group_indices)), \
             "New group indices must be sorted."
 
         if num_groups is not None:
@@ -274,8 +270,8 @@ class CSRData(object):
             idx = torch.arange(self.num_groups)[idx]
         elif isinstance(idx, np.ndarray):
             idx = torch.from_numpy(idx)
-        else:
-            raise NotImplementedError
+        # elif not isinstance(idx, torch.LongTensor):
+        #     raise NotImplementedError
         assert idx.dtype is torch.int64, \
             "CSRData only supports int and torch.LongTensor indexing."
         assert idx.shape[0] > 0, \
@@ -468,8 +464,6 @@ class CSRDataBatch(CSRData):
     #     # Recover the indexing to be separately applied to each CSRData
     #     # item in the CSRDataBatch. If the index is not sorted in a
     #     # batch-contiguous fashion, this will raise an error.
-    #     # TODO: if this causes issues, consider making CSRDataBatch
-    #     #  indexation return results as a single CSRData.
     #     idx_batch_jumps = CSRData._sorted_indices_to_jumps(idx_batch_ids)
     #     idx_list = [
     #         (

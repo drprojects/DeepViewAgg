@@ -3,47 +3,49 @@ import numpy as np
 import copy
 
 
-def lexsort(*args, device='cuda'):
+def lexsort(*args, device='cpu', compute_device='cuda'):
     """Return input tensors sorted in lexicographic order."""
     if not torch.cuda.is_available():
-        device = 'cpu'
-    if device == 'cuda':
+        compute_device = 'cpu'
+    if compute_device == 'cuda':
         out = cuda_lex_op(*args, op='sort')
     else:
         out = cpu_lex_op(*args, op='sort', torch_out=True)
-    return [x.to(device) for x in out]
+    out = [x.to(device) for x in out]
+    return out if len(out) > 1 else out[0]
 
 
-def lexargsort(*args, device='cuda'):
+def lexargsort(*args, device='cpu', compute_device='cuda'):
     """Return indices to sort input tensors in lexicographic order."""
     if not torch.cuda.is_available():
-        device = 'cpu'
-    if device == 'cuda':
+        compute_device = 'cpu'
+    if compute_device == 'cuda':
         out = cuda_lex_op(*args, op='argsort')
     else:
         out = cpu_lex_op(*args, op='argsort', torch_out=True)
     return out.to(device)
 
 
-def lexunique(*args, device='cuda'):
+def lexunique(*args, device='cpu', compute_device='cuda'):
     """Return unique values in the input tensors sorted in lexicographic
      order."""
     if not torch.cuda.is_available():
-        device = 'cpu'
-    if device == 'cuda':
+        compute_device = 'cpu'
+    if compute_device == 'cuda':
         out = cuda_lex_op(*args, op='unique')
     else:
         out = cpu_lex_op(*args, op='unique', torch_out=True)
-    return [x.to(device) for x in out]
+    out = [x.to(device) for x in out]
+    return out if len(out) > 1 else out[0]
 
 
-def lexargunique(*args, device='cuda'):
+def lexargunique(*args, device='cpu', compute_device='cuda'):
     """Return indices to mapping input tensors to their unique values
     sorted sorted in lexicographic order.
     """
     if not torch.cuda.is_available():
-        device = 'cpu'
-    if device == 'cuda':
+        compute_device = 'cpu'
+    if compute_device == 'cuda':
         out = cuda_lex_op(*args, op='argunique')
     else:
         out = cpu_lex_op(*args, op='argunique', torch_out=True)
@@ -52,38 +54,47 @@ def lexargunique(*args, device='cuda'):
 
 class CompositeTensor:
     """
-    Simple object able to combine the values of a set of 1D tensors of
-    the same shape into a 1D composite torch.Tensor.
+    Simple object able to combine the values of a set of 1D int or bool
+    tensors of the same shape into a 1D composite torch.Tensor.
 
     The composite values are built so that they carry the order in
     which the input tensors were passed, which can be used for
     lexicographic-aware operations.
     """
 
-    def __init__(self, *args, device='cuda'):
+    def __init__(self, *args, device='cpu'):
         """
         Build CompositeTensor from a list of 1D Tensors (or numpy
         arrays).
         """
+        supported_formats = (
+            torch.uint8, torch.int8, torch.int16, torch.int32,
+            torch.int64, torch.bool)
         assert len(args) > 0, "At least one tensor must be provided."
         if device == 'cuda':
             assert torch.cuda.is_available(), "CUDA not found."
 
         # Convert input to cuda torch tensor
         tensor_list = [torch.from_numpy(a).to(device)
-                       if isinstance(a, np.ndarray) else a.to(device) for a in args]
+                       if isinstance(a, np.ndarray)
+                       else a.to(device) for a in args]
         assert tensor_list[0].ndim == 1, \
             'Only 1D tensors are accepted as input.'
         assert all([a.shape == tensor_list[0].shape for a in tensor_list]), \
-            'All input tensors must have the same shape'
+            'All input tensors must have the same shape.'
+        assert all([a.dtype in supported_formats for a in tensor_list]), \
+            f'All input tensors must be either int of bool tensors. ' \
+            f'Received types: {[a.dtype for a in tensor_list]}'
 
         # Compute the bases to build the composite tensor
         dtype_list = [a.dtype for a in tensor_list]
         dtype_max = max([torch.iinfo(dt).max for dt in dtype_list])
         max_list = torch.LongTensor([a.max() + 1 for a in tensor_list])
         assert all([torch.prod(max_list) < dtype_max]), \
-            'The dtype of at least one of the input tensors must allow the composite computation.'
-        base_list = [torch.prod(max_list[i + 1:]).item() for i in range(len(tensor_list) - 1)] + [1]
+            'The dtype of at least one of the input tensors must ' \
+            'allow the composite computation.'
+        base_list = [torch.prod(max_list[i + 1:]).item()
+                     for i in range(len(tensor_list) - 1)] + [1]
 
         # Build the composite tensor
         self.dtype_list = dtype_list
@@ -113,8 +124,8 @@ class CompositeTensor:
 
 class CompositeNDArray:
     """
-    Simple object able to combine the values of a set of 1D arrays of
-    the same shape into a 1D composite numpy.ndarray.
+    Simple object able to combine the values of a set of int or bool 1D
+    arrays of the same shape into a 1D composite numpy.ndarray.
 
     The composite values are built so that they carry the order in
     which the input arrays were passed, which can be used for
@@ -122,6 +133,10 @@ class CompositeNDArray:
     """
 
     def __init__(self, *args):
+        supported_formats = (
+            np.bool_, np.uint8, np.uint16, np.uint32, np.uint64,
+            np.int8, np.int16, np.int32, np.int64)
+
         # Convert input to numpy
         array_list = [np.asarray(a.cpu()) if isinstance(a, torch.Tensor)
                       else np.asarray(a)
@@ -130,14 +145,19 @@ class CompositeNDArray:
             'Only 1D arrays are accepted as input.'
         assert all([a.shape == array_list[0].shape for a in array_list]), \
             'All input arrays must have the same shape'
+        assert all([a.dtype in supported_formats for a in array_list]), \
+            f'All input arrays must be either int of bool arrays. ' \
+            f'Received types: {[a.dtype in supported_formats for a in array_list]}'
 
         # Compute the bases to build the composite array
         dtype_list = [a.dtype for a in array_list]
         dtype_max = max([np.iinfo(dt).max for dt in dtype_list])
         max_list = [a.max() + 1 for a in array_list]
         assert all([np.prod(max_list) < dtype_max]), \
-            'The dtype of at least one of the input arrays must allow the composite computation.'
-        base_list = [np.prod(max_list[i + 1:]) for i in range(len(array_list) - 1)] + [1]
+            'The dtype of at least one of the input arrays must ' \
+            'allow the composite computation.'
+        base_list = [np.prod(max_list[i + 1:])
+                     for i in range(len(array_list) - 1)] + [1]
 
         # Build the composite array
         self.dtype_list = dtype_list

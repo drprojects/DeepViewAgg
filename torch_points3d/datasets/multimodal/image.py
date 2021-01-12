@@ -7,8 +7,6 @@ from torch_points3d.utils.multimodal import lexargsort, lexargunique, \
     CompositeTensor
 
 
-# TODO: Hold loaded images in the ImageData ? init, property, getitem, to, batch
-# TODO if so, will ImageBatch recover the proper indices ?
 
 class ImageData(object):
     """
@@ -34,11 +32,11 @@ class ImageData(object):
     """
 
     _keys = [
-        'path', 'pos', 'opk', 'img_size', 'mask', 'map_size_high',
+        'path', 'pos', 'opk', 'images', 'img_size', 'mask', 'map_size_high',
         'map_size_low', 'crop_top', 'crop_bottom', 'voxel', 'r_max', 'r_min',
         'growth_k', 'growth_r']
     _numpy_keys = ['path']
-    _torch_keys = ['pos', 'opk']
+    _torch_keys = ['pos', 'opk', 'images']
     _array_keys = _numpy_keys + _torch_keys
     _shared_keys = list(set(_keys) - set(_array_keys))
 
@@ -66,6 +64,7 @@ class ImageData(object):
         self.r_min = r_min
         self.growth_k = growth_k
         self.growth_r = growth_r
+        self._images = None
 
     def to_dict(self):
         return {key: getattr(self, key) for key in self._keys}
@@ -76,11 +75,11 @@ class ImageData(object):
 
     @property
     def map_size_low(self):
-        return self.__map_size_low__
+        return self._map_size_low
 
     @map_size_low.setter
     def map_size_low(self, map_size_low):
-        self.__map_size_low__ = map_size_low
+        self._map_size_low = map_size_low
 
         # Update the optimal xy mapping dtype allowed by the resolution
         for dtype in [torch.uint8, torch.int16, torch.int32, torch.int64]:
@@ -88,25 +87,36 @@ class ImageData(object):
                     self.map_size_low[0], self.map_size_low[1]):
                 break
         self.map_dtype = dtype
+        
+    @property
+    def images(self):
+        return self._images
+
+    def load(self, size=None):
+        """
+        Read images and batch them into a tensor of size BxCxHxW.
+        Images are then stored in the `images` attribute.
+        """
+        self._images = self.read_images(size=size).to(self.device)
 
     def read_images(self, idx=None, size=None):
         """Read images and batch them into a tensor of size BxCxHxW."""
         if idx is None:
             idx = np.arange(self.num_images)
-        if isinstance(idx, int):
+        elif isinstance(idx, int):
             idx = np.array([idx])
-        if isinstance(idx, torch.Tensor):
+        elif isinstance(idx, torch.Tensor):
             idx = np.asarray(idx)
+        elif isinstance(idx, slice):
+            idx = np.arange(self.num_images)[idx]
         if len(idx.shape) < 1:
             idx = np.array([idx])
         if size is None:
             size = self.img_size
 
         return torch.from_numpy(np.stack([
-            np.array(Image.open(path).convert('RGB').resize(
-                size, Image.LANCZOS))
-            for path in self.path[idx]
-        ])).permute(0, 3, 1, 2)
+            np.array(Image.open(p).convert('RGB').resize(size, Image.LANCZOS))
+            for p in self.path[idx]])).permute(0, 3, 1, 2)
 
     def non_static_pixel_mask(self, size=None, n_sample=5):
         """
@@ -134,7 +144,7 @@ class ImageData(object):
 
     def clone(self):
         """Returns a copy of the instance."""
-        return self[np.arange(len(self))]
+        return self[torch.arange(len(self))]
 
     def __len__(self):
         """Returns the number of images present."""
@@ -155,8 +165,8 @@ class ImageData(object):
             idx = torch.arange(self.num_images)[idx]
         elif isinstance(idx, np.ndarray):
             idx = torch.from_numpy(idx)
-        else:
-            raise NotImplementedError
+        # elif not isinstance(idx, torch.LongTensor):
+        #     raise NotImplementedError
         assert idx.dtype is torch.int64, \
             "ImageData only supports int and torch.LongTensor indexing."
         assert idx.shape[0] > 0, \
@@ -165,11 +175,11 @@ class ImageData(object):
         idx = idx.to(self.device)
         idx_numpy = np.asarray(idx)
 
-        return self.__class__(
+        out = self.__class__(
             path=self.path[idx_numpy].copy(),
             pos=self.pos[idx].clone(),
             opk=self.opk[idx].clone(),
-            mask=self.mask.clone() if self.mask is not None else self.mask,
+            mask=self.mask.clone() if self.mask is not None else None,
             img_size=copy.deepcopy(self.img_size),
             map_size_high=copy.deepcopy(self.map_size_high),
             map_size_low=copy.deepcopy(self.map_size_low),
@@ -181,6 +191,11 @@ class ImageData(object):
             growth_k=copy.deepcopy(self.growth_k),
             growth_r=copy.deepcopy(self.growth_r)
         )
+
+        out._images = self.images[idx].clone() if self.images is not None \
+            else None
+
+        return out
 
     def __iter__(self):
         """
@@ -202,6 +217,8 @@ class ImageData(object):
         self.opk = self.opk.to(device)
         self.mask = self.mask.to(device) if self.mask is not None \
             else self.mask
+        self._images = self.images.to(device) if self.images is not None \
+            else self.images
         return self
 
     @property
@@ -214,6 +231,10 @@ class ImageData(object):
             assert self.pos.device == self.mask.device, \
                 f"Discrepancy in the devices of 'pos' and 'mask' attributes." \
                 f" Please use `ImageData.to()` to set the device."
+        if self.images is not None:
+            assert self.pos.device == self.images.device, \
+                f"Discrepancy in the devices of 'pos' and 'images' " \
+                f"attributes. Please use `ImageData.to()` to set the device."
         return self.pos.device
 
 
@@ -300,10 +321,31 @@ class ImageBatch(ImageData):
                 for i in range(self.num_batch_items)]
 
 
+# TODO: build test example and try ImageData, ImageBatch, ImageMapping
+"""
+import torch
+from torch_points3d.datasets.multimodal.image import *
+import glob
+import os.path as osp
+
+root = '/media/drobert-admin/DATA/datasets/s3dis_tp3d_multimodal/s3disfused/image/area_1/pano/rgb'
+img_files = glob.glob(osp.join(root, '*.png'))[:5]
+
+n_img = len(img_files)
+img_data = ImageData(path=np.array(img_files), pos=torch.rand(n_img,3), opk=torch.rand(n_img,3))
+
+print(img_data)
+print(img_data.device)
+
+img_data = img_data.to('cuda')
+
+img_data.load()
+print(img_data.device)
+
+"""
+
 class ImageMapping(CSRData):
-    """
-    CSRData format for point-image-pixel mappings.
-    """
+    """CSRData format for point-image-pixel mappings."""
 
     # TODO: expand to optional projection features in the view-level mappings
 
@@ -322,7 +364,7 @@ class ImageMapping(CSRData):
         # Sort by point_ids first, image_ids second
         # sorting, composite_ids = cpu_lex_op(
         #     point_ids, image_ids, op='argsort', torch_out=True)
-        idx_sort = lexargsort(point_ids, image_ids, device='cuda').cpu()
+        idx_sort = lexargsort(point_ids, image_ids)
         image_ids = image_ids[idx_sort]
         point_ids = point_ids[idx_sort]
         pixels = pixels[idx_sort]
@@ -333,7 +375,7 @@ class ImageMapping(CSRData):
         # NB: The jumps are marked by non-successive point-image ids.
         #     Watch out for overflow in case the point_ids and
         #     image_ids are too large and stored in 32 bits.
-        composite_ids = CompositeTensor(point_ids, image_ids, device='cpu')
+        composite_ids = CompositeTensor(point_ids, image_ids)
         image_pixel_mappings = CSRData(composite_ids.data, pixels, dense=True)
         del composite_ids
 
@@ -389,9 +431,19 @@ class ImageMapping(CSRData):
     def images(self):
         return self.values[0]
 
+    @images.setter
+    def images(self, images):
+        self.values[0] = images
+        self.debug()
+
     @property
     def pixels(self):
         return self.values[1].values[0]
+
+    @pixels.setter
+    def pixels(self, pixels):
+        self.values[1].values[0] = pixels
+        self.debug()
 
     @staticmethod
     def get_batch_type():
@@ -476,13 +528,13 @@ class ImageMapping(CSRData):
         pix_dtype = pix_x.dtype
 
         # Convert pixel coordinates to new resolution
-        pix_x = pix_x // ratio
-        pix_y = pix_y // ratio
+        pix_x = (pix_x // ratio).long()
+        pix_y = (pix_y // ratio).long()
 
         # Remove duplicates and sort wrt ids
         # Assuming this does not cause issues for other potential
         # unit-level CSR-nested values
-        idx_unique = lexargunique(ids, pix_x, pix_y, device='cuda').cpu()
+        idx_unique = lexargunique(ids, pix_x, pix_y)
         ids = ids[idx_unique]
         pix_x = pix_x[idx_unique]
         pix_y = pix_y[idx_unique]
@@ -555,7 +607,7 @@ class ImageMapping(CSRData):
         pixels = self.pixels
 
         # Remove duplicates and aggregate projection features
-        idx_unique = lexargunique(point_ids, image_ids, pixels, device='cuda').cpu()
+        idx_unique = lexargunique(point_ids, image_ids, pixels)
         point_ids = point_ids[idx_unique]
         image_ids = image_ids[idx_unique]
         pixels = pixels[idx_unique]
@@ -565,6 +617,7 @@ class ImageMapping(CSRData):
 
 
 class ImageMappingBatch(ImageMapping, CSRDataBatch):
+    """Batch wrapper for ImageMapping."""
     pass
 
 """
