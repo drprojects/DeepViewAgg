@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 from torch_geometric.data import Data, Batch
-from torch_points3d.datasets.multimodal.image import ImageData, ImageBatch
+from torch_points3d.datasets.multimodal.image import *
 from torch_points3d.datasets.multimodal.csr import CSRData, CSRDataBatch
 
 MODALITY_NAMES = ["image"]
@@ -29,9 +29,11 @@ class MMData(object):
         self.debug()
 
     def debug(self):
+        # TODO: this is ImageMapping-centric. Need to extend to other
+        #  modality mappings
         assert isinstance(self.data, Data)
         assert isinstance(self.images, ImageData)
-        assert isinstance(self.mappings, CSRData)
+        assert isinstance(self.mappings, ImageMapping)
 
         # Ensure Data have the key attribute necessary for linking
         # points with images in mappings. Each point must have a
@@ -46,6 +48,7 @@ class MMData(object):
                               np.arange(len(self.mappings))), \
             "Data point indices must span the entire range of mappings."
 
+
         # Ensure mappings have the expected signature
         self.mappings.debug()
         assert self.mappings.num_values == 2 \
@@ -59,14 +62,14 @@ class MMData(object):
         # In fact, we would only need to ensure that the largest image
         # index in the mappings corresponds to the number of images,
         # but this is safer and avoids loading unnecessary ImageData.
-        assert np.array_equal(np.unique(self.mappings.values[0]),
+        assert np.array_equal(np.unique(self.mappings.images),
                               np.arange(self.images.num_images)), \
             "Mapping image indices must span the entire range of " \
             "images."
 
         # Ensure pixel coordinates in the mappings are compatible with 
         # the expected feature maps resolution.
-        pix_max = self.mappings.values[1].values[0].max(axis=0)
+        pix_max = self.mappings.pixels.max(axis=0).values
         map_max = self.images.map_size_low
         assert all(a < b for a, b in zip(pix_max, map_max)), \
             "Pixel coordinates must match images.map_size_low."

@@ -286,11 +286,7 @@ def visualize_2d(mm_data, image_batch=None, figsize=800, width=None, height=None
 
     # Get the mapping of all points in the sample
     point_mapping = mm_data.mappings
-    point_image_indices = torch.repeat_interleave(
-        point_mapping.values[0],
-        point_mapping.values[1].jumps[1:] - point_mapping.values[1].jumps[:-1]
-    )
-    point_pixels = point_mapping.values[1].values[0]
+    idx_batch, idx_height, idx_width = point_mapping.feature_map_indexing
 
     # Color the images where the point is projected
     image_batch_ = image_batch.clone()
@@ -303,7 +299,7 @@ def visualize_2d(mm_data, image_batch=None, figsize=800, width=None, height=None
     if color_mode == 'light':
         # Set mapping mask back to original lighting
         color = torch.full((3,), alpha, dtype=torch.uint8)
-        color = image_batch_[point_image_indices, :, point_pixels[:, 1], point_pixels[:, 0]] * color
+        color = image_batch_[idx_batch, :, idx_height, idx_width] * color
 
     elif color_mode == 'rgb':
         # Set mapping mask to point cloud RGB colors
@@ -349,7 +345,7 @@ def visualize_2d(mm_data, image_batch=None, figsize=800, width=None, height=None
         )
 
     # Apply the coloring to the mapping masks
-    image_batch_[point_image_indices, :, point_pixels[:, 1], point_pixels[:, 0]] = color
+    image_batch_[idx_batch, :, idx_height, idx_width] = color
 
     # Prepare figure
     width = width if width and height else figsize

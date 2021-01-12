@@ -321,29 +321,6 @@ class ImageBatch(ImageData):
                 for i in range(self.num_batch_items)]
 
 
-# TODO: build test example and try ImageData, ImageBatch, ImageMapping
-"""
-import torch
-from torch_points3d.datasets.multimodal.image import *
-import glob
-import os.path as osp
-
-root = '/media/drobert-admin/DATA/datasets/s3dis_tp3d_multimodal/s3disfused/image/area_1/pano/rgb'
-img_files = glob.glob(osp.join(root, '*.png'))[:5]
-
-n_img = len(img_files)
-img_data = ImageData(path=np.array(img_files), pos=torch.rand(n_img,3), opk=torch.rand(n_img,3))
-
-print(img_data)
-print(img_data.device)
-
-img_data = img_data.to('cuda')
-
-img_data.load()
-print(img_data.device)
-
-"""
-
 class ImageMapping(CSRData):
     """CSRData format for point-image-pixel mappings."""
 
@@ -362,8 +339,6 @@ class ImageMapping(CSRData):
             'pixels and indices must have the same shape'
 
         # Sort by point_ids first, image_ids second
-        # sorting, composite_ids = cpu_lex_op(
-        #     point_ids, image_ids, op='argsort', torch_out=True)
         idx_sort = lexargsort(point_ids, image_ids)
         image_ids = image_ids[idx_sort]
         point_ids = point_ids[idx_sort]
@@ -457,16 +432,16 @@ class ImageMapping(CSRData):
         corresponding batch of image feature maps.
 
         The batch of image feature maps X is expected to have the shape
-        `[B, C, W, H]`. The returned indices idx_1, idx_2, idx_3 are
+        `[B, C, H, W]`. The returned indices idx_1, idx_2, idx_3 are
         intended to be used for recovering the mapped features as:
         `X[idx_1, :, idx_2, idx_3]`.
         """
         idx_batch = torch.repeat_interleave(
             self.images,
             self.values[1].jumps[1:] - self.values[1].jumps[:-1])
-        idx_width = self.pixels[0]
-        idx_height = self.pixels[1]
-        return idx_batch, idx_width, idx_height
+        idx_height = self.pixels[:, 1]
+        idx_width = self.pixels[:, 0]
+        return idx_batch.long(), idx_height.long(), idx_width.long()
 
     @property
     def unit_pooling_indices(self):

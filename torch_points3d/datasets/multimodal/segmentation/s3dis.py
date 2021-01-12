@@ -268,6 +268,14 @@ class S3DISOriginalFusedMM(InMemoryDataset):
         return osp.join(self.processed_dir, pre_collated_path_name)
 
     @property
+    def image_data_path(self):
+        return osp.join(self.processed_dir, "image_data.pt")
+
+    @property
+    def pre_transformed_image_path(self):
+        return osp.join(self.processed_dir, "pre_transform_image.pt")
+
+    @property
     def raw_areas_paths(self):
         return [osp.join(self.processed_dir, "raw_area_%i.pt" % i)
                 for i in range(6)]
@@ -336,6 +344,7 @@ class S3DISOriginalFusedMM(InMemoryDataset):
         # Download, pre_transform and pre_filter raw 3D data
         # ------------------------------------------------
         if not osp.exists(self.pre_processed_path):
+            print('Preprocessing the raw 3D data...')
 
             data_files = [
                 (f, room_name, osp.join(self.raw_dir, f, room_name))
@@ -363,8 +372,8 @@ class S3DISOriginalFusedMM(InMemoryDataset):
                     continue
                 else:
                     xyz, rgb, labels, instance_labels, _ = read_s3dis_format(
-                        file_path, room_name, label_out=True, verbose=self.verbose,
-                        debug=self.debug)
+                        file_path, room_name, label_out=True,
+                        verbose=self.verbose, debug=self.debug)
 
                     # Room orientation correction
                     # 2 rooms need to be rotated by 180° around Z:
@@ -372,8 +381,9 @@ class S3DISOriginalFusedMM(InMemoryDataset):
                     #   - Area_5/hallway_6
                     if (area_num == 1 and room_name == 'hallway_11') or \
                             (area_num == 4 and room_name == 'hallway_6'):
-                        xy_center = (xyz[:, 0:2].max(dim=0)[0] + xyz[:, 0:2].min(dim=0)[0]) / 2
-                        # equivalent to 180° Z-rotation around the XY-center
+                        xy_center = (xyz[:, 0:2].max(dim=0)[0]
+                                     + xyz[:, 0:2].min(dim=0)[0]) / 2
+                        # 180° Z-rotation around the XY-center
                         xyz[:, 0:2] = 2 * xy_center - xyz[:, 0:2]
 
                     rgb_norm = rgb.float() / 255.0
@@ -393,15 +403,17 @@ class S3DISOriginalFusedMM(InMemoryDataset):
 
                     data_list[area_num].append(data)
 
+            # Save raw areas
             raw_areas = cT.PointCloudFusion()(data_list)
             for i, area in enumerate(raw_areas):
+                delattr(area, 'is_val')
                 torch.save(area, self.raw_areas_paths[i])
 
-            for area_datas in data_list:
-                # Apply pre_transform
-                if self.pre_transform is not None:
-                    for data in area_datas:
-                        data = self.pre_transform(data)
+            # Pre-transform
+            if self.pre_transform is not None:
+                data_list = [
+                    [self.pre_transform(data) for data in area_data]
+                    for area_data in data_list]
 
             # Save the data into one big 'preprocessed.pt' file 
             torch.save(data_list, self.pre_processed_path)
@@ -411,7 +423,8 @@ class S3DISOriginalFusedMM(InMemoryDataset):
             # file
             print('Loading the preprocessed 3D data...')
             data_list = torch.load(self.pre_processed_path)
-            print('Done\n')
+
+        print('Done\n')
 
         if self.debug:
             return
@@ -421,48 +434,6 @@ class S3DISOriginalFusedMM(InMemoryDataset):
         # -------------------------------------------
         if not osp.exists(self.pre_collated_path):
 
-            print('Preparing 3D data splits...')
-            # train_data_list = {}
-            # val_data_list = {}
-            # trainval_data_list = {}
-
-            # for i in range(6):
-            #     if i != self.test_area - 1:
-            #         train_data_list[i] = []
-            #         val_data_list[i] = []
-            #         for data in data_list[i]:
-            #             is_val = data.is_val
-            #             del data.is_val
-            #             if is_val:
-            #                 val_data_list[i].append(data)
-            #             else:
-            #                 train_data_list[i].append(data)
-            #         trainval_data_list[i] = val_data_list[i] + train_data_list[i]
-
-            # train_data_list = list(train_data_list.values())
-            # val_data_list = list(val_data_list.values())
-            # trainval_data_list = list(trainval_data_list.values())
-            trainval_data_list = data_list[:self.test_area - 1] \
-                                 + data_list[self.test_area:]
-            test_data_list = data_list[self.test_area - 1]
-            print('Done\n')
-
-            # print('Train data')
-            # for i_area, split_area in enumerate(train_data_list):
-            #     print(f"Area {i_area + 1 if i_area + 1 < self.test_area else i_area + 2} : {len(split_area)} rooms")
-            # print()
-            # print('Val data')
-            # for i_area, split_area in enumerate(val_data_list):
-            #     print(f"Area {i_area + 1 if i_area + 1 < self.test_area else i_area + 2} : {len(split_area)} rooms")
-            # print()
-            print('Trainval data')
-            for i_area, split_area in enumerate(trainval_data_list):
-                print(f"Area {i_area + 1 if i_area + 1 < self.test_area else i_area + 2} : {len(split_area)} rooms")
-            print()
-            print('Test data')
-            print(f"Area {self.test_area} : {len(split_area)} rooms")
-            print()
-
             # Run the pre_collate_transform to finalize the data preparation
             # Among other things, the 'origin_id' and 'point_index' are
             # generated here
@@ -470,137 +441,120 @@ class S3DISOriginalFusedMM(InMemoryDataset):
                 print('Running pre-collate on 3D data...')
                 log.info("pre_collate_transform ...")
                 log.info(self.pre_collate_transform)
-                # train_data_list = self.pre_collate_transform(train_data_list)
-                # val_data_list = self.pre_collate_transform(val_data_list)
-                test_data_list = self.pre_collate_transform(test_data_list)
-                trainval_data_list = self.pre_collate_transform(trainval_data_list)
-                print('Done\n')
+                data_list = self.pre_collate_transform(data_list)
 
             # Save the pre_collated data
-            torch.save([test_data_list, trainval_data_list],
-                       self.pre_collated_path)
+            torch.save(data_list, self.pre_collated_path)
 
         else:
             # Recover data from the 'pre_collated.pt' file
             print('Loading the pre-collated 3D data...')
-            test_data_list, trainval_data_list = torch.load(self.pre_collated_path)
-            print('Done\n')
+            data_list = torch.load(self.pre_collated_path)
 
-        # Pre-transform image data
+        print('Done\n')
+
+        # Recover image data
         # ---------------------------------------
-        rooms = [
-            (int(f[-1]) - 1, room_name)
-            for f in self.folders
-            for room_name in os.listdir(osp.join(self.raw_dir, f))
-            if osp.isdir(osp.join(self.raw_dir, f, room_name))]
-        rooms = [[r[1] for r in rooms if r[0] == i] for i in range(6)]
+        if not osp.exists(self.image_data_path):
+            print('Computing image data...')
+            rooms = [
+                (int(f[-1]) - 1, room_name)
+                for f in self.folders
+                for room_name in os.listdir(osp.join(self.raw_dir, f))
+                if osp.isdir(osp.join(self.raw_dir, f, room_name))]
+            rooms = [[r[1] for r in rooms if r[0] == i] for i in range(6)]
 
-        # train_image_list = {}
-        # val_image_list = {}
-        # trainval_image_list = {}
-        test_image_list = []
-        trainval_image_list = []
+            image_data_list = []
+            for i in range(6):
 
-        for i in range(6):
+                # S3DIS Area 5 images are split into two folders 'area_5a'
+                # and 'area_5b' and one of them requires specific treatment
+                # for pose reading
+                folders = [f"area_{i + 1}"] if i != 4 else ["area_5a", "area_5b"]
 
-            # S3DIS Area 5 images are split into two folders 'area_5a'
-            # and 'area_5b' and one of them requires specific treatment
-            # for pose reading
-            folders = [f"area_{i + 1}"] if i != 4 else ["area_5a", "area_5b"]
+                image_info_list = [
+                    (i_file, *read_s3dis_pose(p_file))
+                    for folder in folders
+                    for i_file, p_file in s3dis_image_pose_pairs(
+                        osp.join(self.image_dir, folder, 'pano', 'rgb'),
+                        osp.join(self.image_dir, folder, 'pano', 'pose'),
+                        skip_names=S3DIS_OUTSIDE_IMAGES)]
 
-            image_info_list = [
-                (i_file, *read_s3dis_pose(p_file))
-                for folder in folders
-                for i_file, p_file in s3dis_image_pose_pairs(
-                    osp.join(self.image_dir, folder, 'pano', 'rgb'),
-                    osp.join(self.image_dir, folder, 'pano', 'pose'),
-                    skip_names=S3DIS_OUTSIDE_IMAGES)]
+                # Dropping image info for images outside of rooms found during
+                # preprocessing
+                image_info_list = [
+                    x for x in image_info_list
+                    if s3dis_image_room(x[0]) in rooms[i]]
 
-            print(f"Area {i + 1}")
-            print(f"    All image info list : {len(image_info_list)} images")
-            print(f"    Area : {len(rooms[i])} rooms")
+                print(f"    Area {i + 1} - {len(rooms[i])} rooms - "
+                      f"{len(image_info_list)} images")
 
-            # Dropping image info for images outside of rooms found during
-            # preprocessing
-            image_info_list = [
-                x for x in image_info_list
-                if s3dis_image_room(x[0]) in rooms[i]]
+                # Local helper function to combine image info lists into a more
+                # convenient ImageData object.
+                def info_list_to_image_data(info_list):
+                    if len(info_list) > 0:
+                        path, pos, opk = [list(x) for x in zip(*info_list)]
+                        image_data = ImageData(
+                            path=np.array(path), pos=torch.Tensor(pos),
+                            opk=torch.Tensor(opk))
+                    else:
+                        image_data = ImageData()
+                    return image_data
 
-            print(f"    Pruned image info list : {len(image_info_list)} images")
-            print()
+                # Keep all images for the test area
+                image_data_list.append(info_list_to_image_data(image_info_list))
 
-            # Local helper function to combine image info lists into a more
-            # convenient ImageData object.
-            def info_list_to_image_data(info_list):
-                if len(info_list) > 0:
-                    path, pos, opk = [list(x) for x in zip(*info_list)]
-                    image_data = ImageData(
-                        path=np.array(path), pos=torch.Tensor(pos),
-                        opk=torch.Tensor(opk))
-                else:
-                    image_data = ImageData()
-                return image_data
+            # Save image data
+            torch.save(image_data_list, self.image_data_path)
 
-            # Keep all images for the test area
-            if i + 1 == self.test_area:
-                test_image_list = info_list_to_image_data(image_info_list)
-            else:
-                trainval_image_list.append(
-                    info_list_to_image_data(image_info_list))
-            #
-            # # Split between train and val room images otherwise
-            # else:
-            #     train_image_list[i] = []
-            #     val_image_list[i] = []
-            #
-            #     for image_info in image_info_list:
-            #         if s3dis_image_room(image_info[0]) in VALIDATION_ROOMS:
-            #             val_image_list[i].append(image_info)
-            #         else:
-            #             train_image_list[i].append(image_info)
-            #
-            #     print(f"    Images in train : {len(train_image_list[i])}")
-            #     print(f"    Images in val : {len(val_image_list[i])}")
-            #     print()
-            #
-            #     trainval_image_list[i] = val_image_list[i] + train_image_list[i]
-            #
-            #     train_image_list[i] = info_list_to_image_data(train_image_list[i])
-            #     val_image_list[i] = info_list_to_image_data(val_image_list[i])
-            #     trainval_image_list[i] = info_list_to_image_data(trainval_image_list[i])
-
-        # train_image_list = list(train_image_list.values())
-        # val_image_list = list(val_image_list.values())
-        # trainval_image_list = list(trainval_image_list.values())
+        else:
+            print('Loading the image data...')
+            image_data_list = torch.load(self.image_data_path)
 
         # Build the mappings for each split, for each area
-        print('Running the image pre-transforms...')
+        print('Done\n')
 
-        # print('    Trainval image pre-transforms...')
-        # #         trainval_data_list, trainval_image_list, trainval_mappings_list = self.pre_transform_image(
-        # #             trainval_data_list, trainval_image_list, None)
-        # torch.save(self.pre_transform_image(trainval_data_list, trainval_image_list, None),
-        #            self.processed_paths[3])
-        # del trainval_data_list, trainval_image_list
-        # print('Done\n')
+        # Pre-transform image data
+        # This is where image-point mappings are computed
+        # ---------------------------------------
+        # TODO: better think of the files delete / create pattern for
+        #  already-processed datasets
+        if not osp.exists(self.pre_transformed_image_path):
+            print('Running the image pre-transforms...')
+            mm_data_list = (data_list, image_data_list, [None] * len(data_list))
+            if self.pre_transform_image:
+                mm_data_list = self.pre_transform_image(*mm_data_list)
+            torch.save(mm_data_list, self.pre_transformed_image_path)
 
-        # Train and validation splits both come from rooms picked in the
-        # same buildings. Because we need to recover the proper
-        # occlusions in the mappings, these must be computed on the
-        # full, joint, trainval data before recovering the train and val
-        # mappings from the results.
-        print('    Trainval image pre-transforms...')
-        trainval_data_list, trainval_image_list, trainval_mappings_list = \
-            self.pre_transform_image(
-                trainval_data_list, trainval_image_list, None)
-        is_val_list = [data.is_val for data in trainval_data_list]
-        for data in trainval_data_list:
-            del data.is_val
-        torch.save(
-            (trainval_data_list, trainval_image_list, trainval_mappings_list),
-            self.processed_paths[3])
+        else:
+            print('Loading the image pre-transformed data...')
+            mm_data_list = torch.load(self.pre_transformed_image_path)
+
+        print('Done\n')
+
+        # Compute train / val / test / trainval splits
+        # This is where the 'train_i.pt', 'val_i.pt', etc. are created
+        # ---------------------------------------
+        print(f'Computing and saving train, val, test and trainval '
+              f'splits for test_area=Area_{self.test_area}...')
+
+        # Save test split preprocessed multimodal data
+        test_mm_data_list = tuple(
+            [x.pop(self.test_area - 1) for x in mm_data_list])
+        delattr(test_mm_data_list[0], 'is_val')
+        torch.save(test_mm_data_list, self.processed_paths[2])
+        del test_mm_data_list
+
+        # Save trainval preprocessed multimodal data
+        # NB: only trainval data remains in mm_data_list after popping
+        #  test data out of it
+        is_val_list = [data.is_val for data in mm_data_list[0]]
+        for data in mm_data_list[0]:
+            delattr(data, 'is_val')
+        torch.save(mm_data_list, self.processed_paths[3])
 
         # Local helper to slice a Data object with a torch.Tensor
+        # TODO: integrate this in MMData.__get_item__
         def data_slicing(data, selection):
             data_ = data.clone()
             for key, item in data:
@@ -608,71 +562,28 @@ class S3DISOriginalFusedMM(InMemoryDataset):
                     data_[key] = data_[key][selection]
             return data_
 
-        # Extract and save train data, images mappings from trainval
+        # Extract and save train preprocessed multimodal data
         torch.save(
             PointImagePixelMappingFromId(key='point_index')(
                 [
                     data_slicing(data, ~is_val)
-                    for data, is_val in zip(trainval_data_list, is_val_list)],
-                trainval_image_list,
-                trainval_mappings_list),
+                    for data, is_val in zip(mm_data_list[0], is_val_list)],
+                mm_data_list[1],
+                mm_data_list[2]),
             self.processed_paths[0])
 
-        # Extract and save val data, images mappings from trainval
+        # Extract and save val preprocessed multimodal data
         torch.save(
             PointImagePixelMappingFromId(key='point_index')(
                 [
-                    data_slicing(data, is_val)
-                    for data, is_val in zip(trainval_data_list, is_val_list)],
-                trainval_image_list,
-                trainval_mappings_list),
+                    data_slicing(data, ~is_val)
+                    for data, is_val in zip(mm_data_list[0], is_val_list)],
+                mm_data_list[1],
+                mm_data_list[2]),
             self.processed_paths[1])
-        del trainval_data_list, trainval_image_list, trainval_mappings_list
+        del mm_data_list
 
-        #         print('    Train image pre-transforms...')
-        # #         train_data_list, train_image_list, train_mappings_list = self.pre_transform_image(
-        # #             train_data_list, train_image_list, None)
-        #         torch.save(self.pre_transform_image(train_data_list, train_image_list, None),
-        #             self.processed_paths[0])
-        #         del train_data_list, train_image_list
-
-        #         print('    Val image pre-transforms...')
-        # #         val_data_list, val_image_list, val_mappings_list = self.pre_transform_image(
-        # #             val_data_list, val_image_list, None)
-        #         torch.save(self.pre_transform_image(val_data_list, val_image_list, None),
-        #             self.processed_paths[1])
-        #         del val_data_list, val_image_list
-
-        print('    Test image pre-transforms...')
-        #         test_data_list, test_image_list, test_mappings_list = self.pre_transform_image(
-        #             test_data_list, test_image_list, None)
-        torch.save(
-            self.pre_transform_image(test_data_list, test_image_list, None),
-            self.processed_paths[2])
-        del test_data_list, test_image_list
         print('Done\n')
-
-        # Save the Data, ImageData and CSRData mappings for each split
-
-    #         self._save_preprocessed_multimodal_data(
-    #             (train_data_list, train_image_list, train_mappings_list),
-    #             (val_data_list, val_image_list, val_mappings_list),
-    #             (test_data_list, test_image_list, test_mappings_list),
-    #             (trainval_data_list, trainval_image_list, trainval_mappings_list)
-    #         )
-    #         self._save_preprocessed_multimodal_data(
-    #             (train_data_list, train_image_list, None),
-    #             (val_data_list, val_image_list, None),
-    #             (test_data_list, test_image_list, test_mappings_list),
-    #             (trainval_data_list, trainval_image_list, None)
-    #         )
-
-    #     def _save_preprocessed_multimodal_data(self, mm_data_tuple, path):
-    #         """
-    #         Save the preprocessed data lists. Results are intended to be loaded with
-    #         self._load_data().
-    #         """
-    #         torch.save(mm_data_tuple, path)
 
     def _load_data(self, path):
         self.data, self.images, self.mappings = torch.load(path)
@@ -798,44 +709,6 @@ class S3DISSphereMM(S3DISOriginalFusedMM):
             self._centres_for_sampling[:, 4] == chosen_label]
         centre_idx = int(random.random() * (valid_centres.shape[0] - 1))
         centre = valid_centres[centre_idx]
-
-        #         centre_idx = int(random.random() * (self._centres_for_sampling.shape[0] - 1))
-        # centre_idx = 27026
-        # 21155 # image 0 and 4
-        # 5991  # image 1, 4 and 5
-        # 18013  # image 4
-        # 22478  # image 0 and 1
-        # 34867  # image 0 and 5
-        # 15768  # image 0 and 5
-        # 34268  # image 5
-        # 21512  # image 0 and 1  # VERY interesting case
-        # 25954  # image 5
-        # 17797  # image 1  # chair closeby caused all the errors in the back ?
-        # 5710  # image 4
-        # 34181  # image 1
-        # 2586  # image 0 and 1  # VERY interesting case
-        #         """
-        #         Hypotheses:
-        #         Note the images-mappings are mainly correct.
-
-        #         Maybe it is a Image-Pixel mapping problem
-        #         The errors are unlikely to come from the projection, so they arise from later processing.
-
-        #             - Area 2 seems worse off than other, is that correct ? Not only... but errors in the office in Area 2 are
-        #             worse than other areas...
-        #             - global point indexing is too large and some points have the same point_index ?
-        #             - +1/-1 index offset when slicing FWD* ?
-        #             - get and visualize the point whose mapping creates errors ? See if it the last one, or the first, or
-        #             anything noteworthy
-        #             - Some points were TOO close to the camera at projection time and created unrealistically large masks ?
-        #             - point_index batch reindexing problem check that torch_geometric batch does what we want with the indeices
-
-        #         """
-        #         centre = self._centres_for_sampling[centre_idx]
-
-        #         print(f"centre_idx = {centre_idx}")
-        #         print(f"i_area = {centre[3].int()}")
-
         i_area = centre[3].int()
         area_data = self._datas[i_area]
         sphere_sampler = cT.SphereSampling(

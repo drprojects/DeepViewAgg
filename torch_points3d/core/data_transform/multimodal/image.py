@@ -242,9 +242,6 @@ class PointImagePixelMapping:
         # here.
         # NB: The reindexing here relies on the fact that `unique`
         #  values are expected to be returned sorted.
-        # seen_image_ids = np.unique(image_ids)
-        # images = images[np.isin(np.arange(images.num_images), seen_image_ids)]
-        # image_ids = np.digitize(image_ids, seen_image_ids) - 1
         start = time()
         seen_image_ids = lexunique(image_ids)
         images = images[seen_image_ids]
@@ -252,9 +249,6 @@ class PointImagePixelMapping:
         print(f"        t_index_image_data: {time() - start:0.3f}")
 
         # Concatenate mappings data
-        # image_ids = np.repeat(image_ids, [x.shape[0] for x in point_ids])
-        # point_ids = np.concatenate(point_ids)
-        # pixels = np.vstack(pixels)
         start = time()
         image_ids = torch.repeat_interleave(
             image_ids, torch.LongTensor([x.shape[0] for x in point_ids]))
@@ -326,6 +320,7 @@ class PadMappings:
     pass
 
 
+# TODO: integrate this in MMData indexing ?
 class PointImagePixelMappingFromId:
     """
     Transform-like structure. Intended to be called on _datas and
@@ -369,14 +364,12 @@ class PointImagePixelMappingFromId:
 
         # Subselect the images used in the mappings. The selected
         # images are sorted by their order in image_indices.
-        # seen_image_ids = np.unique(mappings.values[0])
         seen_image_ids = lexunique(mappings.images)
         images = images[seen_image_ids]
 
         # Update image indices to the new images length. This is
         # important for preserving the mappings and for multimodal data
         # batching mechanisms.
-        # mappings.values[0] = np.digitize(mappings.values[0], seen_image_ids) - 1
         mappings.images = torch.bucketize(mappings.images, seen_image_ids)
 
         return data, images, mappings
