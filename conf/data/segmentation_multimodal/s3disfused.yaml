@@ -41,7 +41,7 @@ data:
           no_id: -1
           key: ${data_multimodal.point_id}
     train_transforms:
-      - transform: PointImagePixelMappingFromId
+      - transform: ImageMappingFromPointId
         params:
           key: ${data_multimodal.point_id}
     test_transforms: ${data.multimodal.train_transforms}

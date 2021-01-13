@@ -2,7 +2,7 @@ from torch_points3d.datasets.multimodal.data import MMData
 from torch_geometric.transforms import FixedPoints
 from torch_points3d.core.data_transform import GridSampling3D
 from torch_points3d.core.data_transform.multimodal.projection import pose_to_rotation_matrix_numba
-from torch_points3d.core.data_transform.multimodal import PointImagePixelMappingFromId
+from torch_points3d.core.data_transform.multimodal import ImageMappingFromPointId
 import os.path as osp
 import plotly.graph_objects as go
 import numpy as np
@@ -39,8 +39,8 @@ def visualize_3d(
             data_)
 
     # Subsample the mappings accordingly
-    transform = PointImagePixelMappingFromId(key='point_index',
-                                             keep_unseen_images=True)
+    transform = ImageMappingFromPointId(key='point_index',
+                                        keep_unseen_images=True)
     data_, images_, mappings_ = transform(
         data_, mm_data.images, mm_data.mappings)
 

@@ -3,6 +3,8 @@ import torch
 from torch_geometric.data import Data, Batch
 from torch_points3d.datasets.multimodal.image import *
 from torch_points3d.datasets.multimodal.csr import CSRData, CSRDataBatch
+from torch_points3d.core.data_transform.multimodal.image import \
+    ImageMappingFromPointId
 
 MODALITY_NAMES = ["image"]
 
@@ -48,7 +50,6 @@ class MMData(object):
                               np.arange(len(self.mappings))), \
             "Data point indices must span the entire range of mappings."
 
-
         # Ensure mappings have the expected signature
         self.mappings.debug()
         assert self.mappings.num_values == 2 \
@@ -76,6 +77,51 @@ class MMData(object):
 
     def __len__(self):
         return self.data.num_nodes
+
+    @property
+    def num_points(self):
+        return self.data.num_nodes
+
+    @property
+    def num_images(self):
+        return self.images.num_images
+
+    def __getitem__(self, idx):
+        """
+        Indexing mechanism on the points.
+
+        Returns a new copy of the indexed MMData, with updated ImageData
+        and ImageMapping. Supports torch and numpy indexing.
+        """
+        if isinstance(idx, int):
+            idx = torch.LongTensor([idx])
+        elif isinstance(idx, list):
+            idx = torch.LongTensor(idx)
+        elif isinstance(idx, slice):
+            idx = torch.arange(self.num_points)[idx]
+        elif isinstance(idx, np.ndarray):
+            idx = torch.from_numpy(idx)
+        # elif not isinstance(idx, torch.LongTensor):
+        #     raise NotImplementedError
+        assert idx.dtype is torch.int64, \
+            "MMData only supports int and torch.LongTensor indexing."
+        assert idx.shape[0] > 0, \
+            "MMData only supports non-empty indexing. At least one " \
+            "index must be provided."
+        idx = idx.to(self.device)
+
+        # Index the Data first
+        data = self.data.clone()
+        for key, item in self.data:
+            if torch.is_tensor(item) and item.size(0) == self.data.num_nodes:
+                data[key] = data[key][idx]
+
+        # Update the ImageData and ImageMapping accordingly
+        transform = ImageMappingFromPointId(
+            key=self.key, keep_unseen_images=False)
+        data, images, mappings = transform(data, self.images, self.mappings)
+
+        return MMData(data, images, mappings, key=self.key)
 
     def to(self, device):
         self.mappings = self.to(device)

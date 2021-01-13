@@ -5,7 +5,7 @@ from torch_points3d.datasets.segmentation.s3dis import *
 from torch_geometric.data import Data
 from torch_points3d.datasets.multimodal.data import MMData
 from torch_points3d.datasets.multimodal.image import ImageData
-from torch_points3d.core.data_transform.multimodal.image import PointImagePixelMappingFromId
+from torch_points3d.core.data_transform.multimodal.image import ImageMappingFromPointId
 
 ########################################################################
 #                             S3DIS Utils                              #
@@ -585,7 +585,7 @@ class S3DISOriginalFusedMM(InMemoryDataset):
 
         # Extract and save train preprocessed multimodal data
         torch.save(
-            PointImagePixelMappingFromId(key='point_index')(
+            ImageMappingFromPointId(key='point_index')(
                 [
                     data_slicing(data, ~is_val)
                     for data, is_val in zip(mm_data_list[0], is_val_list)],
@@ -595,7 +595,7 @@ class S3DISOriginalFusedMM(InMemoryDataset):
 
         # Extract and save val preprocessed multimodal data
         torch.save(
-            PointImagePixelMappingFromId(key='point_index')(
+            ImageMappingFromPointId(key='point_index')(
                 [
                     data_slicing(data, ~is_val)
                     for data, is_val in zip(mm_data_list[0], is_val_list)],

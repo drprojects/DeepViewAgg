@@ -297,11 +297,13 @@ class DropPoorMappings:
     Transform to drop images and corresponding mappings when mappings
     account for less than a given ratio of the image area.
     """
-    def __init__(self, ratio=0.05):
-        self.ratio = 0.05
+    def __init__(self, ratio=0.03):
+        self.ratio = ratio
 
     def __call__(self, data, images, mappings):
         # TODO: DropPoorMappings
+        # TODO: take the filters receptive field size. See:
+        #  https://fomoro.com/research/article/receptive-field-calculator#3,1,1,SAME;3,1,1,SAME;2,2,1,SAME;3,1,1,SAME;3,1,1,SAME;2,2,1,SAME;3,1,1,SAME;3,1,1,SAME
         pass
 
     def __repr__(self):
@@ -331,7 +333,7 @@ class XFeature:
 
 
 # TODO: integrate this in MMData indexing ?
-class PointImagePixelMappingFromId:
+class ImageMappingFromPointId:
     """
     Transform-like structure. Intended to be called on _datas and
     _images_datas.
