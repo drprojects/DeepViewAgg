@@ -208,7 +208,7 @@ class S3DISOriginalFusedMM(InMemoryDataset):
             transform_image=None,
             keep_instance=False,
             verbose=False,
-            debug=False,):
+            debug=False, ):
         assert test_area in list(range(1, 7))
 
         self.transform = transform
@@ -290,6 +290,14 @@ class S3DISOriginalFusedMM(InMemoryDataset):
                 + [self.pre_processed_path])
 
     @property
+    def intermediate_processed_paths(self):
+        return [
+            self.pre_processed_path,
+            self.pre_collated_path,
+            self.image_data_path,
+            self.pre_transformed_image_path]
+
+    @property
     def raw_test_data(self):
         return self._raw_test_data
 
@@ -339,10 +347,21 @@ class S3DISOriginalFusedMM(InMemoryDataset):
                 self.download()
 
     def process(self):
+        # --------------------------------------------------------------
+        # Initialize the chain of intermediate processing files
+        # If a file in the chain is not found, all subsequent files are
+        # removed to ensure a clean preprocessing computation
+        # --------------------------------------------------------------
+        for i, p in enumerate(self.intermediate_processed_paths):
+            if not osp.exists(p):
+                list(map(lambda path: os.remove(path),
+                         self.intermediate_processed_paths[i + 1:]))
+                break
 
+        # --------------------------------------------------------------
         # Preprocess 3D data
         # Download, pre_transform and pre_filter raw 3D data
-        # ------------------------------------------------
+        # --------------------------------------------------------------
         if not osp.exists(self.pre_processed_path):
             print('Preprocessing the raw 3D data...')
 
@@ -429,9 +448,10 @@ class S3DISOriginalFusedMM(InMemoryDataset):
         if self.debug:
             return
 
+        # --------------------------------------------------------------
         # Pre-collate 3D data
         # Build the data splits and pre_collate them
-        # -------------------------------------------
+        # --------------------------------------------------------------
         if not osp.exists(self.pre_collated_path):
 
             # Run the pre_collate_transform to finalize the data preparation
@@ -453,8 +473,9 @@ class S3DISOriginalFusedMM(InMemoryDataset):
 
         print('Done\n')
 
+        # --------------------------------------------------------------
         # Recover image data
-        # ---------------------------------------
+        # --------------------------------------------------------------
         if not osp.exists(self.image_data_path):
             print('Computing image data...')
             rooms = [
@@ -514,11 +535,10 @@ class S3DISOriginalFusedMM(InMemoryDataset):
         # Build the mappings for each split, for each area
         print('Done\n')
 
+        # --------------------------------------------------------------
         # Pre-transform image data
         # This is where image-point mappings are computed
-        # ---------------------------------------
-        # TODO: better think of the files delete / create pattern for
-        #  already-processed datasets
+        # --------------------------------------------------------------
         if not osp.exists(self.pre_transformed_image_path):
             print('Running the image pre-transforms...')
             mm_data_list = (data_list, image_data_list, [None] * len(data_list))
@@ -532,9 +552,10 @@ class S3DISOriginalFusedMM(InMemoryDataset):
 
         print('Done\n')
 
+        # --------------------------------------------------------------
         # Compute train / val / test / trainval splits
         # This is where the 'train_i.pt', 'val_i.pt', etc. are created
-        # ---------------------------------------
+        # --------------------------------------------------------------
         print(f'Computing and saving train, val, test and trainval '
               f'splits for test_area=Area_{self.test_area}...')
 
