@@ -25,19 +25,24 @@ def rgb_to_plotly_rgb(rgb):
     return [f"rgb{tuple(x)}" for x in (rgb * 255).int().numpy()]
 
 
-def visualize_3d(mm_data, class_names=None, class_colors=None, class_opacities=None, figsize=800,
-                 width=None, height=None, voxel=0.1, max_points=100000, pointsize=5, **kwargs):
+def visualize_3d(
+        mm_data, class_names=None, class_colors=None, class_opacities=None,
+        figsize=800, width=None, height=None, voxel=0.1, max_points=100000,
+        pointsize=5, **kwargs):
     """3D data visualization with interaction tools."""
     assert isinstance(mm_data, MMData)
 
     # Subsample to limit the drawing time
     data_ = GridSampling3D(voxel)(mm_data.data.clone())
     if data_.num_nodes > max_points:
-        data_ = FixedPoints(max_points, replace=False, allow_duplicates=False)(data_)
+        data_ = FixedPoints(max_points, replace=False, allow_duplicates=False)(
+            data_)
 
     # Subsample the mappings accordingly
-    transform = PointImagePixelMappingFromId(key='point_index', keep_unseen_images=True)
-    data_, images_, mappings_ = transform(data_, mm_data.images, mm_data.mappings)
+    transform = PointImagePixelMappingFromId(key='point_index',
+                                             keep_unseen_images=True)
+    data_, images_, mappings_ = transform(
+        data_, mm_data.images, mm_data.mappings)
 
     # Round to the cm for cleaner hover info
     data_.pos = (data_.pos * 100).round() / 100
@@ -51,8 +56,7 @@ def visualize_3d(mm_data, class_names=None, class_colors=None, class_opacities=N
         width=width,
         height=height,
         scene=dict(aspectmode='data', ),  # preserve aspect ratio
-        margin=dict(l=margin, r=margin, b=margin, t=margin),
-    )
+        margin=dict(l=margin, r=margin, b=margin, t=margin),)
     fig = go.Figure(layout=layout)
 
     # Draw a trace for RGB 3D point cloud
@@ -65,13 +69,10 @@ def visualize_3d(mm_data, class_names=None, class_colors=None, class_opacities=N
             mode='markers',
             marker=dict(
                 size=pointsize,
-                color=rgb_to_plotly_rgb(data_.rgb),
-            ),
+                color=rgb_to_plotly_rgb(data_.rgb),),
             hoverinfo='x+y+z',
             showlegend=False,
-            visible=True,
-        )
-    )
+            visible=True,))
     n_rgb_traces = 1  # keep track of the number of traces
 
     # Draw a trace for labeled 3D point cloud
@@ -100,11 +101,8 @@ def visualize_3d(mm_data, class_names=None, class_colors=None, class_opacities=N
                 mode='markers',
                 marker=dict(
                     size=pointsize,
-                    color=class_colors[label],
-                ),
-                visible=False,
-            )
-        )
+                    color=class_colors[label],),
+                visible=False,))
         n_y_traces += 1  # keep track of the number of traces
 
     # Draw a trace for 3D point cloud of number of images seen
@@ -120,14 +118,13 @@ def visualize_3d(mm_data, class_names=None, class_colors=None, class_opacities=N
                 size=pointsize,
                 color=n_seen,
                 colorscale='spectral',
-                colorbar=dict(thickness=10, len=0.66, tick0=0, dtick=max(1, int(n_seen.max() / 10.)), ),
-            ),
+                colorbar=dict(
+                    thickness=10, len=0.66, tick0=0,
+                    dtick=max(1, int(n_seen.max() / 10.)),),),
             hovertext=[f"seen: {n}" for n in n_seen],
             hoverinfo='x+y+z+text',
             showlegend=False,
-            visible=False,
-        )
-    )
+            visible=False,))
     n_seen_traces = 1  # keep track of the number of traces
 
     # Draw a trace for position-colored 3D point cloud
@@ -142,13 +139,10 @@ def visualize_3d(mm_data, class_names=None, class_colors=None, class_opacities=N
             mode='markers',
             marker=dict(
                 size=pointsize,
-                color=rgb_to_plotly_rgb(data_.pos_rgb),
-            ),
+                color=rgb_to_plotly_rgb(data_.pos_rgb),),
             hoverinfo='x+y+z',
             showlegend=False,
-            visible=False,
-        )
-    )
+            visible=False,))
     n_pos_rgb_traces = 1  # keep track of the number of traces
 
     # Draw image positions
@@ -170,13 +164,10 @@ def visualize_3d(mm_data, class_names=None, class_colors=None, class_opacities=N
                     mode='lines',
                     line=dict(
                         color=color,
-                        width=pointsize + 1
-                    ),
+                        width=pointsize + 1),
                     showlegend=False,
                     hoverinfo='none',
-                    visible=True,
-                )
-            )
+                    visible=True,))
 
         # Draw image position as ball
         fig.add_trace(
@@ -188,18 +179,14 @@ def visualize_3d(mm_data, class_names=None, class_colors=None, class_opacities=N
                 mode='markers+text',
                 marker=dict(
                     line_width=2,
-                    size=pointsize + 4,
-                ),
+                    size=pointsize + 4,),
                 text=f"<b>{i}</b>",
                 textposition="bottom center",
                 textfont=dict(
-                    size=16
-                ),
+                    size=16),
                 hoverinfo='x+y+z+name',
                 showlegend=False,
-                visible=True,
-            )
-        )
+                visible=True,))
 
     # Traces visibility for interactive point cloud coloring
     def trace_visibility(mode):
@@ -237,21 +224,16 @@ def visualize_3d(mm_data, class_names=None, class_colors=None, class_opacities=N
             buttons=[
                 dict(label='RGB',
                      method='update',
-                     args=trace_visibility('rgb')
-                     ),
+                     args=trace_visibility('rgb')),
                 dict(label='Labels',
                      method='update',
-                     args=trace_visibility('labels')
-                     ),
+                     args=trace_visibility('labels')),
                 dict(label='Times seen',
                      method='update',
-                     args=trace_visibility('n_seen')
-                     ),
+                     args=trace_visibility('n_seen')),
                 dict(label='Position RGB',
                      method='update',
-                     args=trace_visibility('position_rgb')
-                     ),
-            ],
+                     args=trace_visibility('position_rgb')),],
             pad={'r': 10, 't': 10},
             showactive=True,
             type='dropdown',
@@ -259,40 +241,41 @@ def visualize_3d(mm_data, class_names=None, class_colors=None, class_opacities=N
             xanchor='left',
             x=0.02,
             yanchor='top',
-            y=1.02,
-        ),
-    ]
+            y=1.02,),]
     fig.update_layout(updatemenus=updatemenus)
 
     # Place the legend on the left
-    fig.update_layout(legend=dict(
-        yanchor="middle",
-        y=0.5,
-        xanchor="right",
-        x=0.99
-    ))
+    fig.update_layout(
+        legend=dict(
+            yanchor="middle",
+            y=0.5,
+            xanchor="right",
+            x=0.99))
 
     return fig
 
 
-def visualize_2d(mm_data, image_batch=None, figsize=800, width=None, height=None, alpha=6,
-                 color_mode='light', class_colors=None, **kwargs):
+def visualize_2d(
+        mm_data, image_batch=None, figsize=800, width=None, height=None,
+        alpha=6, color_mode='light', class_colors=None, **kwargs):
     """2D data visualization with interaction tools."""
     assert isinstance(mm_data, MMData)
 
     # Read images to the resolution at which the mappings were computed
     if image_batch is None:
-        image_batch = mm_data.images.read_images(size=mm_data.images.map_size_low)
+        image_batch = mm_data.images.read_images(
+            size=mm_data.images.map_size_low)
 
     # Get the mapping of all points in the sample
-    point_mapping = mm_data.mappings
-    idx_batch, idx_height, idx_width = point_mapping.feature_map_indexing
+    mappings = mm_data.mappings
+    idx_batch, idx_height, idx_width = mappings.feature_map_indexing
 
-    # Color the images where the point is projected
+    # Color the images where points are projected and darken the rest
     image_batch_ = image_batch.clone()
-    image_batch_ = (image_batch_.float() / alpha).floor().type(torch.uint8)  # darken image
+    image_batch_ = (image_batch_.float() / alpha).floor().type(torch.uint8)
 
-    color_mode = color_mode if color_mode in ['light', 'rgb', 'pos', 'y'] else 'light'
+    color_mode = color_mode if color_mode in ['light', 'rgb', 'pos', 'y'] \
+        else 'light'
     if color_mode == 'y' and class_colors is None:
         color_mode = 'light'
 
@@ -306,43 +289,38 @@ def visualize_2d(mm_data, image_batch=None, figsize=800, width=None, height=None
         color = (mm_data.data.rgb * 255).type(torch.uint8)
         color = torch.repeat_interleave(
             color,
-            point_mapping.jumps[1:] - point_mapping.jumps[:-1],
-            dim=0
-        )
+            mappings.jumps[1:] - mappings.jumps[:-1],
+            dim=0)
         color = torch.repeat_interleave(
             color,
-            point_mapping.values[1].jumps[1:] - point_mapping.values[1].jumps[:-1],
-            dim=0
-        )
+            mappings.values[1].jumps[1:] - mappings.values[1].jumps[:-1],
+            dim=0)
 
     elif color_mode == 'pos':
         # Set mapping mask to point cloud positional RGB colors
-        radius = torch.norm(mm_data.data.pos - mm_data.data.pos.mean(dim=0), dim=1).max()
+        radius = torch.norm(
+            mm_data.data.pos - mm_data.data.pos.mean(dim=0), dim=1).max()
         color = ((mm_data.data.pos - mm_data.data.pos.mean(dim=0)) / (2 * radius) * 255 + 127).type(torch.uint8)
         color = torch.repeat_interleave(
             color,
-            point_mapping.jumps[1:] - point_mapping.jumps[:-1],
-            dim=0
-        )
+            mappings.jumps[1:] - mappings.jumps[:-1],
+            dim=0)
         color = torch.repeat_interleave(
             color,
-            point_mapping.values[1].jumps[1:] - point_mapping.values[1].jumps[:-1],
-            dim=0
-        )
+            mappings.values[1].jumps[1:] - mappings.values[1].jumps[:-1],
+            dim=0)
 
     elif color_mode == 'y':
         # Set mapping mask to point labels
         color = torch.ByteTensor(class_colors)[mm_data.data.y]
         color = torch.repeat_interleave(
             color,
-            point_mapping.jumps[1:] - point_mapping.jumps[:-1],
-            dim=0
-        )
+            mappings.jumps[1:] - mappings.jumps[:-1],
+            dim=0)
         color = torch.repeat_interleave(
             color,
-            point_mapping.values[1].jumps[1:] - point_mapping.values[1].jumps[:-1],
-            dim=0
-        )
+            mappings.values[1].jumps[1:] - mappings.values[1].jumps[:-1],
+            dim=0)
 
     # Apply the coloring to the mapping masks
     image_batch_[idx_batch, :, idx_height, idx_width] = color
@@ -355,8 +333,7 @@ def visualize_2d(mm_data, image_batch=None, figsize=800, width=None, height=None
         width=width,
         height=height,
         scene=dict(aspectmode='data', ),  # preserve aspect ratio
-        margin=dict(l=margin, r=margin, b=margin, t=margin),
-    )
+        margin=dict(l=margin, r=margin, b=margin, t=margin),)
     fig = go.Figure(layout=layout)
     fig.update_xaxes(visible=False)  # hide image axes
     fig.update_yaxes(visible=False)  # hide image axes
@@ -368,13 +345,12 @@ def visualize_2d(mm_data, image_batch=None, figsize=800, width=None, height=None
             go.Image(
                 z=image.permute(1, 2, 0),
                 visible=i == 0,  # initialize to image 0 visible
-                hoverinfo='none',  # disable hover info on images
-            )
-        )
+                hoverinfo='none',))  # disable hover info on images
 
     # Traces visibility for interactive point cloud coloring
     def trace_visibility(i_img):
-        visibilities = np.array([d.visible for d in fig.data], dtype='bool')
+        visibilities = np.array(
+            [d.visible for d in fig.data], dtype='bool')
         if i_img < n_img_traces:
             visibilities[:] = False
             visibilities[i_img] = True
@@ -387,8 +363,7 @@ def visualize_2d(mm_data, image_batch=None, figsize=800, width=None, height=None
                 dict(label=f"{i_img}",
                      method='update',
                      args=trace_visibility(i_img))
-                for i_img in range(n_img_traces)
-            ],
+                for i_img in range(n_img_traces)],
             pad={'r': 10, 't': 10},
             showactive=True,
             type='dropdown',
@@ -396,9 +371,7 @@ def visualize_2d(mm_data, image_batch=None, figsize=800, width=None, height=None
             xanchor='left',
             x=0.02,
             yanchor='top',
-            y=1.02,
-        ),
-    ]
+            y=1.02,),]
 
     fig.update_layout(updatemenus=updatemenus)
 
@@ -407,7 +380,10 @@ def visualize_2d(mm_data, image_batch=None, figsize=800, width=None, height=None
 
 def figure_html(fig):
     # Save plotly figure to temp HTML
-    fig.write_html('/tmp/fig.html', config={'displayModeBar': False}, include_plotlyjs='cdn',
+    fig.write_html(
+        '/tmp/fig.html',
+        config={'displayModeBar': False},
+        include_plotlyjs='cdn',
         full_html=False)
 
     # Read the HTML
@@ -421,7 +397,8 @@ def figure_html(fig):
     return fig_html
 
 
-def visualize_mm_data(mm_data, show_3d=True, show_2d=True, path=None, title=None, **kwargs):
+def visualize_mm_data(
+        mm_data, show_3d=True, show_2d=True, path=None, title=None, **kwargs):
     """Draw an interactive 3D visualization of the Data point cloud."""
     assert isinstance(mm_data, MMData)
 
