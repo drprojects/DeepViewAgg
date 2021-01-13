@@ -320,6 +320,16 @@ class PadMappings:
     pass
 
 
+class YFeature:
+    # TODO: YFeature
+    pass
+
+
+class XFeature:
+    # TODO: YFeature
+    pass
+
+
 # TODO: integrate this in MMData indexing ?
 class PointImagePixelMappingFromId:
     """

@@ -255,6 +255,8 @@ def visualize_3d(
     return fig
 
 
+# TODO: make use of the image batch .load() mechanism in ImageData
+
 def visualize_2d(
         mm_data, image_batch=None, figsize=800, width=None, height=None,
         alpha=6, color_mode='light', class_colors=None, **kwargs):

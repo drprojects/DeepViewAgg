@@ -264,6 +264,7 @@ class ImageBatch(ImageData):
     @staticmethod
     def from_image_data_list(image_data_list):
         assert isinstance(image_data_list, list) and len(image_data_list) > 0
+        assert all(isinstance(x, ImageData) for x in image_data_list)
 
         # Recover the attributes of the first ImageData to compare the
         # shared attributes with the other ImageData
@@ -292,6 +293,9 @@ class ImageBatch(ImageData):
 
                 for key, value in [(k, v) for (k, v) in image_dict.items()
                                    if k in ImageData._array_keys]:
+                    # Only stack if all ImageData have either not loaded
+                    # their images or all
+
                     batch_dict[key] += [value]
                 sizes.append(image_data.num_images)
 
@@ -300,6 +304,9 @@ class ImageBatch(ImageData):
             batch_dict[key] = np.concatenate(batch_dict[key])
 
         for key in ImageData._torch_keys:
+            if key == 'images' and any(img is None for img in batch_dict[key]):
+                batch_dict[key] = None
+                continue
             batch_dict[key] = torch.cat(batch_dict[key])
 
         # Initialize the batch from dict and keep track of the item
@@ -488,6 +495,12 @@ class ImageMapping(CSRData):
 
         Returns a new ImageMapping object.
         """
+        # TODO: Take the occlusions into account when reducing the
+        #  resolution ? Is it problematic if a point that should have
+        #  been occluded - had the projection been directly computed on
+        #  the lower resolution, is visible ?
+        # TODO: careful with the device used at train time. Can't rely
+        #  on CUDA...
         assert ratio >= 1, \
             f"Invalid image subsampling ratio: {ratio}. Must be larger than 1."
 
@@ -557,6 +570,8 @@ class ImageMapping(CSRData):
 
         Returns a new ImageMapping object.
         """
+        # TODO: careful with the device used at train time. Can't rely
+        #  on CUDA...
         assert isinstance(idx, torch.LongTensor)
 
         # Picking mode by default
