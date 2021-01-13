@@ -86,6 +86,26 @@ class MMData(object):
     def num_images(self):
         return self.images.num_images
 
+    def to(self, device):
+        self.mappings = self.to(device)
+        self.images = self.images.to(device)
+        self.data = self.data.to(device)
+        return self
+
+    @property
+    def device(self):
+        return self.images.device
+
+    def load_images(self, size=None):
+        self.images.load(size=size)
+
+    def clone(self):
+        return MMData(
+            self.data.clone(),
+            self.images.clone(),
+            self.mappings.clone(),
+            key=self.key)
+
     def __getitem__(self, idx):
         """
         Indexing mechanism on the points.
@@ -123,21 +143,6 @@ class MMData(object):
 
         return MMData(data, images, mappings, key=self.key)
 
-    def to(self, device):
-        self.mappings = self.to(device)
-        self.images = self.images.to(device)
-        self.data = self.data.to(device)
-        return self
-
-    @property
-    def device(self):
-        return self.images.device
-
-    def load_images(self, device=None, size=None):
-        if device is None:
-            device = self.device
-        self.images.load(size=size).to(device)
-
     def __repr__(self):
         info = [f"    {key} = {getattr(self, key)}"
                 for key in ['data', 'images', 'mappings']]
@@ -173,6 +178,15 @@ class MMBatch(MMData):
     def num_batch_items(self):
         return len(self.__sizes__) if self.__sizes__ is not None \
             else None
+
+    def clone(self):
+        out = MMBatch(
+            self.data.clone(),
+            self.images.clone(),
+            self.mappings.clone(),
+            key=self.key)
+        out.__sizes__ = self.__sizes__
+        return out
 
     @staticmethod
     def from_mm_data_list(mm_data_list, key='point_index'):

@@ -572,6 +572,7 @@ class ImageMapping(CSRData):
         """
         # TODO: careful with the device used at train time. Can't rely
         #  on CUDA...
+        # TODO: make sure the merge mode works on real data...
         assert isinstance(idx, torch.LongTensor)
 
         # Picking mode by default
