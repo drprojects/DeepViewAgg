@@ -62,20 +62,9 @@ class PointImagePixelMapping:
     """
 
     def __init__(
-            self,
-            map_size_high=(2048, 1024),
-            map_size_low=(512, 256),
-            crop_top=0,
-            crop_bottom=0,
-            voxel=0.1,
-            r_max=30,
-            r_min=0.5,
-            growth_k=0.2,
-            growth_r=10,
-            empty=0,
-            no_id=-1,
-            key='point_index'
-    ):
+            self, map_size_high=(2048, 1024), map_size_low=(512, 256),
+            crop_top=0, crop_bottom=0, voxel=0.1, r_max=30, r_min=0.5,
+            growth_k=0.2, growth_r=10, empty=0, no_id=-1, key='point_index'):
 
         self.key = key
         self.empty = empty
@@ -165,11 +154,7 @@ class PointImagePixelMapping:
             start = time()
             id_map = torch.from_numpy(id_map)
             pix_x_, pix_y_ = torch.where(id_map != self.no_id)
-            # point_ids_pixel_soup = id_map[active_pixels]
-            # point_ids_pixel_soup = np.column_stack((point_ids_pixel_soup,
-            #                                         torch.stack(active_pixels, dim=1).transpose()))
             point_ids_ = id_map[(pix_x_, pix_y_)]
-            # pixels_ = torch.stack(active_pixels, dim=1)
 
             # Skip image if no mapping was found
             if point_ids_.shape[0] == 0:
@@ -184,23 +169,16 @@ class PointImagePixelMapping:
             pix_x_ = (pix_x_ // ratio).long()
             pix_y_ = (pix_y_ // ratio).long()
             t_ratio_pixels += time() - start
-            # pixels_ = image.coarsen_coordinates(pixels_)
-            # point_ids_pixel_soup[:, 1:] = image.coarsen_coordinates(point_ids_pixel_soup[:, 1:])
 
             # Remove duplicate id-xy in low resolution
             # Sort by point id
-            # point_ids_pixel_soup = np.unique(point_ids_pixel_soup,
-            #                                  axis=0)  # bottleneck here ! Custom unique-sort with numba ?
             start = time()
             point_ids_, pix_x_, pix_y_ = lexunique(point_ids_, pix_x_, pix_y_)
             t_unique_pixels += time() - start
 
             # Cast pixel coordinates to a dtype minimizing memory use
-            # point_ids_ = point_ids_pixel_soup[:, 0]
-            # pixels_ = np.asarray(torch.from_numpy(point_ids_pixel_soup[:, 1:]).type(image.map_dtype))
             start = time()
             pixels_ = torch.stack((pix_x_, pix_y_), dim=1).type(image.map_dtype)
-            # del point_ids_pixel_soup
             t_stack_pixels += time() - start
 
             # Gather per-image mappings in list structures, only to be
