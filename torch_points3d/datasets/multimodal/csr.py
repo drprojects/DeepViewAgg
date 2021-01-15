@@ -140,7 +140,7 @@ class CSRData(object):
         return CSRDataBatch
 
     def clone(self):
-        return self[torch.arange(len(self))]
+        return copy.deepcopy(self)
 
     @staticmethod
     def _sorted_indices_to_jumps(indices):
@@ -342,10 +342,6 @@ class CSRDataBatch(CSRData):
         self.__sizes__ = self.__sizes__.to(device) \
             if self.__sizes__ is not None else None
         return self
-
-    def clone(self):
-        # TODO: if cloning is at all needed for CSRDataBatch, do it here
-        raise NotImplementedError
 
     @staticmethod
     def from_csr_list(csr_list):

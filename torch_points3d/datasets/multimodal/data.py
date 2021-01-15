@@ -71,9 +71,9 @@ class MMData(object):
         # Ensure pixel coordinates in the mappings are compatible with 
         # the expected feature maps resolution.
         pix_max = self.mappings.pixels.max(axis=0).values
-        map_max = self.images.map_size_low
+        map_max = self.images.ref_size
         assert all(a < b for a, b in zip(pix_max, map_max)), \
-            "Pixel coordinates must match images.map_size_low."
+            "Pixel coordinates must match images.ref_size."
 
     def __len__(self):
         return self.data.num_nodes
@@ -97,7 +97,7 @@ class MMData(object):
         return self.images.device
 
     def load_images(self, size=None):
-        self.images.load(size=size)
+        self.images.load_images(size=size)
 
     def clone(self):
         return MMData(

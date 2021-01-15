@@ -27,7 +27,7 @@ class NonStaticImageMask:
         self.n_sample = n_sample
 
     def _process(self, images):
-        images.map_size_high = self.mask_size
+        images.proj_size = self.mask_size
         images.mask = images.non_static_pixel_mask(
             size=self.mask_size, n_sample=self.n_sample)
         return images
@@ -61,10 +61,9 @@ class PointImagePixelMapping:
     the self.key point identifiers.
     """
 
-    def __init__(
-            self, map_size_high=(2048, 1024), map_size_low=(512, 256),
-            crop_top=0, crop_bottom=0, voxel=0.1, r_max=30, r_min=0.5,
-            growth_k=0.2, growth_r=10, empty=0, no_id=-1, key='point_index'):
+    def __init__(self, ref_size=(512, 256), proj_upscale=2, voxel=0.1, r_max=30,
+                 r_min=0.5, growth_k=0.2, growth_r=10, empty=0, no_id=-1,
+                 key='point_index'):
 
         self.key = key
         self.empty = empty
@@ -72,10 +71,8 @@ class PointImagePixelMapping:
 
         # Store the projection parameters destined for the ImageData
         # attributes.
-        self.map_size_high = tuple(map_size_high)
-        self.map_size_low = tuple(map_size_low)
-        self.crop_top = crop_top
-        self.crop_bottom = crop_bottom
+        self.ref_size = ref_size
+        self.proj_upscale = proj_upscale
         self.voxel = voxel
         self.r_max = r_max
         self.r_min = r_min
@@ -89,10 +86,11 @@ class PointImagePixelMapping:
             "At least one image must be provided."
 
         # Pass the projection attributes to the ImageData
-        images.map_size_high = self.map_size_high
-        images.map_size_low = self.map_size_low
-        images.crop_top = self.crop_top
-        images.crop_bottom = self.crop_bottom
+        # TODO: this will throw an error since we may already have a mask
+        #  set. To deal with it, skip the assert mask/images/mappings when
+        #  setting these ? Or temporarily bypass them here ?
+        images.ref_size = self.ref_size
+        images.proj_upscale = self.proj_upscale
         images.voxel = self.voxel
         images.r_max = self.r_max
         images.r_min = self.r_min
@@ -100,7 +98,7 @@ class PointImagePixelMapping:
         images.growth_r = self.growth_r
 
         if images.mask is not None:
-            assert images.mask.shape == images.map_size_high
+            assert images.mask.shape == images.proj_size
 
         # Initialize the mapping arrays
         image_ids = []
@@ -127,14 +125,15 @@ class PointImagePixelMapping:
 
             # Projection to build the index map
             start = time()
+            # TODO: make use of crop_top, crop_bottom ?
             id_map, _ = compute_index_map(
                 (data_sample.pos - image.pos.squeeze()).numpy(),
                 getattr(data_sample, self.key).numpy(),
                 np.array(image.opk.squeeze()),
                 img_mask=image.mask.numpy() if image.mask is not None else None,
-                img_size=image.map_size_high,
-                crop_top=image.crop_top,
-                crop_bottom=image.crop_bottom,
+                proj_size=image.proj_size,
+                crop_top=0,
+                crop_bottom=0,
                 voxel=image.voxel,
                 r_max=image.r_max,
                 r_min=image.r_min,
@@ -165,7 +164,7 @@ class PointImagePixelMapping:
             # NB: we assume the resolution ratio is the same for both 
             # dimensions
             start = time()
-            ratio = image.map_size_high[0] / image.map_size_low[0]
+            ratio = image.proj_size[0] / image.ref_size[0]
             pix_x_ = (pix_x_ // ratio).long()
             pix_y_ = (pix_y_ // ratio).long()
             t_ratio_pixels += time() - start
@@ -178,7 +177,8 @@ class PointImagePixelMapping:
 
             # Cast pixel coordinates to a dtype minimizing memory use
             start = time()
-            pixels_ = torch.stack((pix_x_, pix_y_), dim=1).type(image.map_dtype)
+            pixels_ = torch.stack((pix_x_, pix_y_), dim=1).type(
+                image.pixel_dtype)
             t_stack_pixels += time() - start
 
             # Gather per-image mappings in list structures, only to be
@@ -297,6 +297,11 @@ class CropFromMask:
 class PadMappings:
     """Transform to update the mappings to account for image padding."""
     # TODO: PadMappings
+    #  https://distill.pub/2019/computing-receptive-fields/
+    #  https://github.com/google-research/receptive_field
+    #  https://github.com/Fangyh09/pytorch-receptive-field
+    #  https://github.com/rogertrullo/Receptive-Field-in-Pytorch/blob/master/compute_RF.py
+
     pass
 
 

@@ -266,7 +266,7 @@ def visualize_2d(
     # Read images to the resolution at which the mappings were computed
     if image_batch is None:
         image_batch = mm_data.images.read_images(
-            size=mm_data.images.map_size_low)
+            size=mm_data.images.ref_size)
 
     # Get the mapping of all points in the sample
     mappings = mm_data.mappings

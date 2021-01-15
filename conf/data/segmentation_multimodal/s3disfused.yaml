@@ -1,8 +1,8 @@
 data_multimodal:
   point_id: point_index
   img_size: [512, 256]
-  map_size_high: [2048, 1024]
-  map_size_low: [512, 256]
+  proj_size: [2048, 1024]
+  ref_size: [512, 256]
 data:
   task: multimodal.segmentation
   class: s3dis.S3DISFusedDataset
@@ -24,12 +24,12 @@ data:
     pre_transform:
       - transform: NonStaticImageMask      # Find acquisition mask
         params:
-          mask_size: ${data_multimodal.map_size_high}
+          mask_size: ${data_multimodal.proj_size}
           n_sample: 10
       - transform: PointImagePixelMapping  # Define the 3D-2D mapping
         params:
-          map_size_high: ${data_multimodal.map_size_high}
-          map_size_low: ${data_multimodal.map_size_low}
+          proj_size: ${data_multimodal.proj_size}
+          ref_size: ${data_multimodal.ref_size}
           crop_top: 0
           crop_bottom: 0
           voxel: ${data.first_subsampling}
