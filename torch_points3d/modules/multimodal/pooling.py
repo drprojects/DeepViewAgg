@@ -61,28 +61,28 @@ import torch
 import torch_scatter
 
 # torch_scatter.segment_coo(reduce='max')
-# torch_scatter.segment_csr(X, jumps, reduce='max')
-# torch_scatter.segment_csr(X, jumps, reduce='min')
-# torch_scatter.segment_csr(X, jumps, reduce='mean')
-# torch_scatter.segment_csr(X, jumps, reduce='sum')
+# torch_scatter.segment_csr(X, pointers, reduce='max')
+# torch_scatter.segment_csr(X, pointers, reduce='min')
+# torch_scatter.segment_csr(X, pointers, reduce='mean')
+# torch_scatter.segment_csr(X, pointers, reduce='sum')
 # REMARK : 0-size groups will appear in the output with 0 values. So unseen points will receive zero.
 
 n_groups = 10
-jumps = torch.cumsum(torch.randint(low=0, high=3, size=(n_groups+1,)), 0)
-jumps = jumps - jumps[0]
-idx = torch.repeat_interleave(torch.arange(jumps.shape[0] - 1), jumps[1:] - jumps[:-1])
+pointers = torch.cumsum(torch.randint(low=0, high=3, size=(n_groups+1,)), 0)
+pointers = pointers - pointers[0]
+idx = torch.repeat_interleave(torch.arange(pointers.shape[0] - 1), pointers[1:] - pointers[:-1])
 
-n_points = jumps[-1]
+n_points = pointers[-1]
 src = torch.randint(low=0, high=20, size=(n_points, 3))
 
-jumps = jumps.cuda()
+pointers = pointers.cuda()
 idx = idx.cuda()
 src = src.cuda()
 
-# CSR - jump indices
+# CSR - pointer indices
 # Due to the use of index pointers, segment_csr() is the fastest method to apply for grouped reductions.
 # In contrast to scatter() and segment_coo(), this operation is fully-deterministic."
-torch_scatter.segment_csr(src, jumps, reduce='sum')
+torch_scatter.segment_csr(src, pointers, reduce='sum')
 
 # COO - sorted indices
 # In contrast to scatter(), this method expects values in index to be sorted along dimension index.dim() - 1.
@@ -103,7 +103,7 @@ from torch_scatter import scatter_max
 dim = 0
 max_value_per_index, _ = scatter_max(src, idx, dim=dim)
 # same as 
-# torch_scatter.segment_csr(src, jumps, reduce='max')
+# torch_scatter.segment_csr(src, pointers, reduce='max')
 
 max_value_per_index.gather(dim, idx.reshape((-1,1)))
 

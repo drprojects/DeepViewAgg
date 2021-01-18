@@ -22,11 +22,12 @@ data:
   multimodal:                              # Each modality must be inserted in a dedicated 'multimodal' section
     modality: image
     pre_transform:
-      - transform: NonStaticImageMask      # Find acquisition mask
+      - transform: NonStaticMask           # Find acquisition mask
         params:
-          mask_size: ${data_multimodal.proj_size}
-          n_sample: 10
-      - transform: PointImagePixelMapping  # Define the 3D-2D mapping
+          ref_size: ${data_multimodal.ref_size}
+          proj_upscale: 2
+          n_sample: 5
+      - transform: MapImages                # Define the 3D-2D mapping
         params:
           proj_size: ${data_multimodal.proj_size}
           ref_size: ${data_multimodal.ref_size}

@@ -599,7 +599,7 @@ class S3DISOriginalFusedMM(InMemoryDataset):
         torch.save(
             ImageMappingFromPointId(key='point_index')(
                 [
-                    data_slicing(data, ~is_val)
+                    data_slicing(data, is_val)
                     for data, is_val in zip(mm_data_list[0], is_val_list)],
                 mm_data_list[1],
                 mm_data_list[2]),

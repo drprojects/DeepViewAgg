@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import torch_scatter
 from torch_geometric.data import Data
 from torch_points3d.core.data_transform import SphereSampling
 from torch_points3d.datasets.multimodal.image import ImageData, ImageMapping
@@ -16,20 +17,53 @@ __call(data, images, mappings)__
 """
 
 
-class NonStaticImageMask:
+# TODO: edit all transforms to have mappings inside the ImageData
+# TODO: edit S3DIS accordingly
+
+class NonStaticMask:
     """
-    Transform-like structure. Find the mask of identical pixels across
+    Transform-like structure. Find the mask of non-identical pixels across
     a list of images.
     """
 
-    def __init__(self, mask_size=(2048, 1024), n_sample=5):
-        self.mask_size = tuple(mask_size)
+    def __init__(self, ref_size=(512, 256), proj_upscale=2, n_sample=5):
+        self.ref_size = tuple(ref_size)
+        self.proj_upscale = proj_upscale
         self.n_sample = n_sample
 
     def _process(self, images):
-        images.proj_size = self.mask_size
-        images.mask = images.non_static_pixel_mask(
-            size=self.mask_size, n_sample=self.n_sample)
+        # Edit ImageData 'ref_size' and 'proj_upscale' attributes. This
+        # will make the projection mask size accessible as 'proj_size'
+        images.ref_size = self.ref_size
+        images.proj_upscale = self.proj_upscale
+
+        # Compute the mask of identical pixels across a range of
+        # 'n_sample' sampled images
+        n_sample = min(self.n_sample, images.num_images)
+        if n_sample < 2:
+            mask = torch.ones(images.proj_size, dtype=torch.bool)
+        else:
+            # Initialize the mask to all False (ie all identical)
+            mask = torch.zeros(images.proj_size, dtype=torch.bool)
+
+            # Iteratively update the mask w.r.t. a reference image
+            idx = torch.multinomial(
+                torch.arange(images.num_images, dtype=torch.float), n_sample)
+
+            # Read individual RGB images and squeeze them shape 3xHxW
+            img_1 = images.read_images(idx=idx[0], size=images.proj_size).squeeze()
+
+            for i in idx[1:]:
+                img_2 = images.read_images(idx=i, size=images.proj_size).squeeze()
+
+                # Update mask where new pixel changes are detected
+                mask_diff = (img_1 != img_2).all(dim=0).t()
+                idx_diff_new = torch.where(torch.logical_and(mask_diff, ~mask))
+                mask[idx_diff_new] = 1
+
+        # Save the mask in the ImageData 'mask' attribute
+        images.mask = mask
+
         return images
 
     def __call__(self, data, images, mappings=None):
@@ -54,7 +88,7 @@ class NonStaticImageMask:
         return self.__class__.__name__
 
 
-class PointImagePixelMapping:
+class MapImages:
     """
     Transform-like structure. Computes the mappings between individual
     3D points and image pixels. Point mappings are identified based on
@@ -68,9 +102,6 @@ class PointImagePixelMapping:
         self.key = key
         self.empty = empty
         self.no_id = no_id
-
-        # Store the projection parameters destined for the ImageData
-        # attributes.
         self.ref_size = ref_size
         self.proj_upscale = proj_upscale
         self.voxel = voxel
@@ -85,10 +116,8 @@ class PointImagePixelMapping:
         assert images.num_images >= 1, \
             "At least one image must be provided."
 
-        # Pass the projection attributes to the ImageData
-        # TODO: this will throw an error since we may already have a mask
-        #  set. To deal with it, skip the assert mask/images/mappings when
-        #  setting these ? Or temporarily bypass them here ?
+        # Edit ImageData projection attributes attributes. This
+        # will make the projection mask size accessible as 'proj_size'
         images.ref_size = self.ref_size
         images.proj_upscale = self.proj_upscale
         images.voxel = self.voxel
@@ -109,7 +138,7 @@ class PointImagePixelMapping:
         t_sphere_sampling = 0
         t_projection = 0
         t_init_torch_pixels = 0
-        t_ratio_pixels = 0
+        t_coord_pixels = 0
         t_unique_pixels = 0
         t_stack_pixels = 0
         t_append = 0
@@ -120,20 +149,16 @@ class PointImagePixelMapping:
             start = time()
             sampler = SphereSampling(image.r_max, image.pos, align_origin=False)
             data_sample = sampler(data)
-            # data_sample = sampler(data.clone())
             t_sphere_sampling += time() - start
 
             # Projection to build the index map
             start = time()
-            # TODO: make use of crop_top, crop_bottom ?
             id_map, _ = compute_index_map(
                 (data_sample.pos - image.pos.squeeze()).numpy(),
                 getattr(data_sample, self.key).numpy(),
                 np.array(image.opk.squeeze()),
                 img_mask=image.mask.numpy() if image.mask is not None else None,
                 proj_size=image.proj_size,
-                crop_top=0,
-                crop_bottom=0,
                 voxel=image.voxel,
                 r_max=image.r_max,
                 r_min=image.r_min,
@@ -160,14 +185,25 @@ class PointImagePixelMapping:
                 continue
             t_init_torch_pixels += time() - start
 
-            # Convert to lower resolution coordinates
-            # NB: we assume the resolution ratio is the same for both 
-            # dimensions
+            # Convert to ImageData coordinate system with proper
+            # resampling and cropping
+            # TODO: add circular padding here if need be
             start = time()
-            ratio = image.proj_size[0] / image.ref_size[0]
-            pix_x_ = (pix_x_ // ratio).long()
-            pix_y_ = (pix_y_ // ratio).long()
-            t_ratio_pixels += time() - start
+            pix_x_ = (pix_x_ // image.proj_upscale).long()
+            pix_y_ = (pix_y_ // image.proj_upscale).long()
+            pix_x_ = pix_x_ - image.crop_offsets.squeeze()[0]
+            pix_y_ = pix_y_ - image.crop_offsets.squeeze()[1]
+            cropped_in_idx = torch.where(
+                (pix_x_ >= 0)
+                & (pix_y_ >= 0)
+                & (pix_x_ < image.crop_size[0])
+                & (pix_y_ < image.crop_size[1]))
+            pix_x_ = pix_x_[cropped_in_idx]
+            pix_x_ = pix_x_[cropped_in_idx]
+            point_ids_ = point_ids_[cropped_in_idx]
+            pix_x_ = (pix_x_ // image.downscale).long()
+            pix_y_ = (pix_y_ // image.downscale).long()
+            t_coord_pixels += time() - start
 
             # Remove duplicate id-xy in low resolution
             # Sort by point id
@@ -194,7 +230,7 @@ class PointImagePixelMapping:
         print(f"        t_sphere_sampling: {t_sphere_sampling:0.3f}")
         print(f"        t_projection: {t_projection:0.3f}")
         print(f"        t_init_torch_pixels: {t_init_torch_pixels:0.3f}")
-        print(f"        t_ratio_pixels: {t_ratio_pixels:0.3f}")
+        print(f"        t_coord_pixels: {t_coord_pixels:0.3f}")
         print(f"        t_unique_pixels: {t_unique_pixels:0.3f}")
         print(f"        t_stack_pixels: {t_stack_pixels:0.3f}")
         print(f"        t_append: {t_append:0.3f}")
@@ -270,19 +306,102 @@ class PointImagePixelMapping:
         return self.__class__.__name__
 
 
-class DropPoorMappings:
+class DropUninformativeImages:
     """
     Transform to drop images and corresponding mappings when mappings
     account for less than a given ratio of the image area.
     """
+
     def __init__(self, ratio=0.03):
         self.ratio = ratio
 
+    def _process(self, images):
+        # Threshold below which the number of pixels in the mappings
+        # is deemed insufficient
+        threshold = images.img_size[0] * images.img_size[1] * self.ratio
+
+        # Count the number of pixel mappings for each image
+        image_ids = torch.repeat_interleave(
+            images.mappings.images,
+            images.mappings.values[1].pointers[1:]
+            - images.mappings.values[1].pointers[:-1])
+        image_counts = torch_scatter.scatter_add(
+            torch.ones(image_ids.shape[0]), image_ids, dim=0)
+
+        # Select the images and mappings meeting the threshold
+        return images[torch.where(image_counts > threshold)]
+
     def __call__(self, data, images, mappings):
-        # TODO: DropPoorMappings
-        # TODO: take the filters receptive field size. See:
-        #  https://fomoro.com/research/article/receptive-field-calculator#3,1,1,SAME;3,1,1,SAME;2,2,1,SAME;3,1,1,SAME;3,1,1,SAME;2,2,1,SAME;3,1,1,SAME;3,1,1,SAME
-        pass
+        if isinstance(images, list):
+            images = [self._process(img) for img in images]
+        else:
+            images = self._process(images)
+        return data, images, mappings
+
+    def __repr__(self):
+        return self.__class__.__name__
+
+
+class GreedyCrops:
+    """
+    Transform to crop images and mappings in a greedy fashion, so as to
+    minimize the size of the images while preserving all the mappings and
+    padding constraints. This is typically useful for optimizing the size of
+    the images to embed with respect to the available mappings.
+
+    The images are distributed to a set of cropping sizes, based on their
+    mappings and the padding. Images with the same cropping size are batched
+    together.
+
+    Returns a list of ImageData of fixed cropping sizes with their respective
+    mappings.
+    """
+
+    def __init__(self, padding=0, min_size=64):
+        self.padding = padding
+        self.min_size = 64
+
+    def _process(self, images):
+        # Compute the bounding boxes for each image
+        boxes = images.mappings.bounding_boxes
+
+        # Add padding to the boxes
+        boxes[:, 0] = torch.clamp(boxes[:, 0] - self.padding, 0)
+        boxes[:, 2] = torch.clamp(boxes[:, 2] - self.padding, 0)
+        boxes[:, 1] = torch.clamp(boxes[:, 1] + self.padding, 0,
+                                  images.img_size[0])
+        boxes[:, 3] = torch.clamp(boxes[:, 3] + self.padding, 0,
+                                  images.img_size[1])
+
+        # Compute possible crop sizes. The first size is the full
+        # img_size. Other possible are combinations of powers of 2
+        # below img_size down to 'min_size'
+        box_width = boxes[:, 2] - boxes[:, 0]
+        box_height = boxes[:, 3] - boxes[:, 1]
+        two = torch.Tensor([2])
+        box_width = torch.pow(two, torch.ceil(np.log(box_width) / torch.log(two)))
+        box_height = torch.pow(two, torch.ceil(np.log(box_height) / torch.log(two)))
+
+size = (min_size, min_size)
+i = 0
+while all(a <= b for a, b in zip(size, img_size)):
+    print(size)
+    size = (size[0] * 2 ** ((i + 1) % 2), size[1] * 2 ** (i % 2))
+    i += 1
+
+        # Group images by crop sizes
+
+        # Center the boxes and the sizes
+
+        return images
+
+
+    def __call__(self, data, images, mappings):
+        if isinstance(images, list):
+            images = [self._process(img) for img in images]
+        else:
+            images = self._process(images)
+        return data, images, mappings
 
     def __repr__(self):
         return self.__class__.__name__
@@ -301,7 +420,7 @@ class PadMappings:
     #  https://github.com/google-research/receptive_field
     #  https://github.com/Fangyh09/pytorch-receptive-field
     #  https://github.com/rogertrullo/Receptive-Field-in-Pytorch/blob/master/compute_RF.py
-
+    #  https://fomoro.com/research/article/receptive-field-calculator#3,1,1,SAME;3,1,1,SAME;2,2,1,SAME;3,1,1,SAME;3,1,1,SAME;2,2,1,SAME;3,1,1,SAME;3,1,1,SAME
     pass
 
 
@@ -425,6 +544,8 @@ class RandomHorizontalFlip(TorchvisionTransform):
     def __init__(self, p=0.50):
         self.p = p
         self.transform = T.RandomHorizontalFlip(p=p)
+        # TODO: use torch.flip(x, [2]) instead, to manually control the
+        #  flip's randomness and edit the mappings accordingly
 
 
 class GaussianBlur(TorchvisionTransform):
@@ -434,7 +555,6 @@ class GaussianBlur(TorchvisionTransform):
         self.kernel_size = kernel_size
         self.sigma = sigma
         self.transform = T.GaussianBlur(kernel_size, sigma=sigma)
-
 
 # TODO : add invertible transforms from https://github.com/gregunz/invertransforms
 #  or modify the mappings when applying the geometric transforms.

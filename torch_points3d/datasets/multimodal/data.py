@@ -165,7 +165,7 @@ class MMBatch(MMData):
         self.__sizes__ = None
 
     @property
-    def batch_jumps(self):
+    def batch_pointers(self):
         return np.cumsum(np.concatenate(([0], self.__sizes__))) \
             if self.__sizes__ is not None \
             else None

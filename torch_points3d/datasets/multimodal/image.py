@@ -14,33 +14,34 @@ class ImageData(object):
     projection information.
 
     Attributes
-        path:numpy.ndarray     image paths
-        pos:torch.Tensor      image position
-        opk:torch.Tensor      image angular poses
+        path:numpy.ndarray      image paths
+        pos:torch.Tensor        image positions
+        opk:torch.Tensor        image angular poses
 
-        ref_size:tuple       initial size of the loaded images and the mappings
-        proj_upscale
-        crop_size
-        crop_offsets
+        ref_size:tuple          initial size of the loaded images and mappings
+        proj_upscale:float      upsampling of projection wrt to ref_size
+        downscale:float         downsampling of images and mappings wrt ref_size
+        crop_size:tuple         size of the cropping box
+        crop_offsets:LongTensor cropping box offsets for each image
 
-        voxel:float             projection voxel resolution
-        r_max:float             projection radius max
-        r_min:float             projection radius min
-        growth_k:float             projection pixel growth factor
-        growth_r:float             projection pixel growth radius
+        voxel:float             voxel resolution
+        r_max:float             radius max
+        r_min:float             radius min
+        growth_k:float          pixel growth factor
+        growth_r:float          pixel growth radius
 
-        images
-        mappings
-        mask            torch.BoolTensor  projection mask
+        images:Tensor           tensor of images or image features
+        mappings:ImageMapping   mappings between 3D points and the images
+        mask:BoolTensor         projection mask
     """
-
     _numpy_keys = ['path']
     _torch_keys = ['pos', 'opk', 'crop_offsets']
     _map_key = 'mappings'
     _img_key = 'images'
     _mask_key = 'mask'
-    _shared_keys = ['ref_size', 'proj_upscale', 'crop_size', 'voxel', 'r_max',
-                    'r_min', 'growth_k', 'growth_r'] + [_mask_key]
+    _shared_keys = ['ref_size', 'proj_upscale', 'downscale', 'crop_size',
+                    'voxel', 'r_max', 'r_min', 'growth_k', 'growth_r'] \
+                   + [_mask_key]
     _own_keys = _numpy_keys + _torch_keys + [_map_key, _img_key]
     _keys = _shared_keys + _own_keys
 
@@ -66,6 +67,12 @@ class ImageData(object):
         assert path.shape[0] == pos.shape[0] == opk.shape[0], \
             f"Attributes 'path', 'pos' and 'opk' must have the same length."
 
+        # Initialize the private attributes
+        for key in ['_ref_size', '_proj_upscale', '_downscale', '_crop_size',
+                    '_crop_offsets', '_images', '_mappings', '_mask']:
+            setattr(self, key, None)
+
+        # Initialize from parameters
         self.path = np.array(path)
         self.pos = pos.double()
         self.opk = opk.double()
@@ -85,12 +92,6 @@ class ImageData(object):
         self.mask = mask
 
         self.debug()
-
-        # TODO: create a crop 2D function
-
-        # TODO: create an ImageMapping pixel info function
-
-        # TODO: create a subsampling 2D function
 
         # TODO: initial circular custom padding? This would affect all sizes,
         #  mappings, crop offsets, etc. For now, let's just leave that aside.
@@ -179,11 +180,12 @@ class ImageData(object):
 
     @ref_size.setter
     def ref_size(self, ref_size):
-        assert self.images is None \
-               and self.mappings is None \
-               and self.mask is None, \
-            "Can't set 'ref_size' if either 'images', 'mappings' or 'mask' " \
-            "is not None."
+        assert (self.images is None
+                and self.mappings is None
+                and self.mask is None) \
+               or ref_size == self.ref_size, \
+            "Can't edit 'ref_size' if 'images', 'mappings' and 'mask' are " \
+            "not all None."
         assert len(tuple(ref_size)) == 2, \
             f"Expected len(ref_size)=2 but got {len(ref_size)} instead."
         self._ref_size = tuple(ref_size)
@@ -194,7 +196,7 @@ class ImageData(object):
         Smallest torch dtype allowed by the resolution for encoding
         pixel coordinates.
         """
-        for dtype in [torch.uint8, torch.int16, torch.int32, torch.int64]:
+        for dtype in [torch.int16, torch.int32, torch.int64]:
             if torch.iinfo(dtype).max >= max(
                     self.ref_size[0], self.ref_size[1]):
                 break
@@ -212,15 +214,17 @@ class ImageData(object):
 
     @proj_upscale.setter
     def proj_upscale(self, scale):
+        assert (self.mask is None and self.mappings is None) \
+               or self.proj_upscale == scale, \
+            "Can't edit 'proj_upscale' if 'mask' and 'mappings' are not both " \
+            "None."
         assert scale >= 1, \
             f"Expected scalar larger than 1 but got {scale} instead."
         # assert isinstance(scale, int), \
         #     f"Expected an int but got a {type(scale)} instead."
         # assert (scale & (scale-1) == 0) and scale != 0,\
         #     f"Expected a power of 2 but got {scale} instead."
-        assert self.mask is None and self.mappings is None, \
-            "Can't set 'proj_upscale' if 'mask' and 'mappings' are not both " \
-            "None."
+
         self._proj_upscale = scale
 
     @property
@@ -247,8 +251,10 @@ class ImageData(object):
 
     @crop_size.setter
     def crop_size(self, crop_size):
-        assert self.images is None and self.mappings is None, \
-            "Can't set 'crop_size' if 'images' or 'mappings' are not both None."
+        assert (self.images is None and self.mappings is None) \
+               or self.crop_size == crop_size, \
+            "Can't edit 'crop_size' if 'images' or 'mappings' are not both " \
+            "None."
         assert len(tuple(crop_size)) == 2, \
             f"Expected len(crop_size)=2 but got {len(crop_size)} instead."
         assert crop_size[0] <= self.ref_size[0] \
@@ -260,8 +266,9 @@ class ImageData(object):
     @property
     def crop_offsets(self):
         """
-        X-Y offsets of the top-left corners of cropping boxes to apply
-        to the 'ref_size' in order to obtain the current image cropping.
+        X-Y (width, height) offsets of the top-left corners of cropping
+        boxes to apply to the 'ref_size' in order to obtain the current
+        image cropping.
 
         These offsets must match the 'num_images' and is used to
         characterize 'images' and 'mappings'. As such, it should not be
@@ -271,8 +278,10 @@ class ImageData(object):
 
     @crop_offsets.setter
     def crop_offsets(self, crop_offsets):
-        assert self.images is None and self.mappings is None, \
-            "Can't set 'crop_size' if 'images' or 'mappings' are not both None."
+        assert (self.images is None and self.mappings is None) \
+               or (self.crop_offsets == crop_offsets).all(), \
+            "Can't edit 'crop_offsets' if 'images' or 'mappings' are not both " \
+            "None."
         assert isinstance(crop_offsets, torch.LongTensor), \
             f"Expected LongTensor but got {type(crop_offsets)} instead."
         assert crop_offsets.shape == (self.num_images, 2), \
@@ -300,6 +309,66 @@ class ImageData(object):
         #     f"Expected a power of 2 but got {scale} instead."
         self._downscale = scale
 
+    def update_downscaling(self, images=None, scale=1):
+        """
+        Update the downscaling state of the ImageData, WITH RESPECT TO
+        ITS CURRENT STATE 'img_size'.
+
+        Downscaling 'images' attribute is ambiguous. As such, they are
+        expected to be scaled outside of the ImageData object before
+        being passed to 'update_downscaling', for 'downscale' and
+        'mappings' to be updated accordingly.
+        """
+        if images is not None:
+            # Update internal attributes based on the input
+            # downscaled images
+            scale = self.img_size[0] / images.shape[3]
+            self.downscale = self.downscale * scale
+            self.images = images
+        else:
+            assert self.images is None, \
+                "Can't edit 'downscale' if 'images' are not None and not " \
+                "already resized to new scale. Image resizing is ambiguous " \
+                "and should be performed outside of ImageData and provided to" \
+                "'update_downscaling'."
+            self.downscale = self.downscale * scale
+
+        if scale > 1:
+            self.mappings = self.mappings.subsample_2d(scale) \
+                if self.mappings is not None else None
+
+    def update_cropping(self, crop_size, crop_offsets):
+        """
+        Update the cropping state of the ImageData, WITH RESPECT TO
+        ITS CURRENT STATE 'img_size'.
+
+        Parameters crop_size and crop_offsets are resized to the
+        'ref_size'
+
+        Crop the 'images' and 'mappings', with respect to their current
+        'img_size' (as opposed to the 'ref_size').
+        """
+        # Update the private 'crop_size' and 'crop_offsets' attributes
+        # wrt 'ref_size'
+        self._crop_size = tuple(int(x * self.downscale) for x in crop_size)
+        self._crop_offsets = (self.crop_offsets
+                              + crop_offsets * self.downscale).long()
+
+        # Update the images cropping
+        #   - Images have format: BxCxHxW
+        #   - Crop size has format: (W, H)
+        #   - Crop offsets have format: (W, H)
+        if self.images is not None:
+            self.images = self.images[
+                          :,
+                          :,
+                          crop_offsets[:, 1]:crop_offsets[:, 1] + crop_size[1],
+                          crop_offsets[:, 0]:crop_offsets[:, 0] + crop_size[0]]
+
+        # Update the mappings
+        if self.mappings is not None:
+            self.mappings = self.mappings.crop(crop_size, crop_offsets)
+
     @property
     def img_size(self):
         """
@@ -320,16 +389,17 @@ class ImageData(object):
 
     @images.setter
     def images(self, images):
-        if images is not None:
+        if images is None:
+            self._images = None
+        else:
             assert isinstance(images, torch.Tensor), \
                 f"Expected a tensor of images but got {type(images)} instead."
             assert images.shape[0] == self.num_images \
-                   and images.shape[2] == self.img_size[1] \
-                   and images.shape[3] == self.img_size[0], \
+                   and images.shape[2:][::-1] == self.img_size, \
                 f"Expected a tensor of shape ({self.num_images}, :, " \
                 f"{self.img_size[1]}, {self.img_size[0]}) but got " \
                 f"{images.shape} instead."
-        self._images = images.to(self.device)
+            self._images = images.to(self.device)
 
     @property
     def mappings(self):
@@ -346,7 +416,9 @@ class ImageData(object):
 
     @mappings.setter
     def mappings(self, mappings):
-        if mappings is not None:
+        if mappings is None:
+            self._mappings = None
+        else:
             assert isinstance(mappings, ImageMapping), \
                 f"Expected an ImageMapping but got {type(mappings)} instead."
             unique_idx = torch.unique(mappings.images)
@@ -358,7 +430,7 @@ class ImageData(object):
             assert w_max < self.img_size[0] and h_max < self.img_size[1], \
                 f"Max pixel values should be smaller than ({self.img_size}) " \
                 f"but got ({w_max, h_max}) instead."
-        self._mappings = mappings.to(self.device)
+            self._mappings = mappings.to(self.device)
 
     @property
     def mask(self):
@@ -371,13 +443,15 @@ class ImageData(object):
 
     @mask.setter
     def mask(self, mask):
-        if mask is not None:
+        if mask is None:
+            self._mask = None
+        else:
             assert isinstance(mask, torch.BoolTensor), \
                 f"Expected a BoolTensor but got {type(mask)} instead."
             assert mask.shape == self.proj_size, \
                 f"Expected mask of size {self.proj_size} but got " \
                 f"{mask.shape} instead."
-        self._mask = mask.to(self.device)
+            self._mask = mask.to(self.device)
 
     def load_images(self):
         """
@@ -398,7 +472,7 @@ class ImageData(object):
     def read_images(self, idx=None, size=None, crop_size=None,
                     crop_offsets=None, downscale=None):
         # TODO: faster read with multiprocessing:
-        #  https: // stackoverflow.com / questions / 19695249 / load - just - part - of - an - image - in -python
+        #  https://stackoverflow.com/questions/19695249/load-just-part-of-an-image-in-python
         #  https://towardsdatascience.com/10x-faster-parallel-python-without-python-multiprocessing-e5017c93cce1
         """
         Read images and batch them into a tensor of size BxCxHxW.
@@ -425,7 +499,7 @@ class ImageData(object):
 
         # Cropping boxes size and offsets
         # XAND(crop_size and crop_offsets)
-        assert bool(crop_size) == bool(crop_offsets), \
+        assert bool(crop_size) == bool(crop_offsets is not None), \
             f"If either 'crop_size' or 'crop_offsets' is specified, both " \
             f"must be specified."
         if crop_size is not None:
@@ -469,32 +543,6 @@ class ImageData(object):
         images = images.permute(0, 3, 1, 2)
 
         return images
-
-    def non_static_pixel_mask(self, size=None, n_sample=5):
-        # TODO: make internal function, affecting the internal state, like
-        #  load, crop, subsample
-        """
-        Find the mask of identical pixels across a list of images.
-        """
-        if size is None:
-            size = self.proj_size
-
-        mask = torch.ones(size, dtype=torch.bool)
-
-        n_sample = min(n_sample, self.num_images)
-        if n_sample < 2:
-            return mask
-
-        # Iteratively update the mask w.r.t. a reference image
-        idx = torch.multinomial(
-            torch.arange(self.num_images, dtype=torch.float), n_sample)
-        img_1 = self.read_images(idx=idx[0], size=size).squeeze()
-        for i in idx[1:]:
-            img_2 = self.read_images(idx=i, size=size).squeeze()
-            mask_equal = torch.all(img_1 == img_2, axis=0).t()
-            mask[torch.logical_and(mask, mask_equal)] = 0
-
-        return mask
 
     def clone(self):
         """Returns a copy of the instance."""
@@ -594,7 +642,7 @@ class ImageBatch(ImageData):
         self.__sizes__ = None
 
     @property
-    def batch_jumps(self):
+    def batch_pointers(self):
         return np.cumsum(np.concatenate(([0], self.__sizes__))) \
             if self.__sizes__ is not None else None
 
@@ -683,8 +731,8 @@ class ImageBatch(ImageData):
                 'the batch object was not created using '
                 '`ImageBatch.from_image_data_list()`.')
 
-        batch_jumps = self.batch_jumps
-        return [self[batch_jumps[i]:batch_jumps[i + 1]]
+        batch_pointers = self.batch_pointers
+        return [self[batch_pointers[i]:batch_pointers[i + 1]]
                 for i in range(self.num_batch_items)]
 
 
@@ -706,13 +754,14 @@ class ImageDataHolder:
         pass
 
     def view_pooling_csr_indices(self):
-        # CSR jumps of the concatenated and re-aranged (with
+        # CSR pointers of the concatenated and re-aranged (with
         # view_pooling_arangement_index) unit-pooled features.
         pass
 
 
 class ImageMapping(CSRData):
     """CSRData format for point-image-pixel mappings."""
+
     # TODO: expand to optional projection features in the view-level mappings
 
     @staticmethod
@@ -735,8 +784,8 @@ class ImageMapping(CSRData):
         del idx_sort
 
         # Convert to "nested CSRData" format.
-        # Compute point-image jumps in the pixels array.
-        # NB: The jumps are marked by non-successive point-image ids.
+        # Compute point-image pointers in the pixels array.
+        # NB: The pointers are marked by non-successive point-image ids.
         #     Watch out for overflow in case the point_ids and
         #     image_ids are too large and stored in 32 bits.
         composite_ids = CompositeTensor(point_ids, image_ids)
@@ -744,27 +793,27 @@ class ImageMapping(CSRData):
         del composite_ids
 
         # Compress point_ids and image_ids by taking the last value of
-        # each jump
-        image_ids = image_ids[image_pixel_mappings.jumps[1:] - 1]
-        point_ids = point_ids[image_pixel_mappings.jumps[1:] - 1]
+        # each pointer
+        image_ids = image_ids[image_pixel_mappings.pointers[1:] - 1]
+        point_ids = point_ids[image_pixel_mappings.pointers[1:] - 1]
 
         # Instantiate the main CSRData object
-        # Compute point jumps in the image_ids array
+        # Compute point pointers in the image_ids array
         mapping = ImageMapping(
             point_ids, image_ids, image_pixel_mappings, dense=True,
             is_index_value=[True, False])
 
         # Some points may have been seen by no image so we need to
-        # inject 0-sized jumps to account for these.
+        # inject 0-sized pointers to account for these.
         # NB: we assume all relevant points are present in
         # range(num_points), if a point with an id larger than
         # num_points were to exist, we would not be able to take it
-        # into account in the jumps.
+        # into account in the pointers.
         if num_points is None or num_points < point_ids.max() + 1:
             num_points = point_ids.max() + 1
 
-        # Compress point_ids by taking the last value of each jump
-        point_ids = point_ids[mapping.jumps[1:] - 1]
+        # Compress point_ids by taking the last value of each pointer
+        point_ids = point_ids[mapping.pointers[1:] - 1]
         mapping._insert_empty_groups(point_ids, num_groups=num_points)
 
         return mapping
@@ -815,10 +864,11 @@ class ImageMapping(CSRData):
         return ImageMappingBatch
 
     @property
-    def image_stats(self):
+    def bounding_boxes(self):
         """
         Return the (w_min, w_max, h_min, hmax) pixel values per image.
         """
+        # TODO: handle circular panoramic images and relevant cropping
         min_pix, _ = torch_scatter.scatter_min(self.pixels, self.images, dim=0)
         max_pix, _ = torch_scatter.scatter_max(self.pixels, self.images, dim=0)
         return min_pix[:, 0], max_pix[:, 0], min_pix[:, 1], max_pix[:, 1]
@@ -836,7 +886,7 @@ class ImageMapping(CSRData):
         """
         idx_batch = torch.repeat_interleave(
             self.images,
-            self.values[1].jumps[1:] - self.values[1].jumps[:-1])
+            self.values[1].pointers[1:] - self.values[1].pointers[:-1])
         idx_height = self.pixels[:, 1]
         idx_width = self.pixels[:, 0]
         return idx_batch.long(), idx_height.long(), idx_width.long()
@@ -848,14 +898,13 @@ class ImageMapping(CSRData):
         """
         raise NotImplementedError
 
-    # TODO: padding, mask and crop affects coordinates, beware of mappings validity
     @property
     def unit_pooling_csr_indices(self):
         """
         Return the indices that will be used for unit-level pooling on
         CSR-formatted data.
         """
-        return self.values[1].jumps
+        return self.values[1].pointers
 
     @property
     def view_pooling_indices(self):
@@ -870,7 +919,7 @@ class ImageMapping(CSRData):
         Return the indices that will be used for view-level pooling on
         CSR-formatted data.
         """
-        return self.jumps
+        return self.pointers
 
     def subsample_2d(self, ratio):
         """
@@ -900,7 +949,7 @@ class ImageMapping(CSRData):
         # Expand unit-level mappings to 'dense' format
         ids = torch.repeat_interleave(
             torch.arange(out.values[1].num_groups),
-            out.values[1].jumps[1:] - out.values[1].jumps[:-1])
+            out.values[1].pointers[1:] - out.values[1].pointers[:-1])
         pix_x = out.values[1].values[0][:, 0]
         pix_y = out.values[1].values[0][:, 1]
         pix_dtype = pix_x.dtype
@@ -979,12 +1028,13 @@ class ImageMapping(CSRData):
 
         # Expand to dense format
         point_ids = torch.repeat_interleave(
-            idx, self.jumps[1:] - self.jumps[:-1])
+            idx, self.pointers[1:] - self.pointers[:-1])
         point_ids = torch.repeat_interleave(
-            point_ids, self.values[1].jumps[1:] - self.values[1].jumps[:-1])
+            point_ids,
+            self.values[1].pointers[1:] - self.values[1].pointers[:-1])
         image_ids = torch.repeat_interleave(
             self.images,
-            self.values[1].jumps[1:] - self.values[1].jumps[:-1])
+            self.values[1].pointers[1:] - self.values[1].pointers[:-1])
         pixels = self.pixels
 
         # Remove duplicates and aggregate projection features
@@ -1035,11 +1085,11 @@ class ImageMapping(CSRData):
         # Index the values
         out.values = [val[view_idx] for val in out.values]
 
-        # Update the jumps
-        jumps = torch.repeat_interleave(
-            torch.arange(out.num_groups), out.jumps[1:] - out.jumps[:-1])
-        jumps = CSRData._sorted_indices_to_jumps(jumps[view_idx])
-        out.jumps = jumps
+        # Update the pointers
+        pointers = torch.repeat_interleave(
+            torch.arange(out.num_groups), out.pointers[1:] - out.pointers[:-1])
+        pointers = CSRData._sorted_indices_to_pointers(pointers[view_idx])
+        out.pointers = pointers
 
         # Update the image indices. To do so, create a tensor of indices
         # idx_gen so that the desired output can be computed with simple
@@ -1050,6 +1100,69 @@ class ImageMapping(CSRData):
         out.images = idx_gen[out.images]
 
         return out
+
+    def crop(self, crop_size, crop_offsets):
+        """
+        Return a copy of self with cropped image mappings.
+
+        The mappings are updated so as to change pixel coordinates to
+        account for a cropping of the mapped images. Each image has its
+        own cropping offset, but all share the same cropping box size.
+
+        Pixels discarded by the cropping will also be discarded from
+        the mapping.
+
+        For the mappings to preserve their meaning, this operation
+        assumes the same cropping is also applied to the corresponding
+        ImageData.
+        """
+        # TODO: expand to handle projection features here too
+        assert crop_offsets.shape == (torch.unique(self.images).shape[0], 2), \
+            f"Expected crop_offsets to have shape " \
+            f"{(torch.unique(self.images).shape[0], 2)} but got shape " \
+            f"{crop_offsets.shape} instead."
+
+        # Distribute the offsets to the pixels
+        #   - Crop offsets have format: (W, H)
+        #   - Pixels have format: (W, H)
+
+        image_ids = torch.repeat_interleave(
+            self.images,
+            self.values[1].pointers[1:] - self.values[1].pointers[:-1])
+        offsets = crop_offsets[image_ids]
+        pixels = self.pixels - offsets
+
+        # Identify the pixels outside of the crop_size box
+        #   - Crop size has format: (W, H)
+        #   - Pixels have format: (W, H)
+        cropped_in_idx = torch.where(
+            torch.ge(pixels, torch.Tensor((0, 0))).all(dim=1)
+            & torch.lt(pixels, torch.Tensor(crop_size).all(dim=1)))
+
+        # Return if not pixel mapping was cropped out
+        if cropped_in_idx[0].shape[0] == 0:
+            out = self.clone()
+            out.pixels = pixels
+            return out
+
+        # Expand to dense format
+        point_ids = torch.repeat_interleave(
+            torch.arange(self.num_groups),
+            self.pointers[1:] - self.pointers[:-1])
+        point_ids = torch.repeat_interleave(
+            point_ids,
+            self.values[1].pointers[1:] - self.values[1].pointers[:-1])
+        image_ids = torch.repeat_interleave(
+            self.images,
+            self.values[1].pointers[1:] - self.values[1].pointers[:-1])
+
+        # Select only the valid mappings and create a mapping
+        point_ids = point_ids[cropped_in_idx]
+        image_ids = image_ids[cropped_in_idx]
+        pixels = pixels[cropped_in_idx]
+
+        # Convert to CSR format
+        return ImageMapping.from_dense(point_ids, image_ids, pixels)
 
 
 class ImageMappingBatch(ImageMapping, CSRDataBatch):
@@ -1079,7 +1192,7 @@ b = ImageMappingBatch.from_csr_list([m[2], m[1:3], m, m[0]])
 a = m[2].num_groups + m[1:3].num_groups
 print((b[a : a + m.num_groups].values[1].values[0] == m.values[1].values[0]).all().item())
 
-print((b.to_csr_list()[2].jumps == m.jumps).all().item())
+print((b.to_csr_list()[2].pointers == m.pointers).all().item())
 print((b.to_csr_list()[2].values[1].values[0] == m.values[1].values[0]).all().item())
 
 b[[0,0,1]]
@@ -1088,9 +1201,9 @@ b = CSRDataBatch.from_csr_list([m[2], m[1:3], m, m[0]])
 
 #-----------------------------------------------
 
-jumps = torch.LongTensor([0, 0,  5, 12, 12, 15])
+pointers = torch.LongTensor([0, 0,  5, 12, 12, 15])
 val = torch.arange(15)
-m = CSRData(jumps, val, dense=False)
+m = CSRData(pointers, val, dense=False)
 b = CSRDataBatch.from_csr_list([m, m, m])
 
 # b[[0, 1, 7, 8, 14]]
