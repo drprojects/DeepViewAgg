@@ -457,14 +457,81 @@ class PadMappings:
     pass
 
 
-class YFeature:
-    # TODO: YFeature
-    pass
+class AddPixelHeightFeature:
+    """Transform to add the pixel height to the image features."""
+    def _process(self, images: ImageData) -> ImageData:
+        if images.images is None:
+            images.load_images()
+
+        batch, channels, height, width = images.shape
+        feat = torch.linspace(0, 1, height).float()
+        feat = feat.view(1, 1, height, 1).repeat(batch, 1, 1, width)
+        images.images = torch.cat((images.images, feat), 1)
+
+        return images
+
+    def __call__(self, data, images, mappings):
+        if isinstance(images, list):
+            images = [self._process(img) for img in images]
+        else:
+            images = self._process(images)
+        return data, images, mappings
+
+    def __repr__(self):
+        return self.__class__.__name__
 
 
-class XFeature:
-    # TODO: YFeature
-    pass
+class AddPixelWidthFeature:
+    """Transform to add the pixel width to the image features."""
+    def _process(self, images: ImageData) -> ImageData:
+        if images.images is None:
+            images.load_images()
+
+        batch, channels, height, width = images.shape
+        feat = torch.linspace(0, 1, width).float()
+        feat = feat.view(1, 1, 1, width).repeat(batch, 1, height, 1)
+        images.images = torch.cat((images.images, feat), 1)
+
+        return images
+
+    def __call__(self, data, images, mappings):
+        if isinstance(images, list):
+            images = [self._process(img) for img in images]
+        else:
+            images = self._process(images)
+        return data, images, mappings
+
+    def __repr__(self):
+        return self.__class__.__name__
+
+
+class RandomHorizontalFlip:
+    """Horizontally flip the given image randomly with a given probability."""
+
+    def __init__(self, p=0.50):
+        self.p = p
+
+    def _process(self, images):
+        if images.images is None:
+            images.load_images()
+
+        if torch.rand(1) <= self.p:
+            images.images = torch.flip(images.images, [3])
+            _, _, _, width = images.shape
+            images.mappings.pixels[:, 1] = \
+                width - 1 - images.mappings.pixels[:, 1]
+
+        return images
+
+    def __call__(self, data, images, mappings):
+        if isinstance(images, list):
+            images = [self._process(img) for img in images]
+        else:
+            images = self._process(images)
+        return data, images, mappings
+
+    def __repr__(self):
+        return self.__class__.__name__
 
 
 # TODO: integrate this in MMData indexing ?
@@ -551,7 +618,7 @@ class TorchvisionTransform:
         raise NotImplementedError
 
     def __call__(self, data, images, mappings):
-        images.x = self.transform(images.x)
+        images.images = self.transform(images.images)
         return data, images, mappings
 
     def __repr__(self):
@@ -569,16 +636,6 @@ class ColorJitter(TorchvisionTransform):
         self.transform = T.ColorJitter(
             brightness=brightness, contrast=contrast, saturation=saturation,
             hue=hue)
-
-
-class RandomHorizontalFlip(TorchvisionTransform):
-    """Horizontally flip the given image randomly with a given probability."""
-
-    def __init__(self, p=0.50):
-        self.p = p
-        self.transform = T.RandomHorizontalFlip(p=p)
-        # TODO: use torch.flip(x, [2]) instead, to manually control the
-        #  flip's randomness and edit the mappings accordingly
 
 
 class GaussianBlur(TorchvisionTransform):
