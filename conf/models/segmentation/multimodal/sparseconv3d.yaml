@@ -34,7 +34,7 @@ models:
                 stride: [1, 2, 2, 2, 2]
                 N: [0, 1, 2, 2, 3]
                 merge:
-                    unit_pool: max
+                    atomic_pool: max
                     view_pool: max
                     fusion: residual
 

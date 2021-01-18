@@ -6,10 +6,10 @@ class BimodalPool(nn.Module):
     """Bimodal pooling modules select and combine information from a
     modality to prepare its fusion into the main modality.
 
-    The modality pooling may encompass two steps: a unit-level aggregation and
+    The modality pooling may encompass two steps: a atomic-level aggregation and
     a view-level aggregation. To illustrate, in the case of image modality,
     where each 3D point may be mapped to multiple pixels, in multiple images.
-    The unit-level corresponds to pixel-level information, while view-level
+    The atomic-level corresponds to pixel-level information, while view-level
     accounts for multi-image views.
 
     Various types of pooling are supported at each step: max, min, mean,
@@ -21,20 +21,20 @@ class BimodalPool(nn.Module):
     performed prior to the multimodal pooling.
     """
 
-    def __init__(self, unit_pool='max', view_pool='max', **kwargs):
+    def __init__(self, atomic_pool='max', view_pool='max', **kwargs):
         super().__init__()
-        self.unit_pool = BimodalCSRPool(unit_pool)
+        self.atomic_pool = BimodalCSRPool(atomic_pool)
         self.view_pool = BimodalCSRPool(view_pool)
 
     def forward(self, x_main, x_mod, mappings):
-        # Unit-level aggregation
-        # TODO mappings provide unit-level idx. Must not have gradients
-        csr_idx = mappings.get_csr_idx(level='unit')
-        x_agg = self.unit_pool(x_main, x_mod, csr_idx)
+        # atomic-level aggregation
+        # TODO mappings provide atomic-level idx. Must not have gradients
+        csr_idx = mappings.get_csr_idx(level='atomic')
+        x_agg = self.atomic_pool(x_main, x_mod, csr_idx)
 
         # View-level aggregation
         # TODO mappings provide view-level idx.
-        #  WARNING: will the idx order still be OK after the unit-pooling ?
+        #  WARNING: will the idx order still be OK after the atomic-pooling ?
         csr_idx = mappings.get_csr_idx(level='view')
         x_agg = self.view_pool(x_main, x_agg, csr_idx)
 

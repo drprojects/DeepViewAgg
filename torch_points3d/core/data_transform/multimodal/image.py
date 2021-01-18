@@ -3,7 +3,8 @@ import torch
 import torch_scatter
 from torch_geometric.data import Data
 from torch_points3d.core.data_transform import SphereSampling
-from torch_points3d.datasets.multimodal.image import ImageData, ImageMapping
+from torch_points3d.datasets.multimodal.image import ImageData, ImageMapping, \
+    ImageDataList
 from torch_points3d.utils.multimodal import lexunique
 import torchvision.transforms as T
 from .projection import compute_index_map
@@ -17,7 +18,7 @@ __call(data, images, mappings)__
 """
 
 
-# TODO: edit all transforms to have mappings inside the ImageData
+# TODO: edit all transforms to have mappings inside the ImageData and handle ImageDataList
 # TODO: edit S3DIS accordingly
 
 class NonStaticMask:
@@ -342,7 +343,7 @@ class DropUninformativeImages:
         return self.__class__.__name__
 
 
-class GreedyCrops:
+class CropImageGroups:
     """
     Transform to crop images and mappings in a greedy fashion, so as to
     minimize the size of the images while preserving all the mappings and
@@ -358,10 +359,14 @@ class GreedyCrops:
     """
 
     def __init__(self, padding=0, min_size=64):
+        assert padding >= 0, \
+            f"Expected a positive scalar but got {padding} instead."
+        assert ((min_size & (min_size - 1)) == 0) & (min_size != 0), \
+            f"Expected a power of two but got {min_size} instead."
         self.padding = padding
-        self.min_size = 64
+        self.min_size = min_size
 
-    def _process(self, images):
+    def _process(self, images: ImageData) -> ImageDataList:
         # Compute the bounding boxes for each image
         boxes = images.mappings.bounding_boxes
 
@@ -372,29 +377,57 @@ class GreedyCrops:
                                   images.img_size[0])
         boxes[:, 3] = torch.clamp(boxes[:, 3] + self.padding, 0,
                                   images.img_size[1])
+        boxes_width = boxes[:, 2] - boxes[:, 0]
+        boxes_height = boxes[:, 3] - boxes[:, 1]
 
-        # Compute possible crop sizes. The first size is the full
-        # img_size. Other possible are combinations of powers of 2
-        # below img_size down to 'min_size'
-        box_width = boxes[:, 2] - boxes[:, 0]
-        box_height = boxes[:, 3] - boxes[:, 1]
-        two = torch.Tensor([2])
-        box_width = torch.pow(two, torch.ceil(np.log(box_width) / torch.log(two)))
-        box_height = torch.pow(two, torch.ceil(np.log(box_height) / torch.log(two)))
+        # Compute the family of possible crop sizes and assign each
+        # image to the relevant one.
+        # The first size is (min_size, min_size). The other ones follow:
+        # (min_size * 2a, min_size * 2^b)), with a = ^^ or a = b+1
+        # The last crop size is the full img_size.
+        crop_families = {}
+        size = (self.min_size, self.min_size)
+        i_crop = 0
+        image_ids = torch.arange(images.num_images)
+        while all(a <= b for a, b in zip(size, images.img_size)):
+            # Safety measure to make sure all images are used
+            if size == images.img_size:
+                crop_families[size] = image_ids
+                break
 
-size = (min_size, min_size)
-i = 0
-while all(a <= b for a, b in zip(size, img_size)):
-    print(size)
-    size = (size[0] * 2 ** ((i + 1) % 2), size[1] * 2 ** (i % 2))
-    i += 1
+            # Search among the remaining images those that would fit in
+            # the crop size
+            valid_ids = boxes_width[image_ids] <= size[0] \
+                        & boxes_height[image_ids] <= size[1]
+            crop_families[size] = image_ids[valid_ids]
 
-        # Group images by crop sizes
+            # Discard selected image ids
+            image_ids = image_ids[~valid_ids]
 
-        # Center the boxes and the sizes
+            # Compute the next the size
+            size = (size[0] * 2 ** ((i_crop + 1) % 2), size[1] * 2 ** (i_crop % 2))
+            i_crop += 1
 
-        return images
+        # Make sure the last crop size is the full image
+        if images.img_size not in crop_families.keys():
+            crop_families[images.img_size] = image_ids
 
+        # Index and crop the images and mappings
+        for size, idx in crop_families:
+            # Compute the crop offset for each image
+            off_x = torch.clamp(
+                (boxes[idx, 0] + (boxes_width[idx] - size[0] / 2.)).long(),
+                0, images.img_size[0] - size[0])
+            off_y = torch.clamp(
+                (boxes[idx, 2] + (boxes_height[idx] - size[1] / 2.)).long(),
+                0, images.img_size[1] - size[1])
+            offsets = torch.stack((off_x, off_y), dim=1).long()
+
+            # Index images and mappings and update their cropping
+            crop_families[size] = images[idx].update_cropping(size, offsets)
+
+        # Create a holder for the ImageData of each crop size
+        return ImageDataList(crop_families.values())
 
     def __call__(self, data, images, mappings):
         if isinstance(images, list):

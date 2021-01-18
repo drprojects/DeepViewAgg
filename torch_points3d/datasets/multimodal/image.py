@@ -736,26 +736,41 @@ class ImageBatch(ImageData):
                 for i in range(self.num_batch_items)]
 
 
-class ImageDataHolder:
-    # holds list / dict of ImageData with shape as key
+class ImageDataList:
+    """
+    Basic holder for ImageData items. Useful when ImageData can't be batched
+    together because their settings differ.
+    """
+    def __init__(self, image_list: list[ImageData]):
+        assert isinstance(image_list, list), \
+            f"Expected a list of ImageData but got {type(image_list)} " \
+            f"instead."
+        assert all(isinstance(im, ImageData) for im in image_list), \
+            f"All list elements must be of type ImageData."
+        self.list = image_list
 
-    # debug:
-    # all items are ImageData
-    # all have the shape they are supposed to have (if not None)
+    def __len__(self):
+        return len(self.list)
 
-    # load: all ImageData load
-    # load with their own crop arguments
-    # TODO: create a holder for multiple ImageData, to be used when
-    #  manipualting different sizes, resolutions, etc
+    def __getitem__(self, idx):
+        assert isinstance(idx, int)
+        assert idx < self.__len__()
+        return self.list[idx]
+
+    def __iter__(self):
+        for i in range(self.__len__()):
+            yield self[i]
+
+    # TODO: necessary multi-imaagedata pooling helpers
     def view_pooling_arangement_index(self):
-        # Index to apply to concatenated unit-pooled features, so that the
+        # Index to apply to concatenated atomic-pooled features, so that the
         # features are ordered by point ID. This way, we can use a CSR
         # representation to view-pool them using scatter_csr.
         pass
 
     def view_pooling_csr_indices(self):
         # CSR pointers of the concatenated and re-aranged (with
-        # view_pooling_arangement_index) unit-pooled features.
+        # view_pooling_arangement_index) atomic-pooled features.
         pass
 
 
@@ -892,16 +907,16 @@ class ImageMapping(CSRData):
         return idx_batch.long(), idx_height.long(), idx_width.long()
 
     @property
-    def unit_pooling_indices(self):
+    def atomic_pooling_indices(self):
         """
-        Return the indices that will be used for unit-level pooling.
+        Return the indices that will be used for atomic-level pooling.
         """
         raise NotImplementedError
 
     @property
-    def unit_pooling_csr_indices(self):
+    def atomic_pooling_csr_indices(self):
         """
-        Return the indices that will be used for unit-level pooling on
+        Return the indices that will be used for atomic-level pooling on
         CSR-formatted data.
         """
         return self.values[1].pointers
@@ -929,7 +944,7 @@ class ImageMapping(CSRData):
         To update the image resolution in the mappings, the pixel
         coordinates are converted to lower resolutions. This operation
         is likely to produce duplicates. Searching and removing these
-        duplicates only affects the unit-level mappings, so only the
+        duplicates only affects the atomic-level mappings, so only the
         pixel-level nested CSRData is modified by this function.
 
         Returns a new ImageMapping object.
@@ -946,7 +961,7 @@ class ImageMapping(CSRData):
         # Create a copy of self
         out = copy.deepcopy(self)
 
-        # Expand unit-level mappings to 'dense' format
+        # Expand atomic-level mappings to 'dense' format
         ids = torch.repeat_interleave(
             torch.arange(out.values[1].num_groups),
             out.values[1].pointers[1:] - out.values[1].pointers[:-1])
@@ -960,13 +975,13 @@ class ImageMapping(CSRData):
 
         # Remove duplicates and sort wrt ids
         # Assuming this does not cause issues for other potential
-        # unit-level CSR-nested values
+        # atomic-level CSR-nested values
         idx_unique = lexargunique(ids, pix_x, pix_y)
         ids = ids[idx_unique]
         pix_x = pix_x[idx_unique]
         pix_y = pix_y[idx_unique]
 
-        # Build the new unit-level CSR mapping
+        # Build the new atomic-level CSR mapping
         if isinstance(out.values[1], CSRDataBatch):
             sizes = out.values[1].__sizes__
             out.values[1] = CSRDataBatch(
@@ -983,7 +998,7 @@ class ImageMapping(CSRData):
             )
         else:
             raise NotImplementedError(
-                "The unit-level mappings must be either a CSRData or "
+                "The atomic-level mappings must be either a CSRData or "
                 "CSRDataBatch object.")
 
         return out
