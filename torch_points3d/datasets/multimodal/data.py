@@ -2,9 +2,9 @@ import numpy as np
 import torch
 from torch_geometric.data import Data, Batch
 from torch_points3d.datasets.multimodal.image import *
-from torch_points3d.datasets.multimodal.csr import CSRData, CSRDataBatch
+from torch_points3d.datasets.multimodal.csr import CSRData, CSRBatch
 from torch_points3d.core.data_transform.multimodal.image import \
-    ImageMappingFromPointId
+    SelectMappingFromPointId
 
 MODALITY_NAMES = ["image"]
 
@@ -23,19 +23,17 @@ class MMData(object):
     Pytorch.
     """
 
-    def __init__(self, data, images, mappings, key='point_index'):
+    def __init__(self, data, images, key='point_index'):
         self.data = data
         self.images = images
-        self.mappings = mappings
         self.key = key
         self.debug()
 
     def debug(self):
-        # TODO: this is ImageMapping-centric. Need to extend to other
-        #  modality mappings
+        # TODO: this is ImageData-centric. Need to extend to other modalities
         assert isinstance(self.data, Data)
         assert isinstance(self.images, ImageData)
-        assert isinstance(self.mappings, ImageMapping)
+        assert self.images.mappings is not None
 
         # Ensure Data have the key attribute necessary for linking
         # points with images in mappings. Each point must have a
@@ -47,33 +45,8 @@ class MMData(object):
             f"Key {self.key} must contain 'index' to benefit from " \
             f"Batch mechanisms."
         assert np.array_equal(np.unique(self.data[self.key]),
-                              np.arange(len(self.mappings))), \
+                              np.arange(len(self.images.mappings))), \
             "Data point indices must span the entire range of mappings."
-
-        # Ensure mappings have the expected signature
-        self.mappings.debug()
-        assert self.mappings.num_values == 2 \
-               and self.mappings.is_index_value[0] \
-               and isinstance(self.mappings.values[1], CSRData), \
-            "Mappings must have the signature of PointImagePixels " \
-            "mappings."
-
-        # Ensure all images in ImageData are used in the mappings.
-        # Otherwise, some indexing errors may arise when batching.
-        # In fact, we would only need to ensure that the largest image
-        # index in the mappings corresponds to the number of images,
-        # but this is safer and avoids loading unnecessary ImageData.
-        assert np.array_equal(np.unique(self.mappings.images),
-                              np.arange(self.images.num_images)), \
-            "Mapping image indices must span the entire range of " \
-            "images."
-
-        # Ensure pixel coordinates in the mappings are compatible with 
-        # the expected feature maps resolution.
-        pix_max = self.mappings.pixels.max(axis=0).values
-        map_max = self.images.ref_size
-        assert all(a < b for a, b in zip(pix_max, map_max)), \
-            "Pixel coordinates must match images.ref_size."
 
     def __len__(self):
         return self.data.num_nodes
@@ -87,23 +60,21 @@ class MMData(object):
         return self.images.num_images
 
     def to(self, device):
-        self.mappings = self.to(device)
-        self.images = self.images.to(device)
         self.data = self.data.to(device)
+        self.images = self.images.to(device)
         return self
 
     @property
     def device(self):
         return self.images.device
 
-    def load_images(self, size=None):
-        self.images.load_images(size=size)
+    def load_images(self):
+        self.images.load_images()
 
     def clone(self):
         return MMData(
             self.data.clone(),
             self.images.clone(),
-            self.mappings.clone(),
             key=self.key)
 
     def __getitem__(self, idx):
@@ -123,6 +94,8 @@ class MMData(object):
             idx = torch.from_numpy(idx)
         # elif not isinstance(idx, torch.LongTensor):
         #     raise NotImplementedError
+        if isinstance(idx, torch.BoolTensor):
+            idx = torch.where(idx)[0]
         assert idx.dtype is torch.int64, \
             "MMData only supports int and torch.LongTensor indexing."
         assert idx.shape[0] > 0, \
@@ -137,15 +110,14 @@ class MMData(object):
                 data[key] = data[key][idx]
 
         # Update the ImageData and ImageMapping accordingly
-        transform = ImageMappingFromPointId(
-            key=self.key, keep_unseen_images=False)
-        data, images, mappings = transform(data, self.images, self.mappings)
+        transform = SelectMappingFromPointId(key=self.key)
+        data, images = transform(data, self.images)
 
-        return MMData(data, images, mappings, key=self.key)
+        return MMData(data, images, key=self.key)
 
     def __repr__(self):
         info = [f"    {key} = {getattr(self, key)}"
-                for key in ['data', 'images', 'mappings']]
+                for key in ['data', 'images']]
         info = '\n'.join(info)
         return f"{self.__class__.__name__}(\n{info}\n)"
 
@@ -160,8 +132,8 @@ class MMBatch(MMData):
     Relies on several assumptions that MMData.debug() keeps in check. 
     """
 
-    def __init__(self, data, images, mappings, key='point_index'):
-        super(MMBatch, self).__init__(data, images, mappings, key=key)
+    def __init__(self, data, images, key='point_index'):
+        super(MMBatch, self).__init__(data, images, key=key)
         self.__sizes__ = None
 
     @property
@@ -183,7 +155,6 @@ class MMBatch(MMData):
         out = MMBatch(
             self.data.clone(),
             self.images.clone(),
-            self.mappings.clone(),
             key=self.key)
         out.__sizes__ = self.__sizes__
         return out
@@ -197,11 +168,9 @@ class MMBatch(MMData):
             [mm_data.data for mm_data in mm_data_list])
         images = ImageBatch.from_image_data_list(
             [mm_data.images for mm_data in mm_data_list])
-        mappings = CSRDataBatch.from_csr_list(
-            [mm_data.mappings for mm_data in mm_data_list])
         sizes = [len(mm_data) for mm_data in mm_data_list]
 
-        batch = MMBatch(data, images, mappings, key=key)
+        batch = MMBatch(data, images, key=key)
         batch.__sizes__ = np.array(sizes)
 
         return batch
@@ -215,8 +184,7 @@ class MMBatch(MMData):
 
         data_list = self.data.to_data_list()
         images_list = self.images.to_image_data_list()
-        mappings_list = self.mappings.to_csr_list()
 
-        return [MMData(data, images, mappings, key=self.key)
-                for data, images, mappings
-                in zip(data_list, images_list, mappings_list)]
+        return [MMData(data, images, key=self.key)
+                for data, images
+                in zip(data_list, images_list)]

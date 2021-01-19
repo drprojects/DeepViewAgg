@@ -2,7 +2,7 @@ from torch_points3d.datasets.multimodal.data import MMData
 from torch_geometric.transforms import FixedPoints
 from torch_points3d.core.data_transform import GridSampling3D
 from torch_points3d.core.data_transform.multimodal.projection import pose_to_rotation_matrix_numba
-from torch_points3d.core.data_transform.multimodal import ImageMappingFromPointId
+from torch_points3d.core.data_transform.multimodal import SelectMappingFromPointId
 import os.path as osp
 import plotly.graph_objects as go
 import numpy as np
@@ -39,10 +39,8 @@ def visualize_3d(
             data_)
 
     # Subsample the mappings accordingly
-    transform = ImageMappingFromPointId(key='point_index',
-                                        keep_unseen_images=True)
-    data_, images_, mappings_ = transform(
-        data_, mm_data.images, mm_data.mappings)
+    transform = SelectMappingFromPointId(key='point_index')
+    data_, images_ = transform(data_, mm_data.images)
 
     # Round to the cm for cleaner hover info
     data_.pos = (data_.pos * 100).round() / 100
@@ -106,7 +104,7 @@ def visualize_3d(
         n_y_traces += 1  # keep track of the number of traces
 
     # Draw a trace for 3D point cloud of number of images seen
-    n_seen = mappings_.jumps[1:] - mappings_.jumps[:-1]
+    n_seen = images_.mappings.jumps[1:] - images_.mappings.jumps[:-1]
     fig.add_trace(
         go.Scatter3d(
             name='Times seen',
@@ -269,7 +267,7 @@ def visualize_2d(
             size=mm_data.images.ref_size)
 
     # Get the mapping of all points in the sample
-    mappings = mm_data.mappings
+    mappings = mm_data.images.mappings
     idx_batch, idx_height, idx_width = mappings.feature_map_indexing
 
     # Color the images where points are projected and darken the rest

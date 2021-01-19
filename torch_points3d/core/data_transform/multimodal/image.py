@@ -18,25 +18,88 @@ __call(data, images, mappings)__
 """
 
 
-# TODO: edit all transforms to have mappings inside the ImageData and handle ImageDataList
-# TODO: edit S3DIS accordingly
+class ImageTransform:
+    """Transforms on ImageData and associated ImageMapping."""
 
-class NonStaticMask:
+    def _process(self, data: Data, images: ImageData):
+        raise NotImplementedError
+
+    def __call__(self, data, images):
+        if isinstance(data, list):
+            assert isinstance(images, list) and len(data) == len(images), \
+                f"List(Data) items and List(ImageData) must have the same " \
+                f"lengths."
+            out = [self.__call__(da, im) for da, im in zip(data, images)]
+            data_out, images_out = [list(x) for x in zip(*out)]
+        elif isinstance(images, ImageDataList):
+            out = [self.__call__(data, im) for im in images]
+            images_out = ImageDataList([im for _, im in out])
+            data_out = out[0][0]
+        else:
+            data_out, images_out = self._process(data, images)
+        return data_out, images_out
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}"
+
+
+class LoadImages(ImageTransform):
+    """
+    Transform to load images from disk to the ImageData.
+
+    ImageData internal state is updated if resizing and cropping parameters are
+    passed. Images are loaded with respect to the ImageData resizing and
+    cropping internal state.
+    """
+
+    def __init__(self, ref_size=None, crop_size=None, crop_offsets=None,
+                 downscale=None):
+        self.ref_size = ref_size
+        self.crop_size = crop_size
+        self.crop_offsets = crop_offsets
+        self.downscale = downscale
+
+    def _process(self, data: Data, images: ImageData):
+        # Edit ImageData internal state attributes.
+        if self.ref_size is not None:
+            images.ref_size = self.ref_size
+        if self.crop_size is not None:
+            images.crop_size = self.crop_size
+        if self.crop_offsets is not None:
+            images.crop_offsets = self.crop_offsets
+        if self.downscale is not None:
+            images.downscale = self.downscale
+
+        # Load images wrt ImageData internal state
+        images.load_images()
+
+        return data, images
+
+
+class NonStaticMask(ImageTransform):
     """
     Transform-like structure. Find the mask of non-identical pixels across
     a list of images.
+
+    Compute the projection of data points into images and return the input data
+    augmented with attributes mapping points to pixels in provided images.
+
+    Returns the same input. The mask is saved in ImageData attributes, to be
+    used for any subsequent image processing.
     """
 
-    def __init__(self, ref_size=(512, 256), proj_upscale=2, n_sample=5):
+    # TODO: parameters None by default to let ImageData express it own state ?
+    def __init__(self, ref_size=None, proj_upscale=None, n_sample=5):
         self.ref_size = tuple(ref_size)
         self.proj_upscale = proj_upscale
         self.n_sample = n_sample
 
-    def _process(self, images):
-        # Edit ImageData 'ref_size' and 'proj_upscale' attributes. This
-        # will make the projection mask size accessible as 'proj_size'
-        images.ref_size = self.ref_size
-        images.proj_upscale = self.proj_upscale
+    def _process(self, data: Data, images: ImageData):
+        # Edit ImageData internal state attributes
+        if self.ref_size is not None:
+            images.ref_size = self.ref_size
+        if self.proj_upscale is not None:
+            images.proj_upscale = self.proj_upscale
 
         # Compute the mask of identical pixels across a range of
         # 'n_sample' sampled images
@@ -52,10 +115,12 @@ class NonStaticMask:
                 torch.arange(images.num_images, dtype=torch.float), n_sample)
 
             # Read individual RGB images and squeeze them shape 3xHxW
-            img_1 = images.read_images(idx=idx[0], size=images.proj_size).squeeze()
+            img_1 = images.read_images(idx=idx[0], size=images.proj_size
+                                       ).squeeze()
 
             for i in idx[1:]:
-                img_2 = images.read_images(idx=i, size=images.proj_size).squeeze()
+                img_2 = images.read_images(idx=i, size=images.proj_size
+                                           ).squeeze()
 
                 # Update mask where new pixel changes are detected
                 mask_diff = (img_1 != img_2).all(dim=0).t()
@@ -65,44 +130,30 @@ class NonStaticMask:
         # Save the mask in the ImageData 'mask' attribute
         images.mask = mask
 
-        return images
-
-    def __call__(self, data, images, mappings=None):
-        """
-        Compute the projection of data points into images and return
-        the input data augmented with attributes mapping points to
-        pixels in provided images.
-
-        Expects Data (or anything), ImageData or List(ImageData), 
-        CSRData mapping (or anything).
-
-        Returns the same input. The mask is saved in ImageData
-        attributes, to be used for any subsequent image processing.
-        """
-        if isinstance(images, list):
-            images = [self._process(img) for img in images]
-        else:
-            images = self._process(images)
-        return data, images, mappings
-
-    def __repr__(self):
-        return self.__class__.__name__
+        return data, images
 
 
-class MapImages:
+class MapImages(ImageTransform):
     """
-    Transform-like structure. Computes the mappings between individual
-    3D points and image pixels. Point mappings are identified based on
-    the self.key point identifiers.
+    Transform-like structure. Computes the mappings between individual 3D
+    points and image pixels. Point mappings are identified based on the
+    self.key point identifiers.
+
+    Compute the projection of data points into images and return the input data
+    augmented with attributes mapping points to pixels in provided images.
+
+    Returns the input data and ImageData augmented with the point-image-pixel
+    ImageMapping.
     """
 
-    def __init__(self, ref_size=(512, 256), proj_upscale=2, voxel=0.1, r_max=30,
-                 r_min=0.5, growth_k=0.2, growth_r=10, empty=0, no_id=-1,
+    def __init__(self, ref_size=None, proj_upscale=None, voxel=None, r_max=None,
+                 r_min=None, growth_k=None, growth_r=None, empty=0, no_id=-1,
                  key='point_index'):
-
         self.key = key
         self.empty = empty
         self.no_id = no_id
+
+        # Image internal state parameters
         self.ref_size = ref_size
         self.proj_upscale = proj_upscale
         self.voxel = voxel
@@ -111,22 +162,29 @@ class MapImages:
         self.growth_k = growth_k
         self.growth_r = growth_r
 
-    def _process(self, data, images):
+    def _process(self, data: Data, images: ImageData):
         assert hasattr(data, self.key)
         assert isinstance(images, ImageData)
         assert images.num_images >= 1, \
             "At least one image must be provided."
 
-        # Edit ImageData projection attributes attributes. This
-        # will make the projection mask size accessible as 'proj_size'
-        images.ref_size = self.ref_size
-        images.proj_upscale = self.proj_upscale
-        images.voxel = self.voxel
-        images.r_max = self.r_max
-        images.r_min = self.r_min
-        images.growth_k = self.growth_k
-        images.growth_r = self.growth_r
+        # Edit ImageData internal state attributes
+        if self.ref_size is not None:
+            images.ref_size = self.ref_size
+        if self.proj_upscale is not None:
+            images.proj_upscale = self.proj_upscale
+        if self.voxel is not None:
+            images.voxel = self.voxel
+        if self.r_max is not None:
+            images.r_max = self.r_max
+        if self.r_min is not None:
+            images.r_min = self.r_min
+        if self.growth_k is not None:
+            images.growth_k = self.growth_k
+        if self.growth_r is not None:
+            images.growth_r = self.growth_r
 
+        # Control the size of any already-existing mask
         if images.mask is not None:
             assert images.mask.shape == images.proj_size
 
@@ -277,37 +335,68 @@ class MapImages:
             num_points=getattr(data, self.key).numpy().max() + 1)
         print(f"        t_ImageMapping_init: {time() - start:0.3f}\n")
 
-        return data, images, mappings
+        # Save the mapping in the ImageData
+        images.mappings = mappings
 
-    def __call__(self, data, images, mappings=None):
-        """
-        Compute the projection of data points into images and return
-        the input data augmented with attributes mapping points to
-        pixels in provided images.
-
-        Expects a Data and a ImageData or a List(Data) and a
-        List(ImageData) of matching lengths.
-
-        Returns the input data and the point-image-pixel mappings in a
-        nested CSRData format.
-        """
-        if isinstance(data, list):
-            assert isinstance(images, list) and len(data) == len(images), \
-                f"List(Data) items and List(ImageData) must have the same " \
-                f"lengths."
-            out = [self._process(d, i) for d, i in zip(data, images)]
-            data, images, mappings = [list(x) for x in zip(*out)]
-
-        else:
-            data, images, mappings = self._process(data, images)
-
-        return data, images, mappings
-
-    def __repr__(self):
-        return self.__class__.__name__
+        return data, images
 
 
-class DropUninformativeImages:
+# TODO: integrate this in MMData indexing ?
+class SelectMappingFromPointId(ImageTransform):
+    """
+    Transform-like structure. Intended to be called on _datas and
+    _images_datas.
+
+    Populate the passed Data sample in-place with attributes extracted
+    from the input CSRData mappings, based on the self.key point
+    identifiers.
+
+    The indices in data are expected to be included in those in
+    mappings. The CSRData format implicitly holds values for all
+    self.key in [0, ..., len(mappings)].
+    """
+
+    def __init__(self, key='point_index'):
+        self.key = key
+
+    def _process(self, data, images):
+        assert isinstance(data, Data)
+        assert hasattr(data, self.key)
+        assert isinstance(images, ImageData)
+        assert images.mappings is not None
+
+        # Point indices to subselect mappings. Selected mappings are
+        # sorted by their order in point_indices. NB: just like images,
+        # the same point may be used multiple times.
+        mappings = images.mappings[data[self.key]]
+
+# TODO: careful with inplace operations breaking the data and images (train+val prepro)
+#  same issue in other transforms ? Maybe cropping, ... ?
+        # Update point indices to the new mappings length. This is
+        # important to preserve the mappings and for multimodal data
+        # batching mechanisms.
+        data[self.key] = torch.arange(data.num_nodes)
+
+        # Subselect the images used in the mappings. Selected images
+        # are sorted by their order in image_indices. Mappings'
+        # image indices will also be updated to the new ones.
+        seen_image_ids = lexunique(mappings.images)
+        images.mappings = None
+        images = images[seen_image_ids]
+        images.mappings = mappings.index_images(seen_image_ids)
+
+        # # Update image indices to the new images length. This is
+        # # important for preserving the mappings and for multimodal data
+        # # batching mechanisms.
+        # mappings.images = torch.bucketize(mappings.images, seen_image_ids)
+        #
+        # # Save the mapping in the ImageData
+        # images.mappings = mappings
+
+        return data, images
+
+
+class DropUninformativeImages(ImageTransform):
     """
     Transform to drop images and corresponding mappings when mappings
     account for less than a given ratio of the image area.
@@ -316,7 +405,7 @@ class DropUninformativeImages:
     def __init__(self, ratio=0.03):
         self.ratio = ratio
 
-    def _process(self, images):
+    def _process(self, data: Data, images: ImageData):
         # Threshold below which the number of pixels in the mappings
         # is deemed insufficient
         threshold = images.img_size[0] * images.img_size[1] * self.ratio
@@ -330,20 +419,10 @@ class DropUninformativeImages:
             torch.ones(image_ids.shape[0]), image_ids, dim=0)
 
         # Select the images and mappings meeting the threshold
-        return images[torch.where(image_counts > threshold)]
-
-    def __call__(self, data, images, mappings):
-        if isinstance(images, list):
-            images = [self._process(img) for img in images]
-        else:
-            images = self._process(images)
-        return data, images, mappings
-
-    def __repr__(self):
-        return self.__class__.__name__
+        return data, images[image_counts > threshold]
 
 
-class CropImageGroups:
+class CropImageGroups(ImageTransform):
     """
     Transform to crop images and mappings in a greedy fashion, so as to
     minimize the size of the images while preserving all the mappings and
@@ -354,8 +433,8 @@ class CropImageGroups:
     mappings and the padding. Images with the same cropping size are batched
     together.
 
-    Returns a list of ImageData of fixed cropping sizes with their respective
-    mappings.
+    Returns an ImageDataList made of ImageData of fixed cropping sizes with
+    their respective mappings.
     """
 
     def __init__(self, padding=0, min_size=64):
@@ -366,19 +445,17 @@ class CropImageGroups:
         self.padding = padding
         self.min_size = min_size
 
-    def _process(self, images: ImageData) -> ImageDataList:
+    def _process(self, data: Data, images: ImageData):
         # Compute the bounding boxes for each image
-        boxes = images.mappings.bounding_boxes
+        w_min, w_max, h_min, h_max = images.mappings.bounding_boxes
 
         # Add padding to the boxes
-        boxes[:, 0] = torch.clamp(boxes[:, 0] - self.padding, 0)
-        boxes[:, 2] = torch.clamp(boxes[:, 2] - self.padding, 0)
-        boxes[:, 1] = torch.clamp(boxes[:, 1] + self.padding, 0,
-                                  images.img_size[0])
-        boxes[:, 3] = torch.clamp(boxes[:, 3] + self.padding, 0,
-                                  images.img_size[1])
-        boxes_width = boxes[:, 2] - boxes[:, 0]
-        boxes_height = boxes[:, 3] - boxes[:, 1]
+        w_min = torch.clamp(w_min - self.padding, 0)
+        h_min = torch.clamp(h_min - self.padding, 0)
+        h_min = torch.clamp(h_min + self.padding, 0, images.img_size[0])
+        h_max = torch.clamp(h_max + self.padding, 0, images.img_size[1])
+        widths = h_min - w_min
+        heights = h_max - h_min
 
         # Compute the family of possible crop sizes and assign each
         # image to the relevant one.
@@ -390,6 +467,9 @@ class CropImageGroups:
         i_crop = 0
         image_ids = torch.arange(images.num_images)
         while all(a <= b for a, b in zip(size, images.img_size)):
+            if image_ids.shape[0] == 0:
+                break
+
             # Safety measure to make sure all images are used
             if size == images.img_size:
                 crop_families[size] = image_ids
@@ -397,29 +477,31 @@ class CropImageGroups:
 
             # Search among the remaining images those that would fit in
             # the crop size
-            valid_ids = boxes_width[image_ids] <= size[0] \
-                        & boxes_height[image_ids] <= size[1]
-            crop_families[size] = image_ids[valid_ids]
-
-            # Discard selected image ids
+            valid_ids = torch.logical_and(
+                widths[image_ids] <= size[0],
+                heights[image_ids] <= size[1])
+            if image_ids[valid_ids].shape[0] > 0:
+                crop_families[size] = image_ids[valid_ids]
             image_ids = image_ids[~valid_ids]
 
+            # Discard selected image ids
             # Compute the next the size
-            size = (size[0] * 2 ** ((i_crop + 1) % 2), size[1] * 2 ** (i_crop % 2))
+            size = (size[0] * 2**((i_crop + 1) % 2), size[1] * 2**(i_crop % 2))
             i_crop += 1
 
         # Make sure the last crop size is the full image
-        if images.img_size not in crop_families.keys():
+        if images.img_size not in crop_families.keys() \
+                and image_ids.shape[0] > 0:
             crop_families[images.img_size] = image_ids
 
         # Index and crop the images and mappings
-        for size, idx in crop_families:
+        for size, idx in crop_families.items():
             # Compute the crop offset for each image
             off_x = torch.clamp(
-                (boxes[idx, 0] + (boxes_width[idx] - size[0] / 2.)).long(),
+                (w_min[idx] + (widths[idx] - size[0] / 2.)).long(),
                 0, images.img_size[0] - size[0])
             off_y = torch.clamp(
-                (boxes[idx, 2] + (boxes_height[idx] - size[1] / 2.)).long(),
+                (h_min[idx] + (heights[idx] - size[1] / 2.)).long(),
                 0, images.img_size[1] - size[1])
             offsets = torch.stack((off_x, off_y), dim=1).long()
 
@@ -427,91 +509,61 @@ class CropImageGroups:
             crop_families[size] = images[idx].update_cropping(size, offsets)
 
         # Create a holder for the ImageData of each crop size
-        return ImageDataList(crop_families.values())
-
-    def __call__(self, data, images, mappings):
-        if isinstance(images, list):
-            images = [self._process(img) for img in images]
-        else:
-            images = self._process(images)
-        return data, images, mappings
-
-    def __repr__(self):
-        return self.__class__.__name__
+        return data, ImageDataList(crop_families.values())
 
 
-class CropFromMask:
+# TODO: CropFromMask
+class CropFromMask(ImageTransform):
     """Transform to crop top and bottom from images and mappings based on mask."""
-    # TODO: CropFromMask
     pass
 
 
-class PadMappings:
+# TODO: PadMappings
+#  https://distill.pub/2019/computing-receptive-fields/
+#  https://github.com/google-research/receptive_field
+#  https://github.com/Fangyh09/pytorch-receptive-field
+#  https://github.com/rogertrullo/Receptive-Field-in-Pytorch/blob/master/compute_RF.py
+#  https://fomoro.com/research/article/receptive-field-calculator#3,1,1,SAME;3,1,1,SAME;2,2,1,SAME;3,1,1,SAME;3,1,1,SAME;2,2,1,SAME;3,1,1,SAME;3,1,1,SAME
+class PadMappings(ImageTransform):
     """Transform to update the mappings to account for image padding."""
-    # TODO: PadMappings
-    #  https://distill.pub/2019/computing-receptive-fields/
-    #  https://github.com/google-research/receptive_field
-    #  https://github.com/Fangyh09/pytorch-receptive-field
-    #  https://github.com/rogertrullo/Receptive-Field-in-Pytorch/blob/master/compute_RF.py
-    #  https://fomoro.com/research/article/receptive-field-calculator#3,1,1,SAME;3,1,1,SAME;2,2,1,SAME;3,1,1,SAME;3,1,1,SAME;2,2,1,SAME;3,1,1,SAME;3,1,1,SAME
     pass
 
 
-class AddPixelHeightFeature:
+class AddPixelHeightFeature(ImageTransform):
     """Transform to add the pixel height to the image features."""
-    def _process(self, images: ImageData) -> ImageData:
+    def _process(self, data: Data, images: ImageData):
         if images.images is None:
             images.load_images()
 
-        batch, channels, height, width = images.shape
+        batch, channels, height, width = images.images.shape
         feat = torch.linspace(0, 1, height).float()
         feat = feat.view(1, 1, height, 1).repeat(batch, 1, 1, width)
         images.images = torch.cat((images.images, feat), 1)
 
-        return images
-
-    def __call__(self, data, images, mappings):
-        if isinstance(images, list):
-            images = [self._process(img) for img in images]
-        else:
-            images = self._process(images)
-        return data, images, mappings
-
-    def __repr__(self):
-        return self.__class__.__name__
+        return data, images
 
 
-class AddPixelWidthFeature:
+class AddPixelWidthFeature(ImageTransform):
     """Transform to add the pixel width to the image features."""
-    def _process(self, images: ImageData) -> ImageData:
+    def _process(self, data: Data, images: ImageData):
         if images.images is None:
             images.load_images()
 
-        batch, channels, height, width = images.shape
+        batch, channels, height, width = images.images.shape
         feat = torch.linspace(0, 1, width).float()
         feat = feat.view(1, 1, 1, width).repeat(batch, 1, height, 1)
         images.images = torch.cat((images.images, feat), 1)
 
-        return images
-
-    def __call__(self, data, images, mappings):
-        if isinstance(images, list):
-            images = [self._process(img) for img in images]
-        else:
-            images = self._process(images)
-        return data, images, mappings
-
-    def __repr__(self):
-        return self.__class__.__name__
+        return data, images
 
 
-class RandomHorizontalFlip:
+class RandomHorizontalFlip(ImageTransform):
     """Horizontally flip the given image randomly with a given probability."""
 
     def __init__(self, p=0.50):
         self.p = p
 
-    def _process(self, images):
+    def _process(self, data: Data, images: ImageData):
         if images.images is None:
             images.load_images()
 
@@ -521,94 +573,7 @@ class RandomHorizontalFlip:
             images.mappings.pixels[:, 1] = \
                 width - 1 - images.mappings.pixels[:, 1]
 
-        return images
-
-    def __call__(self, data, images, mappings):
-        if isinstance(images, list):
-            images = [self._process(img) for img in images]
-        else:
-            images = self._process(images)
-        return data, images, mappings
-
-    def __repr__(self):
-        return self.__class__.__name__
-
-
-# TODO: integrate this in MMData indexing ?
-class ImageMappingFromPointId:
-    """
-    Transform-like structure. Intended to be called on _datas and
-    _images_datas.
-
-    Populate the passed Data sample in-place with attributes extracted
-    from the input CSRData mappings, based on the self.key point
-    identifiers.
-    
-    The indices in data are expected to be included in those in
-    mappings. The CSRData format implicitly holds values for all
-    self.key in [0, ..., len(mappings)].
-    """
-
-    def __init__(self, key='point_index', keep_unseen_images=False):
-        self.key = key
-        self.keep_unseen_images = keep_unseen_images
-
-    def _process(self, data, images, mappings):
-        assert isinstance(data, Data)
-        assert hasattr(data, self.key)
-        assert isinstance(images, ImageData)
-        assert isinstance(mappings, ImageMapping)
-
-        # Point indices to subselect mappings.
-        # The selected mappings are sorted by their order in
-        # point_indices.
-        # NB: just like images, the same point may be used multiple
-        # times.
-        mappings = mappings[data[self.key]]
-
-        # Update point indices to the new mappings length.
-        # This is important to preserve the mappings and for multimodal
-        # data batching mechanisms.
-        data[self.key] = torch.arange(data.num_nodes)
-
-        # If unseen images must still be kept
-        # May be useful in case we want to keep track of global images
-        if self.keep_unseen_images:
-            return data, images, mappings
-
-        # Subselect the images used in the mappings. The selected
-        # images are sorted by their order in image_indices.
-        seen_image_ids = lexunique(mappings.images)
-        images = images[seen_image_ids]
-
-        # Update image indices to the new images length. This is
-        # important for preserving the mappings and for multimodal data
-        # batching mechanisms.
-        mappings.images = torch.bucketize(mappings.images, seen_image_ids)
-
-        return data, images, mappings
-
-    def __call__(self, data, images, mappings):
-        """
-        Populate data sample in place with image attributes in mappings,
-        based on the self.key point identifiers.
-        """
-        if isinstance(data, list):
-            if isinstance(images, list) and isinstance(mappings, list) and \
-                    len(images) == len(data) and len(mappings) == len(data):
-                out = [self._process(d, i, m)
-                       for d, i, m in zip(data, images, mappings)]
-            else:
-                out = [self._process(d, images, mappings) for d in data]
-            data, images, mappings = [list(x) for x in zip(*out)]
-
-        else:
-            data, images, mappings = self._process(data, images, mappings)
-
-        return data, images, mappings
-
-    def __repr__(self):
-        return self.__class__.__name__
+        return data, images
 
 
 class TorchvisionTransform:
@@ -617,9 +582,9 @@ class TorchvisionTransform:
     def __init__(self):
         raise NotImplementedError
 
-    def __call__(self, data, images, mappings):
+    def __call__(self, data, images):
         images.images = self.transform(images.images)
-        return data, images, mappings
+        return data, images
 
     def __repr__(self):
         return self.transform.__repr__()
@@ -651,10 +616,3 @@ class GaussianBlur(TorchvisionTransform):
 #  WARNING : if the image undergoes geometric transform, this may cause
 #  problems when doing image wrapping or in EquiConv. IDEA : spherical
 #  image rotation for augmentation
-
-# TODO: consider impact of padding on mappings. Should we pad only once
-#  as an image transform operation or should we pad in the convolution
-#  blocks ? It seems cleaner to do it in the convolutions, rather doing
-#  only 1 big padding at the beginning (that would require knowing how
-#  many conv layers the image will go through). So, how and where do we
-#  edit the mappings based on the paddings ?

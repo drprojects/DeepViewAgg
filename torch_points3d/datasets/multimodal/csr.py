@@ -25,7 +25,7 @@ re-indexing and ordering.
 Example
 -------
 import torch
-from torch_points3d.datasets.multimodal.csr import CSRData, CSRDataBatch
+from torch_points3d.datasets.multimodal.csr import CSRData, CSRBatch
 
 n_groups = 3
 n_items = 12
@@ -45,8 +45,8 @@ class CSRData(object):
     Implements the CSRData format and associated mechanisms in Torch.
 
     When defining a subclass A of CSRData, it is recommended to create
-    an associated CSRDataBatch subclass by doing the following:
-        - ABatch inherits from (A, CSRDataBatch)
+    an associated CSRBatch subclass by doing the following:
+        - ABatch inherits from (A, CSRBatch)
         - A.get_batch_type returns ABatch
     """
 
@@ -65,7 +65,7 @@ class CSRData(object):
         Optionally, a list of booleans `is_index_value` can be passed. It must
         be the same size as *args and indicates, for each value, whether it 
         holds elements that should be treated as indices when stacking 
-        CSRData objects into a CSRDataBatch. If so, the indices will be
+        CSRData objects into a CSRBatch. If so, the indices will be
         updated wrt the cumulative size of the batched values.
         """
         self.pointers = CSRData._sorted_indices_to_pointers(pointers) \
@@ -139,8 +139,8 @@ class CSRData(object):
 
     @staticmethod
     def get_batch_type():
-        """Required by CSRDataBatch.from_csr_list."""
-        return CSRDataBatch
+        """Required by CSRBatch.from_csr_list."""
+        return CSRBatch
 
     def clone(self):
         return copy.deepcopy(self)
@@ -292,6 +292,8 @@ class CSRData(object):
             idx = torch.from_numpy(idx)
         # elif not isinstance(idx, torch.LongTensor):
         #     raise NotImplementedError
+        if isinstance(idx, torch.BoolTensor):
+            idx = torch.where(idx)[0]
         assert idx.dtype is torch.int64, \
             "CSRData only supports int and torch.LongTensor indexing."
         assert idx.shape[0] > 0, \
@@ -320,23 +322,23 @@ class CSRData(object):
         return f"{self.__class__.__name__}({', '.join(info)})"
 
 
-class CSRDataBatch(CSRData):
+class CSRBatch(CSRData):
     """
     Wrapper class of CSRData to build a batch from a list of CSRData
     data and reconstruct it afterwards.
 
     When defining a subclass A of CSRData, it is recommended to create
-    an associated CSRDataBatch subclass by doing the following:
-        - ABatch inherits from (A, CSRDataBatch)
+    an associated CSRBatch subclass by doing the following:
+        - ABatch inherits from (A, CSRBatch)
         - A.get_batch_type returns ABatch
     """
 
     def __init__(self, pointers, *args, dense=False, is_index_value=None):
         """
-        Basic constructor for a CSRDataBatch. Batches are rather
+        Basic constructor for a CSRBatch. Batches are rather
         intended to be built using the from_csr_list() method.
         """
-        super(CSRDataBatch, self).__init__(
+        super(CSRBatch, self).__init__(
             pointers, *args, dense=dense, is_index_value=is_index_value)
         self.__sizes__ = None
         self.__csr_type__ = CSRData
@@ -356,8 +358,8 @@ class CSRDataBatch(CSRData):
         return len(self.__sizes__) if self.__sizes__ is not None else 0
 
     def to(self, device):
-        """Move the CSRDataBatch to the specified device."""
-        self = super(CSRDataBatch, self).to(device)
+        """Move the CSRBatch to the specified device."""
+        self = super(CSRBatch, self).to(device)
         self.__sizes__ = self.__sizes__.to(device) \
             if self.__sizes__ is not None else None
         return self
@@ -404,7 +406,7 @@ class CSRDataBatch(CSRData):
         for i in range(num_values):
             val_list = [csr.values[i] for csr in csr_list]
             if isinstance(csr_list[0].values[i], CSRData):
-                val = CSRDataBatch.from_csr_list(val_list)
+                val = CSRBatch.from_csr_list(val_list)
             elif is_index_value[i]:
                 # "Index" values are stacked with updated indices.
                 # For mappings, this implies all elements designed by the
@@ -419,8 +421,8 @@ class CSRDataBatch(CSRData):
             values.append(val)
 
         # Create the Batch object, depending on the data type
-        # Default of CSRData is CSRDataBatch, but subclasses of CSRData
-        # may define their own batch class inheriting from CSRDataBatch.
+        # Default of CSRData is CSRBatch, but subclasses of CSRData
+        # may define their own batch class inheriting from CSRBatch.
         batch_type = csr_type.get_batch_type()
         batch = batch_type(pointers, *values, dense=False,
                            is_index_value=is_index_value)
@@ -434,7 +436,7 @@ class CSRDataBatch(CSRData):
             raise RuntimeError(
                 'Cannot reconstruct CSRData data list from batch because the '
                 'batch object was not created using '
-                '`CSRDataBatch.from_csr_list()`.')
+                '`CSRBatch.from_csr_list()`.')
 
         group_pointers = self.batch_pointers
         item_pointers = self.pointers[group_pointers]
@@ -471,7 +473,7 @@ class CSRDataBatch(CSRData):
 
     # def __getitem__(self, idx):
     #     """
-    #     Indexing CSRDataBatch format. Supports Numpy and torch indexing
+    #     Indexing CSRBatch format. Supports Numpy and torch indexing
     #     mechanisms.
     #
     #     Only allows for batch-contiguous indexing as other indexes would
@@ -492,12 +494,12 @@ class CSRDataBatch(CSRData):
     #         "CSRData only supports int and torch.LongTensor indexing"
     #
     #     # Find the batch each index falls into and ensure indices are
-    #     # batch-contiguous. Otherwise indexing the CSRDataBatch would
+    #     # batch-contiguous. Otherwise indexing the CSRBatch would
     #     # break the batching.
     #     idx_batch_ids = torch.bucketize(idx, self.batch_pointers[1:], right=True)
     #
     #     # Recover the indexing to be separately applied to each CSRData
-    #     # item in the CSRDataBatch. If the index is not sorted in a
+    #     # item in the CSRBatch. If the index is not sorted in a
     #     # batch-contiguous fashion, this will raise an error.
     #     idx_batch_pointers = CSRData._sorted_indices_to_pointers(idx_batch_ids)
     #     idx_list = [
@@ -508,7 +510,7 @@ class CSRDataBatch(CSRData):
     #         for i in range(len(idx_batch_pointers) - 1)
     #     ]
     #
-    #     # Convert the CSRDataBatch to its list of CSRData and index the
+    #     # Convert the CSRBatch to its list of CSRData and index the
     #     # proper CSRData objects with the associated indices.
     #     # REMARK: some CSRData items may be discarded in the process,
     #     # if not all batch items are represented in the input idx.
@@ -517,19 +519,19 @@ class CSRDataBatch(CSRData):
     #         csr_list[i_csr][idx_csr] for i_csr, idx_csr in idx_list
     #     ]
     #
-    #     return CSRDataBatch.from_csr_list(csr_list)
+    #     return CSRBatch.from_csr_list(csr_list)
 
     def __getitem__(self, idx):
         """
-        Indexing CSRDataBatch format. Supports Numpy and torch indexing
+        Indexing CSRBatch format. Supports Numpy and torch indexing
         mechanisms.
 
-        Indexing a CSRDataBatch breaks the reversible batching
+        Indexing a CSRBatch breaks the reversible batching
         mechanism between `from_csr_list` and `to_csr_list`. As a
         result, the indexed output is a __csr_type__ from which the
         original items can no longer be retrieved with to_csr_list`.
         """
-        csr_batch = super(CSRDataBatch, self).__getitem__(idx)
+        csr_batch = super(CSRBatch, self).__getitem__(idx)
         out = self.__csr_type__(
             csr_batch.pointers, *csr_batch.values, dense=False,
             is_index_value=csr_batch.is_index_value)
