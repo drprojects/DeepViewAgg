@@ -32,7 +32,7 @@ class MMData(object):
     def debug(self):
         # TODO: this is ImageData-centric. Need to extend to other modalities
         assert isinstance(self.data, Data)
-        assert isinstance(self.images, ImageData)
+        assert isinstance(self.images, (ImageData, ImageDataList))
         assert self.images.mappings is not None
 
         # Ensure Data have the key attribute necessary for linking

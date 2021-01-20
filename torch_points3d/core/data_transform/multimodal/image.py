@@ -456,7 +456,10 @@ class CenterRoll(ImageTransform):
             f"underwent prior cropping or resizing."
 
         # Isolate the mappings pixel widths and associated image ids
-        idx = images.mappings.images
+        idx = torch.repeat_interleave(
+            images.mappings.images,
+            images.mappings.values[1].pointers[1:] 
+            - images.mappings.values[1].pointers[:-1])
         w_pix = images.mappings.pixels[:, 0]
 
         # Convert to uint8 and keep unique values
@@ -472,7 +475,7 @@ class CenterRoll(ImageTransform):
         w_max, _ = torch_scatter.scatter_max(w_pix, idx, dim=0)
 
         # Compute the centering distance for each roll offset
-        w_center_dist = ((w_max + w_min) / 2 - 128).asb().int()
+        w_center_dist = ((w_max + w_min) / 2. - 128).abs().int()
 
         # Search for rollings minimizing centering distances
         idx = torch.arange(w_center_dist.shape[0])
@@ -578,7 +581,7 @@ class CropImageGroups(ImageTransform):
             crop_families[size] = images[idx].update_cropping(size, offsets)
 
         # Create a holder for the ImageData of each crop size
-        return data, ImageDataList(crop_families.values())
+        return data, ImageDataList(list(crop_families.values()))
 
 
 # TODO: CropFromMask

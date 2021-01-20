@@ -317,9 +317,9 @@ class ImageData(object):
 
         # Roll the images
         if self.images is not None:
-            images = [torch.roll(im, roll, dims=-1)
+            images = [torch.roll(im, roll.item(), dims=-1)
                       for im, roll in zip(self.images, self.rollings)]
-            images = torch.cat([im.view(1, ...) for im in images])
+            images = torch.cat([im.unsqueeze(0) for im in images])
             self.images = images
 
         # Roll the mappings
@@ -337,6 +337,8 @@ class ImageData(object):
 
             # Apply pixel update
             self.mappings.pixels[:, 0] = w_pix
+        
+        return self
 
     @property
     def crop_size(self):
@@ -418,14 +420,16 @@ class ImageData(object):
             #               :,
             #               crop_offsets[:, 1]:crop_offsets[:, 1] + crop_size[1],
             #               crop_offsets[:, 0]:crop_offsets[:, 0] + crop_size[0]]
-            images = [i[:, :, o[1]:o[1] + s[1], o[0]:o[0] + s[0]]
-                      for i, o, s in zip(self.images, crop_offsets, crop_size)]
-            images = torch.cat([im.view(1, ...) for im in images])
+            images = [i[:, o[1]:o[1] + crop_size[1], o[0]:o[0] + crop_size[0]]
+                      for i, o in zip(self.images, crop_offsets)]
+            images = torch.cat([im.unsqueeze(0) for im in images])
             self.images = images
 
         # Update the mappings
         if self.mappings is not None:
             self.mappings = self.mappings.crop(crop_size, crop_offsets)
+        
+        return self
 
     @property
     def downscale(self):
@@ -478,6 +482,8 @@ class ImageData(object):
         if scale > 1:
             self.mappings = self.mappings.subsample_2d(scale) \
                 if self.mappings is not None else None
+        
+        return self
 
     @property
     def images(self):
@@ -571,6 +577,7 @@ class ImageData(object):
             crop_size=self.crop_size,
             crop_offsets=self.crop_offsets,
             downscale=self.downscale).to(self.device)
+        return self
 
     def read_images(self, idx=None, size=None, rollings=None, crop_size=None,
                     crop_offsets=None, downscale=None):
@@ -1317,9 +1324,9 @@ class ImageMapping(CSRData):
         #   - Pixels have format: (W, H)
         cropped_in_idx = torch.where(
             torch.ge(pixels, torch.Tensor((0, 0))).all(dim=1)
-            & torch.lt(pixels, torch.Tensor(crop_size).all(dim=1)))
+            & torch.lt(pixels, torch.Tensor(crop_size)).all(dim=1))
 
-        # Return if not pixel mapping was cropped out
+        # Return if no pixel mapping was cropped out
         if cropped_in_idx[0].shape[0] == 0:
             out = self.clone()
             out.pixels = pixels

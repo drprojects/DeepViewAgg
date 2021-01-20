@@ -803,46 +803,46 @@ class S3DISFusedDataset(BaseDatasetMM):
         assert sampling_format == 'sphere', \
             f"Only sampling format 'sphere' is supported."
 
-        # self.train_dataset = S3DISSphereMM(
-        #     self._data_path,
-        #     sample_per_epoch=3000,
-        #     test_area=self.dataset_opt.fold,
-        #     split="train",
-        #     pre_collate_transform=self.pre_collate_transform,
-        #     transform=self.train_transform,
-        #     pre_transform_image=self.pre_transform_image,
-        #     transform_image=self.train_transform_image)
+#         self.train_dataset = S3DISSphereMM(
+#             self._data_path,
+#             sample_per_epoch=3000,
+#             test_area=self.dataset_opt.fold,
+#             split="train",
+#             pre_collate_transform=self.pre_collate_transform,
+#             transform=self.train_transform,
+#             pre_transform_image=self.pre_transform_image,
+#             transform_image=self.train_transform_image)
 
-        self.val_dataset = S3DISSphereMM(
+#         self.val_dataset = S3DISSphereMM(
+#             self._data_path,
+#             sample_per_epoch=-1,
+#             test_area=self.dataset_opt.fold,
+#             split="val",
+#             pre_collate_transform=self.pre_collate_transform,
+#             transform=self.val_transform,
+#             pre_transform_image=self.pre_transform_image,
+#             transform_image=self.val_transform_image)
+
+#         self.trainval_dataset = S3DISSphereMM(
+#             self._data_path,
+#             sample_per_epoch=3000,
+#             test_area=self.dataset_opt.fold,
+#             split="trainval",
+#             pre_collate_transform=self.pre_collate_transform,
+#             transform=self.train_transform,
+#             pre_transform_image=self.pre_transform_image,
+#             transform_image=self.train_transform_image,
+#         )
+
+        self.test_dataset = S3DISSphereMM(
             self._data_path,
             sample_per_epoch=-1,
             test_area=self.dataset_opt.fold,
-            split="val",
+            split="test",
             pre_collate_transform=self.pre_collate_transform,
-            transform=self.val_transform,
+            transform=self.test_transform,
             pre_transform_image=self.pre_transform_image,
-            transform_image=self.val_transform_image)
-
-        # self.trainval_dataset = S3DISSphereMM(
-        #     self._data_path,
-        #     sample_per_epoch=3000,
-        #     test_area=self.dataset_opt.fold,
-        #     split="trainval",
-        #     pre_collate_transform=self.pre_collate_transform,
-        #     transform=self.train_transform,
-        #     pre_transform_image=self.pre_transform_image,
-        #     transform_image=self.train_transform_image,
-        # )
-
-        # self.test_dataset = S3DISSphereMM(
-        #     self._data_path,
-        #     sample_per_epoch=-1,
-        #     test_area=self.dataset_opt.fold,
-        #     split="test",
-        #     pre_collate_transform=self.pre_collate_transform,
-        #     transform=self.test_transform,
-        #     pre_transform_image=self.pre_transform_image,
-        #     transform_image=self.test_transform_image)
+            transform_image=self.test_transform_image)
 
         if dataset_opt.class_weight_method:
             self.add_weights(
