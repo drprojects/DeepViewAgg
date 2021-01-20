@@ -193,8 +193,8 @@ class CSRData(object):
         order = torch.argsort(group_indices)
 
         csr_new = self[order]
-        csr_new._insert_empty_groups(group_indices[order],
-                                     num_groups=num_groups)
+        csr_new = csr_new._insert_empty_groups(group_indices[order],
+                                               num_groups=num_groups)
         return csr_new
 
     def _insert_empty_groups(self, group_indices: torch.LongTensor,
@@ -223,6 +223,8 @@ class CSRData(object):
         self.pointers = torch.from_numpy(CSRData._insert_empty_groups_numba(
             np.asarray(self.pointers), np.asarray(group_indices),
             int(num_groups)))
+
+        return self
 
     @staticmethod
     @njit(cache=True, nogil=True)

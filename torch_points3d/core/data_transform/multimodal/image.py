@@ -4,7 +4,7 @@ import torch_scatter
 from torch_geometric.data import Data
 from torch_points3d.core.data_transform import SphereSampling
 from torch_points3d.datasets.multimodal.image import ImageData, ImageMapping, \
-    ImageDataList
+    MultiSettingImageData
 from torch_points3d.utils.multimodal import lexunique
 import torchvision.transforms as T
 from .projection import compute_index_map
@@ -31,9 +31,9 @@ class ImageTransform:
                 f"lengths."
             out = [self.__call__(da, im) for da, im in zip(data, images)]
             data_out, images_out = [list(x) for x in zip(*out)]
-        elif isinstance(images, ImageDataList):
+        elif isinstance(images, MultiSettingImageData):
             out = [self.__call__(data, im) for im in images]
-            images_out = ImageDataList([im for _, im in out])
+            images_out = MultiSettingImageData([im for _, im in out])
             data_out = out[0][0]
         else:
             data_out, images_out = self._process(data, images)
@@ -503,7 +503,7 @@ class CropImageGroups(ImageTransform):
     mappings and the padding. Images with the same cropping size are batched
     together.
 
-    Returns an ImageDataList made of ImageData of fixed cropping sizes with
+    Returns an MultiSettingImageData made of ImageData of fixed cropping sizes with
     their respective mappings.
     """
 
@@ -581,7 +581,7 @@ class CropImageGroups(ImageTransform):
             crop_families[size] = images[idx].update_cropping(size, offsets)
 
         # Create a holder for the ImageData of each crop size
-        return data, ImageDataList(list(crop_families.values()))
+        return data, MultiSettingImageData(list(crop_families.values()))
 
 
 # TODO: CropFromMask

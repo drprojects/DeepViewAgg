@@ -184,6 +184,13 @@ class ImageData(object):
         return self.pos.shape[0]
 
     @property
+    def num_points(self):
+        """
+        Number of points implied by ImageMapping. Zero is 'mappings' is None.
+        """
+        return self.mappings.num_groups if self.mappings is not None else 0
+
+    @property
     def img_size(self):
         """
         Current size of the 'images' and 'mappings'. Depends on the
@@ -685,25 +692,6 @@ class ImageData(object):
 
         return images
 
-    def clone(self):
-        """Returns a copy of the instance."""
-        return self.__class__(
-            path=self.path.copy(),
-            pos=self.pos.clone(),
-            opk=self.opk.clone(),
-            ref_size=copy.deepcopy(self.ref_size),
-            proj_upscale=copy.deepcopy(self.proj_upscale),
-            crop_size=copy.deepcopy(self.crop_size),
-            crop_offsets=self.crop_offsets.clone(),
-            voxel=copy.deepcopy(self.voxel),
-            r_max=copy.deepcopy(self.r_max),
-            r_min=copy.deepcopy(self.r_min),
-            growth_k=copy.deepcopy(self.growth_k),
-            growth_r=copy.deepcopy(self.growth_r),
-            images=self.images.clone() if self.images is not None else None,
-            mappings=self.mappings.clone() if self.mappings is not None else None,
-            mask=self.mask.clone() if self.mask is not None else None)
-
     def __len__(self):
         """Returns the number of images present."""
         return self.num_images
@@ -769,7 +757,26 @@ class ImageData(object):
 
     def __repr__(self):
         return f"{self.__class__.__name__}(num_images={self.num_images}, " \
-               f"device={self.device})"
+               f"num_points={self.num_points}, device={self.device})"
+
+    def clone(self):
+        """Returns a copy of the instance."""
+        return self.__class__(
+            path=self.path.copy(),
+            pos=self.pos.clone(),
+            opk=self.opk.clone(),
+            ref_size=copy.deepcopy(self.ref_size),
+            proj_upscale=copy.deepcopy(self.proj_upscale),
+            crop_size=copy.deepcopy(self.crop_size),
+            crop_offsets=self.crop_offsets.clone(),
+            voxel=copy.deepcopy(self.voxel),
+            r_max=copy.deepcopy(self.r_max),
+            r_min=copy.deepcopy(self.r_min),
+            growth_k=copy.deepcopy(self.growth_k),
+            growth_r=copy.deepcopy(self.growth_r),
+            images=self.images.clone() if self.images is not None else None,
+            mappings=self.mappings.clone() if self.mappings is not None else None,
+            mask=self.mask.clone() if self.mask is not None else None)
 
     def to(self, device):
         """Set torch.Tensor attributes device."""
@@ -789,11 +796,28 @@ class ImageData(object):
         """Get the device of the torch.Tensor attributes."""
         return self.pos.device
 
+    @property
+    def settings_hash(self):
+        """
+        Produces a hash of the shared ImageData settings (except for the
+        mask). This hash can be used as an identifier to characterize the
+        ImageData for Batching mechanisms.
+        """
+        # Assert shared keys are the same for all items
+        keys = list(set(ImageData._shared_keys) - set(ImageData._mask_key))
+        return hash([getattr(self, k) for k in keys])
+
 
 class ImageBatch(ImageData):
     """
     Wrapper class of ImageData to build a batch from a list of
     ImageData and reconstruct it afterwards.
+
+    Each ImageData in the batch is assumed to refer to different Data
+    objects in its mappings. For that reason, if the ImageData have
+    mappings, they will also be batched with their point ids reindexed.
+    For consistency, this implies that associated Data points are
+    expected to be batched in the same order.
     """
 
     def __init__(self, **kwargs):
@@ -831,20 +855,19 @@ class ImageBatch(ImageData):
         # masks may differ slightly when computed statistically with
         # NonStaticImageMask.
         if len(image_data_list) > 1:
+
+            # Make sure shared keys are the same across the batch
+            hash_ref = image_data_list[0].settings_hash
+            assert all(im.settings_hash == hash_ref
+                       for im in image_data_list), \
+                f"All ImageData values for shared keys " \
+                f"{ImageData._shared_keys} must be the same (except for the " \
+                f"'mask')."
+
             for image_data in image_data_list[1:]:
 
-                image_dict = image_data.to_dict()
-
-                # Assert shared keys are the same for all items
-                for key, value in [(k, v) for (k, v) in image_dict.items()
-                                   if k in ImageData._shared_keys]:
-                    if key != ImageData._mask_key:
-                        assert batch_dict[key] == value, \
-                            f"All ImageData values for shared keys " \
-                            f"{ImageData._shared_keys} must be the " \
-                            f"same (except for the 'mask')."
-
                 # Prepare stack keys for concatenation or batching
+                image_dict = image_data.to_dict()
                 for key, value in [(k, v) for (k, v) in image_dict.items()
                                    if k in ImageData._own_keys]:
                     batch_dict[key] += [value]
@@ -895,31 +918,55 @@ class ImageBatch(ImageData):
                 for i in range(self.num_batch_items)]
 
 
-class ImageDataList:
+class MultiSettingImageData:
     """
     Basic holder for ImageData items. Useful when ImageData can't be batched
-    together because their settings differ.
+    together because their internal settings differ.
     """
 
     def __init__(self, image_list: List[ImageData]):
-        assert isinstance(image_list, list), \
-            f"Expected a list of ImageData but got {type(image_list)} " \
+        self._list = image_list
+        self.debug()
+
+    @property
+    def num_settings(self):
+        return len(self)
+
+    @property
+    def num_points(self):
+        return self[0].num_points
+
+    def debug(self):
+        assert isinstance(self._list, list), \
+            f"Expected a list of ImageData but got {type(self._list)} " \
             f"instead."
-        assert all(isinstance(im, ImageData) for im in image_list), \
+        assert all(isinstance(im, ImageData) for im in self), \
             f"All list elements must be of type ImageData."
-        self.list = image_list
+        assert all(im.num_points == self.num_points for im in self), \
+            "All ImageData mappings must refer to the same Data. Hence, all" \
+            "must have the same number of points in their mappings."
+        assert len(set([im.settings_hash for im in self])) == len(self), \
+            "All ImageData in MultiSettingImageData must have different " \
+            "settings. ImageData with the same settings are expected to be " \
+            "grouped together in the same ImageData.)"
+        for im in self:
+            im.debug()
 
     def __len__(self):
-        return len(self.list)
+        return len(self._list)
 
     def __getitem__(self, idx):
         assert isinstance(idx, int)
         assert idx < self.__len__()
-        return self.list[idx]
+        return self._list[idx]
 
     def __iter__(self):
         for i in range(self.__len__()):
             yield self[i]
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(num_settings={self.num_settings}, " \
+               f"device={self.device})"
 
     # TODO: necessary multi-imaagedata pooling helpers
     def view_pooling_arangement_index(self):
@@ -932,6 +979,138 @@ class ImageDataList:
         # CSR pointers of the concatenated and re-aranged (with
         # view_pooling_arangement_index) atomic-pooled features.
         pass
+
+    def load_images(self):
+        self._list = [im.load_images() for im in self]
+        return self
+
+    def clone(self):
+        return self.__class__([im.clone() for im in self])
+
+    def to(self, device):
+        self._list = [im.to(device) for im in self]
+        return self
+
+    @property
+    def device(self):
+        return self[0].device
+
+
+class MultiSettingImageBatch(MultiSettingImageData):
+    """
+    Wrapper class of MultiSettingImageData to build a batch from a list of
+    MultiSettingImageData and reconstruct it afterwards.
+
+    Like ImageBatch, each MultiSettingImageData in the batch here is
+    assumed to refer to different Data objects. Hence, the point ids in
+    MultiSettingImageBatch mappings are reindexed. For consistency, this
+    implies that associated Data points are expected to be batched in the same
+    order.
+    """
+
+    _mask_key = ImageData._mask_key
+    _shared_keys = ImageData._shared_keys
+
+    def __init__(self, image_list: List[ImageData]):
+        super(MultiSettingImageBatch, self).__init__(image_list)
+        self.__sizes__ = None
+
+    # TODO: !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    @staticmethod
+    def from_image_data_list(image_data_list):
+        assert isinstance(image_data_list, list) and len(image_data_list) > 0
+        assert all(isinstance(x, MultiSettingImageData)
+                   for x in image_data_list)
+
+        # take the first MultiSettingImageData and get its settings
+
+        # for each subsequent setting, search if a setting exists. If so
+        # append idx to it, otherwise
+
+        # keep track of num_points cumsum for stacked Data
+
+        # Update the mappings wrt their idx in the num_points cumsum
+        # using insert_empty_groups
+
+        # For each ID in IL, get settings hash
+
+
+
+
+@staticmethod
+def from_image_data_list(image_data_list):
+    assert isinstance(image_data_list, list) and len(image_data_list) > 0
+    assert all(isinstance(x, ImageData) for x in image_data_list)
+
+    # Recover the attributes of the first ImageData to compare the
+    # shared attributes with the other ImageData
+    batch_dict = image_data_list[0].to_dict()
+    sizes = [image_data_list[0].num_images]
+    for key in ImageData._own_keys:
+        batch_dict[key] = [batch_dict[key]]
+
+    # Only stack if all ImageData have the same shared attributes,
+    # except for the 'mask' attribute, for which the value of the
+    # first ImageData is taken for the whole batch. This is because
+    # masks may differ slightly when computed statistically with
+    # NonStaticImageMask.
+    if len(image_data_list) > 1:
+        for image_data in image_data_list[1:]:
+
+            image_dict = image_data.to_dict()
+
+            # Assert shared keys are the same for all items
+            for key, value in [(k, v) for (k, v) in image_dict.items()
+                               if k in ImageData._shared_keys]:
+                if key != ImageData._mask_key:
+                    assert batch_dict[key] == value, \
+                        f"All ImageData values for shared keys " \
+                        f"{ImageData._shared_keys} must be the " \
+                        f"same (except for the 'mask')."
+
+            # Prepare stack keys for concatenation or batching
+            for key, value in [(k, v) for (k, v) in image_dict.items()
+                               if k in ImageData._own_keys]:
+                batch_dict[key] += [value]
+
+            # Prepare the sizes for items recovery with
+            # .to_image_data_list
+            sizes.append(image_data.num_images)
+
+    # Concatenate numpy array attributes
+    for key in ImageData._numpy_keys:
+        batch_dict[key] = np.concatenate(batch_dict[key])
+
+    # Concatenate torch array attributes
+    for key in ImageData._torch_keys:
+        batch_dict[key] = torch.cat(batch_dict[key])
+
+    # Concatenate images, unless one of the items does not have
+    # images
+    if any(img is None for img in batch_dict[ImageData._img_key]):
+        batch_dict[ImageData._img_key] = None
+    else:
+        batch_dict[ImageData._img_key] = torch.cat(
+            batch_dict[ImageData._img_key])
+
+    # Batch mappings, unless one of the items does not have mappings
+    if any(mpg is None for mpg in batch_dict[ImageData._map_key]):
+        batch_dict[ImageData._map_key] = None
+    else:
+        batch_dict[ImageData._map_key] = \
+            ImageMappingBatch.from_csr_list(batch_dict[ImageData._map_key])
+
+    # Initialize the batch from dict and keep track of the item
+    # sizes
+    batch = ImageBatch(**batch_dict)
+    batch.__sizes__ = np.array(sizes)
+
+    return batch
+
+
+
+
+
 
 
 class ImageMapping(CSRData):
@@ -989,7 +1168,8 @@ class ImageMapping(CSRData):
 
         # Compress point_ids by taking the last value of each pointer
         point_ids = point_ids[mapping.pointers[1:] - 1]
-        mapping._insert_empty_groups(point_ids, num_groups=num_points)
+        mapping = mapping._insert_empty_groups(point_ids,
+                                               num_groups=num_points)
 
         return mapping
 
@@ -1282,7 +1462,7 @@ class ImageMapping(CSRData):
         # inject 0-sized pointers to account for these. To get the real
         # point_ids take the last value of each pointer
         point_ids = point_ids[out.pointers[1:] - 1]
-        out._insert_empty_groups(point_ids, num_groups=self.num_groups)
+        out = out._insert_empty_groups(point_ids, num_groups=self.num_groups)
 
         out.debug()
 

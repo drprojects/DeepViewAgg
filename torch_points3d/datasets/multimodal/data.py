@@ -32,8 +32,8 @@ class MMData(object):
     def debug(self):
         # TODO: this is ImageData-centric. Need to extend to other modalities
         assert isinstance(self.data, Data)
-        assert isinstance(self.images, (ImageData, ImageDataList))
-        assert self.images.mappings is not None
+        assert isinstance(self.images, (ImageData, MultiSettingImageData))
+        assert self.images.num_points > 0
 
         # Ensure Data have the key attribute necessary for linking
         # points with images in mappings. Each point must have a
@@ -44,9 +44,12 @@ class MMData(object):
         assert 'index' in self.key, \
             f"Key {self.key} must contain 'index' to benefit from " \
             f"Batch mechanisms."
-        assert np.array_equal(np.unique(self.data[self.key]),
-                              np.arange(len(self.images.mappings))), \
-            "Data point indices must span the entire range of mappings."
+        idx = np.unique(self.data[self.key])
+        assert idx.max() + 1 == idx.shape[0] == self.images.num_points, \
+            f"Discrepancy between the Data point indices and the mappings. " \
+            f"Data {self.key} counts {idx.shape[0]} unique values with " \
+            f"max={idx.max()}, while mappings span " \
+            f"[0, {self.images.num_points}]."
 
     def __len__(self):
         return self.data.num_nodes
@@ -70,6 +73,7 @@ class MMData(object):
 
     def load_images(self):
         self.images.load_images()
+        return self
 
     def clone(self):
         return MMData(
