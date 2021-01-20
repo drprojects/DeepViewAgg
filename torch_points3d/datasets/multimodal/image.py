@@ -10,6 +10,10 @@ from torch_points3d.utils.multimodal import lexargsort, lexargunique, \
     CompositeTensor
 
 
+# TODO: load and read with rollings
+# TODO: mask impact on crop, resize, rolling ?
+# TODO: initial circular custom padding? This would affect all sizes,
+#  mappings, crop offsets, etc. For now, let's just leave that aside.
 class ImageData(object):
     """
     Class to hold arrays of images information, along with shared 3D-2D 
@@ -23,8 +27,9 @@ class ImageData(object):
         ref_size:tuple          initial size of the loaded images and mappings
         proj_upscale:float      upsampling of projection wrt to ref_size
         downscale:float         downsampling of images and mappings wrt ref_size
-        crop_size:tuple         size of the cropping box
-        crop_offsets:LongTensor cropping box offsets for each image
+        rollings:LongTensor     rolling offsets for each image wrt ref_size
+        crop_size:tuple         size of the cropping box wrt ref_size
+        crop_offsets:LongTensor cropping box offsets for each image wrt ref_size
 
         voxel:float             voxel resolution
         r_max:float             radius max
@@ -37,7 +42,7 @@ class ImageData(object):
         mask:BoolTensor         projection mask
     """
     _numpy_keys = ['path']
-    _torch_keys = ['pos', 'opk', 'crop_offsets']
+    _torch_keys = ['pos', 'opk', 'crop_offsets', 'rollings']
     _map_key = 'mappings'
     _img_key = 'images'
     _mask_key = 'mask'
@@ -54,6 +59,7 @@ class ImageData(object):
             opk=torch.empty([0, 3]),
             ref_size=(512, 256),
             proj_upscale=2,
+            rollings=None,
             crop_size=None,
             crop_offsets=None,
             voxel=0.1,
@@ -72,6 +78,7 @@ class ImageData(object):
         # Initialize the private internal state attributes
         self._ref_size = None
         self._proj_upscale = None
+        self._rollings = None
         self._downscale = None
         self._crop_size = None
         self._crop_offsets = None
@@ -85,6 +92,8 @@ class ImageData(object):
         self.opk = opk.double()
         self.ref_size = ref_size
         self.proj_upscale = proj_upscale
+        self.rollings = rollings if rollings is not None \
+            else torch.zeros(self.num_images, dtype=torch.int64)
         self.crop_size = crop_size if crop_size is not None else self.ref_size
         self.crop_offsets = crop_offsets if crop_offsets is not None \
             else torch.zeros((self.num_images, 2), dtype=torch.int64)
@@ -100,9 +109,6 @@ class ImageData(object):
 
         self.debug()
 
-        # TODO: initial circular custom padding? This would affect all sizes,
-        #  mappings, crop offsets, etc. For now, let's just leave that aside.
-
     def debug(self):
         assert self.path.shape[0] == self.pos.shape[0] == self.opk.shape[0], \
             f"Attributes 'path', 'pos' and 'opk' must have the same length."
@@ -114,6 +120,9 @@ class ImageData(object):
         assert self.proj_upscale >= 1, \
             f"Expected scalar larger than 1 but got {self.proj_upscale} " \
             f"instead."
+        assert self.rollings.shape[0] == self.num_images, \
+            f"Expected tensor of size {self.num_images} but got " \
+            f"{self.rollings.shape[0]} instead."
         assert len(tuple(self.crop_size)) == 2, \
             f"Expected len(crop_size)=2 but got {len(self.crop_size)} instead."
         assert all(a <= b for a, b in zip(self.crop_size, self.ref_size)), \
@@ -175,6 +184,14 @@ class ImageData(object):
         return self.pos.shape[0]
 
     @property
+    def img_size(self):
+        """
+        Current size of the 'images' and 'mappings'. Depends on the
+        cropping size and the downsampling scale.
+        """
+        return tuple(int(x / self.downscale) for x in self.crop_size)
+
+    @property
     def ref_size(self):
         """
         Initial size of the loaded images and the mappings.
@@ -192,7 +209,7 @@ class ImageData(object):
                 and self.mappings is None
                 and self.mask is None) \
                or self.ref_size == ref_size, \
-            "Can't edit 'ref_size' if 'images', 'mappings' and 'mask' are " \
+            "Can't directly edit 'ref_size' if 'images', 'mappings' and 'mask' are " \
             "not all None."
         assert len(ref_size) == 2, \
             f"Expected len(ref_size)=2 but got {len(ref_size)} instead."
@@ -224,7 +241,7 @@ class ImageData(object):
     def proj_upscale(self, scale):
         assert (self.mask is None and self.mappings is None) \
                or self.proj_upscale == scale, \
-            "Can't edit 'proj_upscale' if 'mask' and 'mappings' are not both " \
+            "Can't directly edit 'proj_upscale' if 'mask' and 'mappings' are not both " \
             "None."
         assert scale >= 1, \
             f"Expected scalar larger than 1 but got {scale} instead."
@@ -247,6 +264,81 @@ class ImageData(object):
         return tuple(int(x * self.proj_upscale) for x in self.ref_size)
 
     @property
+    def rollings(self):
+        """
+        Rollings to apply to each image, with respect to the 'ref_size'
+        state.
+
+        By convention, rolling is applied first, then cropping, then
+        resizing. For that reason, rollings should be defined before
+        'images' or 'mappings' are cropped or resized.
+        """
+        return self._rollings
+
+    @rollings.setter
+    def rollings(self, rollings):
+        assert (self.images is None and self.mappings is None) \
+               or (self.rollings == rollings).all(), \
+            "Can't directly edit 'rollings' if 'images' or 'mappings' are " \
+            "not both None. Consider using 'update_rollings'."
+        assert isinstance(rollings, torch.LongTensor), \
+            f"Expected LongTensor but got {type(rollings)} instead."
+        assert rollings.shape[0] == self.num_images, \
+            f"Expected tensor of size {self.num_images} but got " \
+            f"{rollings.shape[0]} instead."
+        self._rollings = rollings.to(self.device)
+
+    def update_rollings(self, rollings):
+        """
+        Update the rollings state of the ImageData, WITH RESPECT TO ITS
+        REFERENCE STATE 'ref_size'.
+
+        This assumes the images have a circular representation (ie that
+        the first and last pixels along the width are adjacent in
+        reality).
+
+        Does not support prior cropping along the width or resizing.
+        """
+        # Make sure no prior cropping or resizing was applied to the
+        # images and mappings
+        assert self.ref_size[0] == self.img_size[0], \
+            f"CenterRoll cannot operate if images and mappings " \
+            f"underwent prior cropping or resizing."
+        assert self.crop_size is None \
+               or self.crop_size[0] == self.ref_size[0], \
+            f"CenterRoll cannot operate if images and mappings " \
+            f"underwent prior cropping or resizing."
+        assert self.downscale is None or self.downscale == 1, \
+            f"CenterRoll cannot operate if images and mappings " \
+            f"underwent prior cropping or resizing."
+
+        # Edit the internal rollings attribute
+        self._rollings = rollings
+
+        # Roll the images
+        if self.images is not None:
+            images = [torch.roll(im, roll, dims=-1)
+                      for im, roll in zip(self.images, self.rollings)]
+            images = torch.cat([im.view(1, ...) for im in images])
+            self.images = images
+
+        # Roll the mappings
+        if self.mappings is not None:
+            # Expand the rollings
+            pix_roll = torch.repeat_interleave(
+                self.rollings[self.mappings.images],
+                self.mappings.values[1].pointers[1:]
+                - self.mappings.values[1].pointers[:-1])
+
+            # Recover the width pixel coordinates
+            w_pix = self.mappings.pixels[:, 0].long()
+            w_pix = (w_pix + pix_roll) % self.ref_size[0]
+            w_pix = w_pix.type(self.pixel_dtype)
+
+            # Apply pixel update
+            self.mappings.pixels[:, 0] = w_pix
+
+    @property
     def crop_size(self):
         """
         Size of the cropping to apply to the 'ref_size' to obtain the
@@ -262,8 +354,8 @@ class ImageData(object):
         crop_size = tuple(crop_size)
         assert (self.images is None and self.mappings is None) \
                or self.crop_size == crop_size, \
-            "Can't edit 'crop_size' if 'images' or 'mappings' are not both " \
-            "None."
+            "Can't directly edit 'crop_size' if 'images' or 'mappings' are " \
+            "not both None. Consider using 'update_cropping'."
         assert len(crop_size) == 2, \
             f"Expected len(crop_size)=2 but got {len(crop_size)} instead."
         assert crop_size[0] <= self.ref_size[0] \
@@ -289,62 +381,14 @@ class ImageData(object):
     def crop_offsets(self, crop_offsets):
         assert (self.images is None and self.mappings is None) \
                or (self.crop_offsets == crop_offsets).all(), \
-            "Can't edit 'crop_offsets' if 'images' or 'mappings' are not both " \
-            "None."
+            "Can't directly edit 'crop_offsets' if 'images' or 'mappings' " \
+            "are not both None. Consider using 'update_cropping'."
         assert isinstance(crop_offsets, torch.LongTensor), \
             f"Expected LongTensor but got {type(crop_offsets)} instead."
         assert crop_offsets.shape == (self.num_images, 2), \
             f"Expected tensor of shape {(self.num_images, 2)} but got " \
             f"{crop_offsets.shape} instead."
         self._crop_offsets = crop_offsets.to(self.device)
-
-    @property
-    def downscale(self):
-        """
-        Downsampling scale factor of the current image resolution, with
-        respect to the initial image size 'ref_size'.
-
-        Must follow: scale >= 1
-        """
-        return self._downscale
-
-    @downscale.setter
-    def downscale(self, scale):
-        assert scale >= 1, \
-            f"Expected scalar larger than 1 but got {scale} instead."
-        # assert isinstance(scale, int), \
-        #     f"Expected an int but got a {type(scale)} instead."
-        # assert (scale & (scale-1) == 0) and scale != 0,\
-        #     f"Expected a power of 2 but got {scale} instead."
-        self._downscale = scale
-
-    def update_downscaling(self, images=None, scale=1):
-        """
-        Update the downscaling state of the ImageData, WITH RESPECT TO
-        ITS CURRENT STATE 'img_size'.
-
-        Downscaling 'images' attribute is ambiguous. As such, they are
-        expected to be scaled outside of the ImageData object before
-        being passed to 'update_downscaling', for 'downscale' and
-        'mappings' to be updated accordingly.
-        """
-        if images is not None:
-            # Update internal attributes based on the input
-            # downscaled images
-            scale = self.img_size[0] / images.shape[3]
-            self.downscale = self.downscale * scale
-            self.images = images
-        else:
-            assert self.images is None, \
-                "Can't edit 'downscale' if 'images' are not None and not " \
-                "already resized to new scale. Image resizing is ambiguous " \
-                "and should be performed outside of ImageData and provided to" \
-                "'update_downscaling'."
-            self.downscale = self.downscale * scale
-
-        if scale > 1:
-            self.mappings = self.mappings.subsample_2d(scale) \
-                if self.mappings is not None else None
 
     def update_cropping(self, crop_size, crop_offsets):
         """
@@ -369,25 +413,71 @@ class ImageData(object):
         #   - Crop size has format: (W, H)
         #   - Crop offsets have format: (W, H)
         if self.images is not None:
-            # TODO: this is WRONG. The cropping won't work because each image
-            #  requires its own slicing...
-            self.images = self.images[
-                          :,
-                          :,
-                          crop_offsets[:, 1]:crop_offsets[:, 1] + crop_size[1],
-                          crop_offsets[:, 0]:crop_offsets[:, 0] + crop_size[0]]
+            # self.images = self.images[
+            #               :,
+            #               :,
+            #               crop_offsets[:, 1]:crop_offsets[:, 1] + crop_size[1],
+            #               crop_offsets[:, 0]:crop_offsets[:, 0] + crop_size[0]]
+            images = [i[:, :, o[1]:o[1] + s[1], o[0]:o[0] + s[0]]
+                      for i, o, s in zip(self.images, crop_offsets, crop_size)]
+            images = torch.cat([im.view(1, ...) for im in images])
+            self.images = images
 
         # Update the mappings
         if self.mappings is not None:
             self.mappings = self.mappings.crop(crop_size, crop_offsets)
 
     @property
-    def img_size(self):
+    def downscale(self):
         """
-        Current size of the 'images' and 'mappings'. Depends on the
-        cropping size and the downsampling scale.
+        Downsampling scale factor of the current image resolution, with
+        respect to the initial image size 'ref_size'.
+
+        Must follow: scale >= 1
         """
-        return tuple(int(x / self.downscale) for x in self.crop_size)
+        return self._downscale
+
+    @downscale.setter
+    def downscale(self, scale):
+        assert (self.images is None and self.mappings is None) \
+               or self.downscale == scale, \
+            "Can't directly edit 'downscale' if 'images' or 'mappings' are " \
+            "not both None. Consider using 'update_downscaling'."
+        assert scale >= 1, \
+            f"Expected scalar larger than 1 but got {scale} instead."
+        # assert isinstance(scale, int), \
+        #     f"Expected an int but got a {type(scale)} instead."
+        # assert (scale & (scale-1) == 0) and scale != 0,\
+        #     f"Expected a power of 2 but got {scale} instead."
+        self._downscale = scale
+
+    def update_downscaling(self, images=None, scale=1):
+        """
+        Update the downscaling state of the ImageData, WITH RESPECT TO
+        ITS CURRENT STATE 'img_size'.
+
+        Downscaling 'images' attribute is ambiguous. As such, they are
+        expected to be scaled outside of the ImageData object before
+        being passed to 'update_downscaling', for 'downscale' and
+        'mappings' to be updated accordingly.
+        """
+        if images is not None:
+            # Update internal attributes based on the input
+            # downscaled images
+            scale = self.img_size[0] / images.shape[3]
+            self._downscale = self.downscale * scale
+            self.images = images
+        else:
+            assert self.images is None, \
+                "Can't directly edit 'downscale' if 'images' are not None " \
+                "and not already resized to new scale. Image resizing is " \
+                "ambiguous and should be performed outside of ImageData and " \
+                "provided as input to 'update_downscaling'."
+            self._downscale = self.downscale * scale
+
+        if scale > 1:
+            self.mappings = self.mappings.subsample_2d(scale) \
+                if self.mappings is not None else None
 
     @property
     def images(self):
@@ -471,17 +561,18 @@ class ImageData(object):
 
         Images are batched into a tensor of size NxCxHxW, where
         N='num_images' and (W, H)='img_size'. They are read with
-        respect to their order in 'path', resized to 'ref_size',
-        cropped with 'crop_size' and 'crop_offsets' and subsampled by
-        'downscale'.
+        respect to their order in 'path', resized to 'ref_size', rolled
+        with 'rollings', cropped with 'crop_size' and 'crop_offsets'
+        and subsampled by 'downscale'.
         """
         self._images = self.read_images(
             size=self.ref_size,
+            rollings=self.rollings,
             crop_size=self.crop_size,
             crop_offsets=self.crop_offsets,
             downscale=self.downscale).to(self.device)
 
-    def read_images(self, idx=None, size=None, crop_size=None,
+    def read_images(self, idx=None, size=None, rollings=None, crop_size=None,
                     crop_offsets=None, downscale=None):
         # TODO: faster read with multiprocessing:
         #  https://stackoverflow.com/questions/19695249/load-just-part-of-an-image-in-python
@@ -490,8 +581,9 @@ class ImageData(object):
         Read images and batch them into a tensor of size BxCxHxW.
 
         Images are indexed with 'idx' with respect to their order in
-        'path', then resized to 'size', before being cropped with
-        'crop_size' and 'crop_offsets' and subsampled by 'downscale'.
+        'path', then resized to 'size', then rolled with 'rollings',
+        before being cropped with 'crop_size' and 'crop_offsets' and
+        subsampled by 'downscale'.
         """
         # Index to select part of the images in 'path'
         if idx is None:
@@ -508,6 +600,16 @@ class ImageData(object):
         # Size to which the images should be reshaped
         if size is None:
             size = self.img_size
+
+        # Rollings of the images
+        if rollings is not None:
+            assert isinstance(rollings, torch.LongTensor), \
+                f"Expected LongTensor but got {type(rollings)} instead."
+            assert rollings.shape[0] == idx.shape[0], \
+                f"Expected tensor of shape {idx.shape[0]} but got " \
+                f"{rollings.shape[0]} instead."
+        else:
+            rollings = crop_offsets = torch.zeros(idx.shape[0]).long()
 
         # Cropping boxes size and offsets
         # XAND(crop_size and crop_offsets)
@@ -528,7 +630,7 @@ class ImageData(object):
                 f"{crop_offsets.shape} instead."
         else:
             crop_size = size
-            crop_offsets = torch.zeros((idx.shape[0], 2), dtype=torch.int64)
+            crop_offsets = torch.zeros((idx.shape[0], 2)).long()
 
         # Downsampling after cropping
         if downscale is not None:
@@ -538,6 +640,26 @@ class ImageData(object):
         # Read images from files
         images = [Image.open(p).convert('RGB').resize(size)
                   for p in self.path[idx]]
+
+        # Local helper to roll a PIL image sideways
+        # source: https://pillow.readthedocs.io
+        def pil_roll(image, delta):
+            xsize, ysize = image.size
+
+            delta = delta % xsize
+            if delta == 0:
+                return image
+
+            part1 = image.crop((0, 0, delta, ysize))
+            part2 = image.crop((delta, 0, xsize, ysize))
+            part1.load()
+            part2.load()
+            image.paste(part2, (0, 0, xsize - delta, ysize))
+            image.paste(part1, (xsize - delta, 0, xsize, ysize))
+            return image
+
+        # Roll the images
+        images = [pil_roll(im, r.item()) for im, r in zip(images, rollings)]
 
         # Crop and resize
         if downscale is None:
@@ -634,6 +756,7 @@ class ImageData(object):
         Looping over the ImageData will return an ImageData for each
         individual item.
         """
+        i: int
         for i in range(self.__len__()):
             yield self[i]
 

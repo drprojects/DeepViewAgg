@@ -406,6 +406,8 @@ class DropUninformativeImages(ImageTransform):
         self.ratio = ratio
 
     def _process(self, data: Data, images: ImageData):
+        assert images.mappings is not None, "No mappings found in images."
+
         # Threshold below which the number of pixels in the mappings
         # is deemed insufficient
         threshold = images.img_size[0] * images.img_size[1] * self.ratio
@@ -420,6 +422,71 @@ class DropUninformativeImages(ImageTransform):
 
         # Select the images and mappings meeting the threshold
         return data, images[image_counts > threshold]
+
+
+class CenterRoll(ImageTransform):
+    """
+    Transform to center the mappings along the width axis of spherical images.
+    The images and mappings are rolled along the width so as to position the
+    center of the mappings as close to the center of the image as possible.
+
+    This assumes the images have a circular representation (ie that the first
+    and last pixels along the width are adjacent in reality).
+
+    Does not support prior cropping along the width or resizing.
+    """
+    def __init__(self, angular_res=16):
+        assert isinstance(angular_res, int)
+        assert angular_res <= 256
+        self.angular_res = angular_res
+
+    def _process(self, data: Data, images: ImageData):
+        # Make sure no prior cropping or resizing was applied to the
+        # images and mappings
+        assert images.mappings is not None, "No mappings found in images."
+        assert images.ref_size[0] == images.img_size[0], \
+            f"CenterRoll cannot operate if images and mappings " \
+            f"underwent prior cropping or resizing."
+        assert images.crop_size is None \
+               or images.crop_size[0] == images.ref_size[0], \
+            f"CenterRoll cannot operate if images and mappings " \
+            f"underwent prior cropping or resizing."
+        assert images.downscale is None or images.downscale == 1, \
+            f"CenterRoll cannot operate if images and mappings " \
+            f"underwent prior cropping or resizing."
+
+        # Isolate the mappings pixel widths and associated image ids
+        idx = images.mappings.images
+        w_pix = images.mappings.pixels[:, 0]
+
+        # Convert to uint8 and keep unique values
+        w_pix = (w_pix.float() / images.ref_size[0]).byte()
+        idx, w_pix = lexunique(idx, w_pix)
+
+        # Create the rolled coordinates in a new dimension
+        rolls = torch.arange(0, 256, int(256 / self.angular_res)).byte()
+        w_pix = torch.cat([(w_pix + r).view(-1, 1) for r in rolls], dim=1)
+
+        # Search for min and max for each roll offset
+        w_min, _ = torch_scatter.scatter_min(w_pix, idx, dim=0)
+        w_max, _ = torch_scatter.scatter_max(w_pix, idx, dim=0)
+
+        # Compute the centering distance for each roll offset
+        w_center_dist = ((w_max + w_min) / 2 - 128).asb().int()
+
+        # Search for rollings minimizing centering distances
+        idx = torch.arange(w_center_dist.shape[0])
+        roll_idx = w_center_dist.min(axis=1).indices
+        rollings = (rolls[roll_idx] / 256. * images.ref_size[0]).long()
+
+        # Make sure the image ids are preserved
+        assert (idx == torch.arange(images.num_images)).all(), \
+            "Image indices discrepancy in the rollings."
+
+        # Edit images internal state
+        images.update_rollings(rollings)
+
+        return data, images
 
 
 class CropImageGroups(ImageTransform):
@@ -446,6 +513,8 @@ class CropImageGroups(ImageTransform):
         self.min_size = min_size
 
     def _process(self, data: Data, images: ImageData):
+        assert images.mappings is not None, "No mappings found in images."
+
         # Compute the bounding boxes for each image
         w_min, w_max, h_min, h_max = images.mappings.bounding_boxes
 

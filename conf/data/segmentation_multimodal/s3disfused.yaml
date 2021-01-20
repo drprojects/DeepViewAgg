@@ -52,6 +52,9 @@ data:
           ratio: 0.03
       - transform: AddPixelHeightFeature  # Add the height to the image pixels
       - transform: ColorJitter  # Radiometric augmentation
+      - transform: CenterRoll  # Roll images to center mappings
+        params:
+          angular_res: 16
       - transform: CropImageGroups  # Compute cropping groups to minimize embedding cost
         params:
           padding: 10
