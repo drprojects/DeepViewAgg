@@ -15,6 +15,12 @@ Image-based transforms for multimodal data processing. Inspired by
 torch_points3d and torch_geometric transforms on data, with a signature 
 allowing for multimodal transform composition: 
 __call(data, images, mappings)__
+
+Important: as a general rule, the transforms are intended to be chained
+and s such may affect the input parameters state. If the state of the 
+input is to be preserved outside of the transform, consider copying or 
+cloning it first. Because such operations are costly, it is up to the 
+user to choose to perform them when deemed necessary. 
 """
 
 
@@ -32,7 +38,10 @@ class ImageTransform:
             out = [self.__call__(da, im) for da, im in zip(data, images)]
             data_out, images_out = [list(x) for x in zip(*out)]
         elif isinstance(images, MultiSettingImageData):
-            out = [self.__call__(data, im) for im in images]
+            # Since all ImageData in MultiSettingImageData will need
+            # the same Data, we need to clone it, because the transforms
+            # may affect it
+            out = [self.__call__(data.clone(), im) for im in images]
             images_out = MultiSettingImageData([im for _, im in out])
             data_out = out[0][0]
         else:
@@ -88,7 +97,6 @@ class NonStaticMask(ImageTransform):
     used for any subsequent image processing.
     """
 
-    # TODO: parameters None by default to let ImageData express it own state ?
     def __init__(self, ref_size=None, proj_upscale=None, n_sample=5):
         self.ref_size = tuple(ref_size)
         self.proj_upscale = proj_upscale
@@ -344,8 +352,7 @@ class MapImages(ImageTransform):
 # TODO: integrate this in MMData indexing ?
 class SelectMappingFromPointId(ImageTransform):
     """
-    Transform-like structure. Intended to be called on _datas and
-    _images_datas.
+    Transform-like structure. Intended to be called on data and images_data.
 
     Populate the passed Data sample in-place with attributes extracted
     from the input CSRData mappings, based on the self.key point
@@ -370,8 +377,6 @@ class SelectMappingFromPointId(ImageTransform):
         # the same point may be used multiple times.
         mappings = images.mappings[data[self.key]]
 
-# TODO: careful with inplace operations breaking the data and images (train+val prepro)
-#  same issue in other transforms ? Maybe cropping, ... ?
         # Update point indices to the new mappings length. This is
         # important to preserve the mappings and for multimodal data
         # batching mechanisms.
@@ -380,10 +385,15 @@ class SelectMappingFromPointId(ImageTransform):
         # Subselect the images used in the mappings. Selected images
         # are sorted by their order in image_indices. Mappings'
         # image indices will also be updated to the new ones.
+        # Mappings are temporarily removed from the images as they will
+        # be affected by the indexing on images. This saves time but a
+        # copy of images must be made, to prevent input images' in-place
+        # modification.
         seen_image_ids = lexunique(mappings.images)
-        images.mappings = None
-        images = images[seen_image_ids]
-        images.mappings = mappings.index_images(seen_image_ids)
+        images_ = images.clone()
+        images_.mappings = None
+        images_ = images_[seen_image_ids]
+        images_.mappings = mappings.index_images(seen_image_ids)
 
         # # Update image indices to the new images length. This is
         # # important for preserving the mappings and for multimodal data
@@ -393,7 +403,7 @@ class SelectMappingFromPointId(ImageTransform):
         # # Save the mapping in the ImageData
         # images.mappings = mappings
 
-        return data, images
+        return data, images_
 
 
 class DropUninformativeImages(ImageTransform):
@@ -435,6 +445,7 @@ class CenterRoll(ImageTransform):
 
     Does not support prior cropping along the width or resizing.
     """
+
     def __init__(self, angular_res=16):
         assert isinstance(angular_res, int)
         assert angular_res <= 256
@@ -458,13 +469,14 @@ class CenterRoll(ImageTransform):
         # Isolate the mappings pixel widths and associated image ids
         idx = torch.repeat_interleave(
             images.mappings.images,
-            images.mappings.values[1].pointers[1:] 
+            images.mappings.values[1].pointers[1:]
             - images.mappings.values[1].pointers[:-1])
         w_pix = images.mappings.pixels[:, 0]
 
         # Convert to uint8 and keep unique values
-        w_pix = (w_pix.float() / images.ref_size[0]).byte()
+        w_pix = (w_pix.float() * 256 / images.ref_size[0]).long()
         idx, w_pix = lexunique(idx, w_pix)
+        w_pix = w_pix.byte()
 
         # Create the rolled coordinates in a new dimension
         rolls = torch.arange(0, 256, int(256 / self.angular_res)).byte()
@@ -475,13 +487,18 @@ class CenterRoll(ImageTransform):
         w_max, _ = torch_scatter.scatter_max(w_pix, idx, dim=0)
 
         # Compute the centering distance for each roll offset
-        w_center_dist = ((w_max + w_min) / 2. - 128).abs().int()
+        w_center_dist = ((w_max.float() + w_min) / 2. - 128).abs().int()
+
+        # Compute the mapping span for each roll offset
+        w_span = w_max.int() - w_min
+
+        # Combine center distance and span into a common cost metric
+        w_cost = w_span + w_center_dist
 
         # Search for rollings minimizing centering distances
-        idx = torch.arange(w_center_dist.shape[0])
-        roll_idx = w_center_dist.min(axis=1).indices
+        idx = torch.arange(w_cost.shape[0])
+        roll_idx = w_cost.min(axis=1).indices
         rollings = (rolls[roll_idx] / 256. * images.ref_size[0]).long()
-
         # Make sure the image ids are preserved
         assert (idx == torch.arange(images.num_images)).all(), \
             "Image indices discrepancy in the rollings."
@@ -503,8 +520,8 @@ class CropImageGroups(ImageTransform):
     mappings and the padding. Images with the same cropping size are batched
     together.
 
-    Returns an MultiSettingImageData made of ImageData of fixed cropping sizes with
-    their respective mappings.
+    Returns an MultiSettingImageData made of ImageData of fixed cropping sizes
+    with their respective mappings.
     """
 
     def __init__(self, padding=0, min_size=64):
@@ -524,9 +541,9 @@ class CropImageGroups(ImageTransform):
         # Add padding to the boxes
         w_min = torch.clamp(w_min - self.padding, 0)
         h_min = torch.clamp(h_min - self.padding, 0)
-        h_min = torch.clamp(h_min + self.padding, 0, images.img_size[0])
+        w_max = torch.clamp(w_max + self.padding, 0, images.img_size[0])
         h_max = torch.clamp(h_max + self.padding, 0, images.img_size[1])
-        widths = h_min - w_min
+        widths = w_max - w_min
         heights = h_max - h_min
 
         # Compute the family of possible crop sizes and assign each
@@ -642,8 +659,8 @@ class RandomHorizontalFlip(ImageTransform):
         if torch.rand(1) <= self.p:
             images.images = torch.flip(images.images, [3])
             _, _, _, width = images.shape
-            images.mappings.pixels[:, 1] = \
-                width - 1 - images.mappings.pixels[:, 1]
+            images.mappings.pixels[:, 0] = \
+                width - 1 - images.mappings.pixels[:, 0]
 
         return data, images
 

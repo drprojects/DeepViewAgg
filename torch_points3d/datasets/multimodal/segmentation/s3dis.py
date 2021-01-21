@@ -577,10 +577,10 @@ class S3DISOriginalFusedMM(InMemoryDataset):
             return data_
 
         # Extract and save train preprocessed multimodal data
-        # NB: indexing the Data object produces a copy. But since the
-        # same ImageData is used for computing the train and val sets,
-        # it is necessary to clone the ImageData before passing it to
-        # the transform
+        # NB: SelectMappingFromPointId may affect the input objects
+        # in-pce. Since the same ImageData is used for computing the
+        # train and val sets, it is necessary to clone the ImageData
+        # before passing it to the transform
         transform = SelectMappingFromPointId(key='point_index')
         data = [indexer(d, ~is_val)
                 for d, is_val in zip(mm_data_list[0], is_val_list)]
@@ -664,7 +664,7 @@ class S3DISSphereMM(S3DISOriginalFusedMM):
         data = data if self.transform is None else self.transform(data)
 
         # Get the corresponding images and mappings
-        data, images = self.transform_image(data, self._images[i_area])
+        data, images = self.transform_image(data, self._images[i_area].clone())
 
         return MMData(data, images)
 

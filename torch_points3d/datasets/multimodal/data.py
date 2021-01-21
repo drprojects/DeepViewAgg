@@ -45,11 +45,12 @@ class MMData(object):
             f"Key {self.key} must contain 'index' to benefit from " \
             f"Batch mechanisms."
         idx = np.unique(self.data[self.key])
-        assert idx.max() + 1 == idx.shape[0] == self.images.num_points, \
+        assert idx.max() + 1 == idx.shape[0] == self.num_points \
+               == self.images.num_points, \
             f"Discrepancy between the Data point indices and the mappings. " \
             f"Data {self.key} counts {idx.shape[0]} unique values with " \
-            f"max={idx.max()}, while mappings span " \
-            f"[0, {self.images.num_points}]."
+            f"max={idx.max()}, with {self.num_points} points in total, while " \
+            f"mappings cover point indices in [0, {self.images.num_points}]."
 
     def __len__(self):
         return self.data.num_nodes
@@ -98,8 +99,10 @@ class MMData(object):
                 data[key] = data[key][idx]
 
         # Update the ImageData and ImageMapping accordingly
+        # Data and ImageData should be cloned beforehand because
+        # transforms may affect the input parameters in-place
         transform = SelectMappingFromPointId(key=self.key)
-        data, images = transform(data, self.images)
+        data, images = transform(data, self.images.clone())
 
         return MMData(data, images, key=self.key)
 
@@ -154,7 +157,10 @@ class MMBatch(MMData):
 
         data = Batch.from_data_list(
             [mm_data.data for mm_data in mm_data_list])
-        images = ImageBatch.from_image_data_list(
+        im_batch_class = MultiSettingImageBatch \
+            if isinstance(mm_data_list[0].images, MultiSettingImageData) \
+            else ImageBatch
+        images = im_batch_class.from_image_data_list(
             [mm_data.images for mm_data in mm_data_list])
         sizes = [len(mm_data) for mm_data in mm_data_list]
 

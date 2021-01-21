@@ -1,8 +1,12 @@
 from torch_points3d.datasets.multimodal.data import MMData
+from torch_points3d.datasets.multimodal.image import ImageData, \
+    MultiSettingImageData
 from torch_geometric.transforms import FixedPoints
 from torch_points3d.core.data_transform import GridSampling3D
-from torch_points3d.core.data_transform.multimodal.projection import pose_to_rotation_matrix_numba
-from torch_points3d.core.data_transform.multimodal import SelectMappingFromPointId
+from torch_points3d.core.data_transform.multimodal.projection import \
+    pose_to_rotation_matrix_numba
+from torch_points3d.core.data_transform.multimodal import \
+    SelectMappingFromPointId
 import os.path as osp
 import plotly.graph_objects as go
 import numpy as np
@@ -31,6 +35,7 @@ def visualize_3d(
         pointsize=5, **kwargs):
     """3D data visualization with interaction tools."""
     assert isinstance(mm_data, MMData)
+    assert isinstance(mm_data.images, ImageData)
 
     # Subsample to limit the drawing time
     data_ = GridSampling3D(voxel)(mm_data.data.clone())
@@ -104,7 +109,7 @@ def visualize_3d(
         n_y_traces += 1  # keep track of the number of traces
 
     # Draw a trace for 3D point cloud of number of images seen
-    n_seen = images_.mappings.jumps[1:] - images_.mappings.jumps[:-1]
+    n_seen = images_.mappings.pointers[1:] - images_.mappings.pointers[:-1]
     fig.add_trace(
         go.Scatter3d(
             name='Times seen',
@@ -253,26 +258,22 @@ def visualize_3d(
     return fig
 
 
-# TODO: make use of the image batch .load() mechanism in ImageData
-
 def visualize_2d(
-        mm_data, image_batch=None, figsize=800, width=None, height=None,
+        mm_data, figsize=800, width=None, height=None,
         alpha=6, color_mode='light', class_colors=None, **kwargs):
     """2D data visualization with interaction tools."""
     assert isinstance(mm_data, MMData)
-
-    # Read images to the resolution at which the mappings were computed
-    if image_batch is None:
-        image_batch = mm_data.images.read_images(
-            size=mm_data.images.ref_size)
+    assert isinstance(mm_data.images, ImageData)
 
     # Get the mapping of all points in the sample
     mappings = mm_data.images.mappings
     idx_batch, idx_height, idx_width = mappings.feature_map_indexing
 
     # Color the images where points are projected and darken the rest
-    image_batch_ = image_batch.clone()
-    image_batch_ = (image_batch_.float() / alpha).floor().type(torch.uint8)
+    if mm_data.images.images is None:
+        mm_data.load_images()
+    image_batch = mm_data.images.images.clone()
+    image_batch = (image_batch.float() / alpha).floor().type(torch.uint8)
 
     color_mode = color_mode if color_mode in ['light', 'rgb', 'pos', 'y'] \
         else 'light'
@@ -282,18 +283,18 @@ def visualize_2d(
     if color_mode == 'light':
         # Set mapping mask back to original lighting
         color = torch.full((3,), alpha, dtype=torch.uint8)
-        color = image_batch_[idx_batch, :, idx_height, idx_width] * color
+        color = image_batch[idx_batch, :, idx_height, idx_width] * color
 
     elif color_mode == 'rgb':
         # Set mapping mask to point cloud RGB colors
         color = (mm_data.data.rgb * 255).type(torch.uint8)
         color = torch.repeat_interleave(
             color,
-            mappings.jumps[1:] - mappings.jumps[:-1],
+            mappings.pointers[1:] - mappings.pointers[:-1],
             dim=0)
         color = torch.repeat_interleave(
             color,
-            mappings.values[1].jumps[1:] - mappings.values[1].jumps[:-1],
+            mappings.values[1].pointers[1:] - mappings.values[1].pointers[:-1],
             dim=0)
 
     elif color_mode == 'pos':
@@ -303,11 +304,11 @@ def visualize_2d(
         color = ((mm_data.data.pos - mm_data.data.pos.mean(dim=0)) / (2 * radius) * 255 + 127).type(torch.uint8)
         color = torch.repeat_interleave(
             color,
-            mappings.jumps[1:] - mappings.jumps[:-1],
+            mappings.pointers[1:] - mappings.pointers[:-1],
             dim=0)
         color = torch.repeat_interleave(
             color,
-            mappings.values[1].jumps[1:] - mappings.values[1].jumps[:-1],
+            mappings.values[1].pointers[1:] - mappings.values[1].pointers[:-1],
             dim=0)
 
     elif color_mode == 'y':
@@ -315,15 +316,15 @@ def visualize_2d(
         color = torch.ByteTensor(class_colors)[mm_data.data.y]
         color = torch.repeat_interleave(
             color,
-            mappings.jumps[1:] - mappings.jumps[:-1],
+            mappings.pointers[1:] - mappings.pointers[:-1],
             dim=0)
         color = torch.repeat_interleave(
             color,
-            mappings.values[1].jumps[1:] - mappings.values[1].jumps[:-1],
+            mappings.values[1].pointers[1:] - mappings.values[1].pointers[:-1],
             dim=0)
 
     # Apply the coloring to the mapping masks
-    image_batch_[idx_batch, :, idx_height, idx_width] = color
+    image_batch[idx_batch, :, idx_height, idx_width] = color
 
     # Prepare figure
     width = width if width and height else figsize
@@ -340,7 +341,7 @@ def visualize_2d(
 
     # Draw the images
     n_img_traces = mm_data.images.num_images
-    for i, image in enumerate(image_batch_):
+    for i, image in enumerate(image_batch):
         fig.add_trace(
             go.Image(
                 z=image.permute(1, 2, 0),

@@ -88,9 +88,8 @@ class CompositeTensor:
         Build CompositeTensor from a list of 1D Tensors (or numpy
         arrays).
         """
-        supported_formats = (
-            torch.uint8, torch.int8, torch.int16, torch.int32,
-            torch.int64, torch.bool)
+        supported_formats = (torch.int8, torch.int16, torch.int32, torch.int64,
+                             torch.bool)
         assert len(args) > 0, "At least one tensor must be provided."
         if device == 'cuda':
             assert torch.cuda.is_available(), "CUDA not found."
@@ -104,12 +103,14 @@ class CompositeTensor:
         assert all([a.shape == tensor_list[0].shape for a in tensor_list]), \
             'All input tensors must have the same shape.'
         assert all([a.dtype in supported_formats for a in tensor_list]), \
-            f'All input tensors must be either int of bool tensors. ' \
+            f'All input tensors must be in {supported_formats}. ' \
             f'Received types: {[a.dtype for a in tensor_list]}'
 
         # Compute the bases to build the composite tensor
         dtype_list = [a.dtype for a in tensor_list]
-        dtype_max = max([torch.iinfo(dt).max for dt in dtype_list])
+        max_list = [torch.iinfo(dt).max for dt in dtype_list]
+        dtype_max = max(max_list)
+        dtype = dtype_list[max_list.index(dtype_max)]
         max_list = torch.LongTensor([a.max() + 1 for a in tensor_list])
         assert all([torch.prod(max_list) < dtype_max]), \
             'The dtype of at least one of the input tensors must ' \
@@ -119,10 +120,11 @@ class CompositeTensor:
 
         # Build the composite tensor
         self.dtype_list = dtype_list
-        self.dtype_max = dtype_max
+        self.dtype = dtype
         self.max_list = max_list
         self.base_list = base_list
-        self.data = sum([a * b for a, b in zip(tensor_list, base_list)])
+        self.data = sum([a.type(dtype) * b
+                         for a, b in zip(tensor_list, base_list)])
 
     @property
     def device(self):
@@ -154,9 +156,7 @@ class CompositeNDArray:
     """
 
     def __init__(self, *args):
-        supported_formats = (
-            np.bool_, np.uint8, np.uint16, np.uint32, np.uint64,
-            np.int8, np.int16, np.int32, np.int64)
+        supported_formats = (np.int8, np.int16, np.int32, np.int64)
 
         # Convert input to numpy
         array_list = [np.asarray(a.cpu()) if isinstance(a, torch.Tensor)
@@ -167,12 +167,14 @@ class CompositeNDArray:
         assert all([a.shape == array_list[0].shape for a in array_list]), \
             'All input arrays must have the same shape'
         assert all([a.dtype in supported_formats for a in array_list]), \
-            f'All input arrays must be either int of bool arrays. ' \
+            f'All input arrays must be in {supported_formats}. ' \
             f'Received types: {[a.dtype in supported_formats for a in array_list]}'
 
         # Compute the bases to build the composite array
         dtype_list = [a.dtype for a in array_list]
-        dtype_max = max([np.iinfo(dt).max for dt in dtype_list])
+        max_list = [torch.iinfo(dt).max for dt in dtype_list]
+        dtype_max = max(max_list)
+        dtype = dtype_list[max_list.index(dtype_max)]
         max_list = [a.max() + 1 for a in array_list]
         assert all([np.prod(max_list) < dtype_max]), \
             'The dtype of at least one of the input arrays must ' \
@@ -182,10 +184,11 @@ class CompositeNDArray:
 
         # Build the composite array
         self.dtype_list = dtype_list
-        self.dtype_max = dtype_max
+        self.dtype = dtype
         self.max_list = max_list
         self.base_list = base_list
-        self.data = sum([a * b for a, b in zip(array_list, base_list)])
+        self.data = sum([a.astype(dtype) * b
+                         for a, b in zip(array_list, base_list)])
 
     def restore(self, torch_out=False):
         """Restore the arrays from the modified composite."""

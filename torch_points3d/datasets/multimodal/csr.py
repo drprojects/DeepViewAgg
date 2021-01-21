@@ -144,7 +144,12 @@ class CSRData(object):
         return CSRBatch
 
     def clone(self):
-        return copy.deepcopy(self)
+        """
+        Shallow copy of self. This may cause issues for certain types of
+        downstream operations but it saves time and memory. In practice,
+        it shouldn't in this project.
+        """
+        return copy.copy(self)
 
     @staticmethod
     def _sorted_indices_to_pointers(indices):
@@ -194,14 +199,14 @@ class CSRData(object):
         order = torch.argsort(group_indices)
 
         csr_new = self[order]
-        csr_new = csr_new._insert_empty_groups(group_indices[order],
-                                               num_groups=num_groups)
+        csr_new = csr_new.insert_empty_groups(group_indices[order],
+                                              num_groups=num_groups)
         return csr_new
 
-    def _insert_empty_groups(self, group_indices: torch.LongTensor,
-                             num_groups=None):
+    def insert_empty_groups(self, group_indices: torch.LongTensor,
+                            num_groups=None):
         """
-        Private method called when in-place reindexing groups.
+        Method called when in-place reindexing groups.
 
         The group_indices are assumed to be sorted and group_indices[i] 
         corresponds to the position of existing group i in the new tensor. The
@@ -291,9 +296,9 @@ class CSRData(object):
         # Select the pointers and prepare the values indexing
         pointers, val_idx = CSRData._index_select_pointers(self.pointers, idx)
 
-        # Copy self and edit pointers and values
-        # This preserves the class for CSRData subclasses
-        out = copy.deepcopy(self)
+        # Shallow copy self and edit pointers and values. This
+        # preserves the class for CSRData subclasses.
+        out = self.clone()
         out.pointers = pointers
         out.values = [v[val_idx] for v in self.values]
         out.debug()
