@@ -2,9 +2,9 @@ import numpy as np
 import torch
 from torch_geometric.data import Data, Batch
 from torch_points3d.datasets.multimodal.image import *
-from torch_points3d.datasets.multimodal.csr import CSRData, CSRBatch
 from torch_points3d.core.data_transform.multimodal.image import \
     SelectMappingFromPointId
+from torch_points3d.utils.multimodal import tensor_idx
 
 MODALITY_NAMES = ["image"]
 
@@ -88,23 +88,7 @@ class MMData(object):
         Returns a new copy of the indexed MMData, with updated ImageData
         and ImageMapping. Supports torch and numpy indexing.
         """
-        if isinstance(idx, int):
-            idx = torch.LongTensor([idx])
-        elif isinstance(idx, list):
-            idx = torch.LongTensor(idx)
-        elif isinstance(idx, slice):
-            idx = torch.arange(self.num_points)[idx]
-        elif isinstance(idx, np.ndarray):
-            idx = torch.from_numpy(idx)
-        # elif not isinstance(idx, torch.LongTensor):
-        #     raise NotImplementedError
-        if isinstance(idx, torch.BoolTensor):
-            idx = torch.where(idx)[0]
-        assert idx.dtype is torch.int64, \
-            "MMData only supports int and torch.LongTensor indexing."
-        assert idx.shape[0] > 0, \
-            "MMData only supports non-empty indexing. At least one " \
-            "index must be provided."
+        idx = tensor_idx(idx)
         idx = idx.to(self.device)
 
         # Index the Data first

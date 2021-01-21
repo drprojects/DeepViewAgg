@@ -2,6 +2,7 @@ import numpy as np
 from numba import njit
 import torch
 import copy
+from torch_points3d.utils.multimodal import tensor_idx
 
 """
 CSR format
@@ -284,23 +285,7 @@ class CSRData(object):
 
         Return a copy of self with updated pointers and values.
         """
-        if isinstance(idx, int):
-            idx = torch.LongTensor([idx])
-        elif isinstance(idx, list):
-            idx = torch.LongTensor(idx)
-        elif isinstance(idx, slice):
-            idx = torch.arange(self.num_groups)[idx]
-        elif isinstance(idx, np.ndarray):
-            idx = torch.from_numpy(idx)
-        # elif not isinstance(idx, torch.LongTensor):
-        #     raise NotImplementedError
-        if isinstance(idx, torch.BoolTensor):
-            idx = torch.where(idx)[0]
-        assert idx.dtype is torch.int64, \
-            "CSRData only supports int and torch.LongTensor indexing."
-        assert idx.shape[0] > 0, \
-            "CSRData only supports non-empty indexing. At least one " \
-            "index must be provided."
+        idx = tensor_idx(idx)
         idx = idx.to(self.device)
 
         # Select the pointers and prepare the values indexing

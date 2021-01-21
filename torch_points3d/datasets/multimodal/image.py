@@ -8,6 +8,7 @@ from typing import List
 from torch_points3d.datasets.multimodal.csr import CSRData, CSRBatch
 from torch_points3d.utils.multimodal import lexargsort, lexargunique, \
     CompositeTensor
+from torch_points3d.utils.multimodal import tensor_idx
 
 
 # TODO: load and read with rollings
@@ -705,23 +706,7 @@ class ImageData(object):
         duplicate images in the ImageData, so indexing with duplicates
         will raise an error.
         """
-        if isinstance(idx, int):
-            idx = torch.LongTensor([idx])
-        elif isinstance(idx, list):
-            idx = torch.LongTensor(idx)
-        elif isinstance(idx, slice):
-            idx = torch.arange(self.num_images)[idx]
-        elif isinstance(idx, np.ndarray):
-            idx = torch.from_numpy(idx)
-        # elif not isinstance(idx, torch.LongTensor):
-        #     raise NotImplementedError
-        if isinstance(idx, torch.BoolTensor):
-            idx = torch.where(idx)[0]
-        assert idx.dtype is torch.int64, \
-            "ImageData only supports int and torch.LongTensor indexing."
-        assert idx.shape[0] > 0, \
-            "ImageData only supports non-empty indexing. At least one " \
-            "index must be provided."
+        idx = tensor_idx(idx)
         assert torch.unique(idx).shape[0] == idx.shape[0], \
             f"Index must not contain duplicates."
         idx = idx.to(self.device)
