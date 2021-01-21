@@ -947,7 +947,7 @@ class MultiSettingImageData:
 
     def __repr__(self):
         return f"{self.__class__.__name__}(num_settings={self.num_settings}, " \
-               f"num_images={self.num_images}, num_points={self.num_points}," \
+               f"num_images={self.num_images}, num_points={self.num_points}, " \
                f"device={self.device})"
 
     # TODO: necessary multi-imaagedata pooling helpers

@@ -349,7 +349,6 @@ class MapImages(ImageTransform):
         return data, images
 
 
-# TODO: integrate this in MMData indexing ?
 class SelectMappingFromPointId(ImageTransform):
     """
     Transform-like structure. Intended to be called on data and images_data.
@@ -406,6 +405,7 @@ class SelectMappingFromPointId(ImageTransform):
         return data, images_
 
 
+# TODO: TEST ME!!!
 class DropUninformativeImages(ImageTransform):
     """
     Transform to drop images and corresponding mappings when mappings
@@ -585,12 +585,13 @@ class CropImageGroups(ImageTransform):
 
         # Index and crop the images and mappings
         for size, idx in crop_families.items():
-            # Compute the crop offset for each image
+            # Compute the crop offset for each image. Center mappings
+            # inside their cropping boxes while respecting borders.
             off_x = torch.clamp(
-                (w_min[idx] + (widths[idx] - size[0] / 2.)).long(),
+                (w_min[idx] - (size[0] - widths[idx]) / 2.).long(),
                 0, images.img_size[0] - size[0])
             off_y = torch.clamp(
-                (h_min[idx] + (heights[idx] - size[1] / 2.)).long(),
+                (h_min[idx] - (size[1] - heights[idx]) / 2.).long(),
                 0, images.img_size[1] - size[1])
             offsets = torch.stack((off_x, off_y), dim=1).long()
 
@@ -631,7 +632,7 @@ class AddPixelHeightFeature(ImageTransform):
 
         return data, images
 
-
+    
 class AddPixelWidthFeature(ImageTransform):
     """Transform to add the pixel width to the image features."""
     def _process(self, data: Data, images: ImageData):
@@ -665,31 +666,30 @@ class RandomHorizontalFlip(ImageTransform):
         return data, images
 
 
-class TorchvisionTransform:
+class TorchvisionTransform(ImageTransform):
     """Torchvision-based transform on the images"""
 
     def __init__(self):
         raise NotImplementedError
 
-    def __call__(self, data, images):
-        images.images = self.transform(images.images)
+    def _process(self, data: Data, images: ImageData):
+        images.images = torch.cat([self.transform(im).unsqueeze(0) 
+                                   for im in images.images], dim=0)
         return data, images
 
     def __repr__(self):
         return self.transform.__repr__()
 
-
+    
 class ColorJitter(TorchvisionTransform):
     """Randomly change the brightness, contrast and saturation of an image."""
 
-    def __init__(self, brightness=0, contrast=0, saturation=0, hue=0):
+    def __init__(self, brightness=0.3, contrast=0.3, saturation=1):
         self.brightness = brightness
         self.contrast = contrast
         self.saturation = saturation
-        self.hue = hue
         self.transform = T.ColorJitter(
-            brightness=brightness, contrast=contrast, saturation=saturation,
-            hue=hue)
+            brightness=brightness, contrast=contrast, saturation=saturation)
 
 
 class GaussianBlur(TorchvisionTransform):
