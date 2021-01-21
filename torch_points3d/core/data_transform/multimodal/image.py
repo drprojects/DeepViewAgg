@@ -684,7 +684,7 @@ class TorchvisionTransform(ImageTransform):
 class ColorJitter(TorchvisionTransform):
     """Randomly change the brightness, contrast and saturation of an image."""
 
-    def __init__(self, brightness=0.3, contrast=0.3, saturation=1):
+    def __init__(self, brightness=0, contrast=0, saturation=0):
         self.brightness = brightness
         self.contrast = contrast
         self.saturation = saturation

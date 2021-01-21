@@ -51,14 +51,18 @@ data:
         params:
           ratio: 0.03
       - transform: ColorJitter  # Radiometric augmentation
-#      - transform: AddPixelHeightFeature  # Pixel height as image channel
+        params:
+          brightness: 0.3
+          contrast: 0.3
+          saturation: 0.6
+      - transform: AddPixelHeightFeature  # Pixel height as image channel
       - transform: CenterRoll  # Roll images to center mappings
         params:
           angular_res: 16
-#       - transform: CropImageGroups  # Compute cropping groups to minimize embedding cost
-#         params:
-#           padding: 10
-#           min_size: 64
+     - transform: CropImageGroups  # Compute cropping groups to minimize embedding cost
+        params:
+          padding: 10
+          min_size: 64
     test_transforms: ${data.multimodal.train_transforms}
     val_transforms: ${data.multimodal.test_transforms}
   train_transforms:
