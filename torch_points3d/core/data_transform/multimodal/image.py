@@ -595,13 +595,13 @@ class CropFromMask(ImageTransform):
 
 
 # TODO: PadImages
-#  https://distill.pub/2019/computing-receptive-fields/
-#  https://github.com/google-research/receptive_field
-#  https://github.com/Fangyh09/pytorch-receptive-field
-#  https://github.com/rogertrullo/Receptive-Field-in-Pytorch/blob/master/compute_RF.py
-#  https://fomoro.com/research/article/receptive-field-calculator#3,1,1,SAME;3,1,1,SAME;2,2,1,SAME;3,1,1,SAME;3,1,1,SAME;2,2,1,SAME;3,1,1,SAME;3,1,1,SAME
 class PadImages(ImageTransform):
     """Transform to update the mappings to account for image padding."""
+    #  https://distill.pub/2019/computing-receptive-fields/
+    #  https://github.com/google-research/receptive_field
+    #  https://github.com/Fangyh09/pytorch-receptive-field
+    #  https://github.com/rogertrullo/Receptive-Field-in-Pytorch/blob/master/compute_RF.py
+    #  https://fomoro.com/research/article/receptive-field-calculator#3,1,1,SAME;3,1,1,SAME;2,2,1,SAME;3,1,1,SAME;3,1,1,SAME;2,2,1,SAME;3,1,1,SAME;3,1,1,SAME
     pass
 
 
@@ -631,6 +631,11 @@ class AddPixelWidthFeature(ImageTransform):
         images.images = torch.cat((images.images, feat), 1)
 
         return data, images
+
+
+# TODO: AddProjectionFeatures
+class AddProjectionFeatures(ImageTransform):
+    pass
 
 
 class RandomHorizontalFlip(ImageTransform):

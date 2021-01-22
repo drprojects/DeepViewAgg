@@ -1027,13 +1027,13 @@ class MultiSettingImageBatch(MultiSettingImageData):
         n_pts_dict = {h: [] for h in hashes}
 
         # Distribute the ImageData to its relevant hash
-        batches = [[] * len(hashes)]
+        batches = [[]] * len(hashes)
         for il_idx, il in enumerate(image_data_list):
             for im_idx, im in enumerate(il):
-                h = im.settings_hash()
+                h = im.settings_hash
                 il_idx_dict[h].append(il_idx)
                 im_idx_dict[h].append(im_idx)
-                batches[hashes_idx[h]].append(im)
+                batches[hashes_idx[h]] = batches[hashes_idx[h]] + [im]
 
         # Batch the ImageData for each hash
         batches = [ImageBatch.from_image_data_list(x) for x in batches]
