@@ -657,6 +657,17 @@ class RandomHorizontalFlip(ImageTransform):
         return data, images
 
 
+class ToFloatImage(ImageTransform):
+    """Transform to convert [0, 255] uint8 images into [0, 1] float tensors."""
+    def _process(self, data: Data, images: ImageData):
+        if images.images is None:
+            images.load_images()
+
+        images.images = images.images.float() / 255
+
+        return data, images
+
+
 class TorchvisionTransform(ImageTransform):
     """Torchvision-based transform on the images"""
 

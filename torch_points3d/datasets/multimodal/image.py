@@ -1391,23 +1391,7 @@ class ImageMapping(CSRData):
         assumes the same indexation is also applied to the
         corresponding ImageData and contains no duplicate indices.
         """
-        if isinstance(idx, int):
-            idx = torch.LongTensor([idx])
-        elif isinstance(idx, list):
-            idx = torch.LongTensor(idx)
-        elif isinstance(idx, slice):
-            idx = torch.arange(self.images.max())[idx]
-        elif isinstance(idx, np.ndarray):
-            idx = torch.from_numpy(idx)
-        if isinstance(idx, torch.BoolTensor):
-            idx = torch.where(idx)[0]
-        # elif not isinstance(idx, torch.LongTensor):
-        #     raise NotImplementedError
-        assert idx.dtype is torch.int64, \
-            "index_images only supports int and torch.LongTensor indexing."
-        assert idx.shape[0] > 0, \
-            "index_images only supports non-empty indexing. At least one " \
-            "index must be provided."
+        idx = tensor_idx(idx)
         assert torch.unique(idx).shape[0] == idx.shape[0], \
             f"Index must not contain duplicates."
         idx = idx.to(self.device)

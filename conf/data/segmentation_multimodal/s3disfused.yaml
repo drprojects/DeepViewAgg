@@ -55,6 +55,7 @@ data:
           brightness: 0.3
           contrast: 0.3
           saturation: 0.6
+      - transform: ToFloatImage  # Convert uint8 image to float
       - transform: AddPixelHeightFeature  # Pixel height as image channel
       - transform: CenterRoll  # Roll images to center mappings
         params:

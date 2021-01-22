@@ -291,6 +291,8 @@ def visualize_2d(
         im = im.load_images() if im.images is None else im
 
         # Color the images where points are projected and darken the rest
+        if im.images.is_floating_point():
+            im.images = (im.images * 255).byte()
         im.images = (im.images.float() / alpha).floor().type(torch.uint8)
 
         # Get the mapping of all points in the sample
