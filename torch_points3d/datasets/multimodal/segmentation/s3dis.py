@@ -577,14 +577,11 @@ class S3DISOriginalFusedMM(InMemoryDataset):
             return data_
 
         # Extract and save train preprocessed multimodal data
-        # NB: SelectMappingFromPointId may affect the input objects
-        # in-pce. Since the same ImageData is used for computing the
-        # train and val sets, it is necessary to clone the ImageData
-        # before passing it to the transform
+
         transform = SelectMappingFromPointId(key='point_index')
         data = [indexer(d, ~is_val)
                 for d, is_val in zip(mm_data_list[0], is_val_list)]
-        images = [im.clone() for im in mm_data_list[1]]
+        images = [im for im in mm_data_list[1]]
         torch.save(transform(data, images), self.processed_paths[0])
 
         # Extract and save val preprocessed multimodal data

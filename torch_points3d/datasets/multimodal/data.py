@@ -102,7 +102,7 @@ class MMData(object):
         # Data and ImageData should be cloned beforehand because
         # transforms may affect the input parameters in-place
         transform = SelectMappingFromPointId(key=self.key)
-        data, images = transform(data, self.images.clone())
+        data, images = transform(data, self.images)
 
         return MMData(data, images, key=self.key)
 

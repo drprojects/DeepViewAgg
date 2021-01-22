@@ -15,12 +15,6 @@ Image-based transforms for multimodal data processing. Inspired by
 torch_points3d and torch_geometric transforms on data, with a signature 
 allowing for multimodal transform composition: 
 __call(data, images, mappings)__
-
-Important: as a general rule, the transforms are intended to be chained
-and s such may affect the input parameters state. If the state of the 
-input is to be preserved outside of the transform, consider copying or 
-cloning it first. Because such operations are costly, it is up to the 
-user to choose to perform them when deemed necessary. 
 """
 
 
@@ -38,14 +32,11 @@ class ImageTransform:
             out = [self.__call__(da, im) for da, im in zip(data, images)]
             data_out, images_out = [list(x) for x in zip(*out)]
         elif isinstance(images, MultiSettingImageData):
-            # Since all ImageData in MultiSettingImageData will need
-            # the same Data, we need to clone it, because the transforms
-            # may affect it
-            out = [self.__call__(data.clone(), im) for im in images]
+            out = [self.__call__(data, im) for im in images]
             images_out = MultiSettingImageData([im for _, im in out])
             data_out = out[0][0]
         else:
-            data_out, images_out = self._process(data, images)
+            data_out, images_out = self._process(data.clone(), images.clone())
         return data_out, images_out
 
     def __repr__(self):
@@ -353,9 +344,8 @@ class SelectMappingFromPointId(ImageTransform):
     """
     Transform-like structure. Intended to be called on data and images_data.
 
-    Populate the passed Data sample in-place with attributes extracted
-    from the input CSRData mappings, based on the self.key point
-    identifiers.
+    Populate the passed Data sample with attributes extracted from the input
+    CSRData mappings, based on the self.key point identifiers.
 
     The indices in data are expected to be included in those in
     mappings. The CSRData format implicitly holds values for all
@@ -385,14 +375,11 @@ class SelectMappingFromPointId(ImageTransform):
         # are sorted by their order in image_indices. Mappings'
         # image indices will also be updated to the new ones.
         # Mappings are temporarily removed from the images as they will
-        # be affected by the indexing on images. This saves time but a
-        # copy of images must be made, to prevent input images' in-place
-        # modification.
+        # be affected by the indexing on images.
         seen_image_ids = lexunique(mappings.images)
-        images_ = images.clone()
-        images_.mappings = None
-        images_ = images_[seen_image_ids]
-        images_.mappings = mappings.index_images(seen_image_ids)
+        images.mappings = None
+        images = images[seen_image_ids]
+        images.mappings = mappings.index_images(seen_image_ids)
 
         # # Update image indices to the new images length. This is
         # # important for preserving the mappings and for multimodal data
@@ -402,17 +389,16 @@ class SelectMappingFromPointId(ImageTransform):
         # # Save the mapping in the ImageData
         # images.mappings = mappings
 
-        return data, images_
+        return data, images
 
 
-# TODO: TEST ME!!!
 class DropUninformativeImages(ImageTransform):
     """
     Transform to drop images and corresponding mappings when mappings
     account for less than a given ratio of the image area.
     """
 
-    def __init__(self, ratio=0.03):
+    def __init__(self, ratio=0.02):
         self.ratio = ratio
 
     def _process(self, data: Data, images: ImageData):
@@ -608,13 +594,13 @@ class CropFromMask(ImageTransform):
     pass
 
 
-# TODO: PadMappings
+# TODO: PadImages
 #  https://distill.pub/2019/computing-receptive-fields/
 #  https://github.com/google-research/receptive_field
 #  https://github.com/Fangyh09/pytorch-receptive-field
 #  https://github.com/rogertrullo/Receptive-Field-in-Pytorch/blob/master/compute_RF.py
 #  https://fomoro.com/research/article/receptive-field-calculator#3,1,1,SAME;3,1,1,SAME;2,2,1,SAME;3,1,1,SAME;3,1,1,SAME;2,2,1,SAME;3,1,1,SAME;3,1,1,SAME
-class PadMappings(ImageTransform):
+class PadImages(ImageTransform):
     """Transform to update the mappings to account for image padding."""
     pass
 

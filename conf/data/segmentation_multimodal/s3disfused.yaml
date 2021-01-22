@@ -49,7 +49,7 @@ data:
           key: ${data_multimodal.point_id}
       - transform: DropUninformativeImages  # Remove images with not enough mappings
         params:
-          ratio: 0.03
+          ratio: 0.02
       - transform: ColorJitter  # Radiometric augmentation
         params:
           brightness: 0.3
