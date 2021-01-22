@@ -11,6 +11,7 @@ import os.path as osp
 import plotly.graph_objects as go
 import numpy as np
 import torch
+from itertools import chain
 
 
 # TODO: To go further with ipwidgets :
@@ -33,23 +34,31 @@ def visualize_3d(
         mm_data, class_names=None, class_colors=None, class_opacities=None,
         figsize=800, width=None, height=None, voxel=0.1, max_points=100000,
         pointsize=5, **kwargs):
-    """3D data visualization with interaction tools."""
+    """3D data interactive visualization tools."""
     assert isinstance(mm_data, MMData)
-    assert isinstance(mm_data.images, ImageData)
+
+    # Make copies of the data and images to be modified in this scope
+    data = mm_data.data.clone()
+    images = mm_data.images.clone()
+
+    # Convert images to MultiSettingImageData for convenience
+    if isinstance(images, ImageData):
+        images = MultiSettingImageData([images])
 
     # Subsample to limit the drawing time
-    data_ = GridSampling3D(voxel)(mm_data.data.clone())
-    if data_.num_nodes > max_points:
-        data_ = FixedPoints(max_points, replace=False, allow_duplicates=False)(
-            data_)
+    data = GridSampling3D(voxel)(data)
+    if data.num_nodes > max_points:
+        data = FixedPoints(max_points, replace=False, allow_duplicates=False)(
+            data)
 
     # Subsample the mappings accordingly
     transform = SelectMappingFromPointId(key='point_index')
-    data_, images_ = transform(data_, mm_data.images)
+    data, images = transform(data, images)
 
     # Round to the cm for cleaner hover info
-    data_.pos = (data_.pos * 100).round() / 100
-    images_.pos = (images_.pos * 100).round() / 100
+    data.pos = (data.pos * 100).round() / 100
+    for im in images:
+        im.pos = (im.pos * 100).round() / 100
 
     # Prepare figure
     width = width if width and height else figsize
@@ -66,20 +75,20 @@ def visualize_3d(
     fig.add_trace(
         go.Scatter3d(
             name='RGB',
-            x=data_.pos[:, 0],
-            y=data_.pos[:, 1],
-            z=data_.pos[:, 2],
+            x=data.pos[:, 0],
+            y=data.pos[:, 1],
+            z=data.pos[:, 2],
             mode='markers',
             marker=dict(
                 size=pointsize,
-                color=rgb_to_plotly_rgb(data_.rgb),),
+                color=rgb_to_plotly_rgb(data.rgb),),
             hoverinfo='x+y+z',
             showlegend=False,
             visible=True,))
     n_rgb_traces = 1  # keep track of the number of traces
 
     # Draw a trace for labeled 3D point cloud
-    y = data_.y.numpy()
+    y = data.y.numpy()
     n_classes = int(y.max() + 1)
     if class_names is None:
         class_names = [f"Class {i}" for i in range(n_classes)]
@@ -98,9 +107,9 @@ def visualize_3d(
             go.Scatter3d(
                 name=class_names[label],
                 opacity=class_opacities[label],
-                x=data_.pos[indices, 0],
-                y=data_.pos[indices, 1],
-                z=data_.pos[indices, 2],
+                x=data.pos[indices, 0],
+                y=data.pos[indices, 1],
+                z=data.pos[indices, 2],
                 mode='markers',
                 marker=dict(
                     size=pointsize,
@@ -109,13 +118,14 @@ def visualize_3d(
         n_y_traces += 1  # keep track of the number of traces
 
     # Draw a trace for 3D point cloud of number of images seen
-    n_seen = images_.mappings.pointers[1:] - images_.mappings.pointers[:-1]
+    n_seen = sum([im.mappings.pointers[1:] - im.mappings.pointers[:-1]
+                  for im in images])
     fig.add_trace(
         go.Scatter3d(
             name='Times seen',
-            x=data_.pos[:, 0],
-            y=data_.pos[:, 1],
-            z=data_.pos[:, 2],
+            x=data.pos[:, 0],
+            y=data.pos[:, 1],
+            z=data.pos[:, 2],
             mode='markers',
             marker=dict(
                 size=pointsize,
@@ -131,26 +141,30 @@ def visualize_3d(
     n_seen_traces = 1  # keep track of the number of traces
 
     # Draw a trace for position-colored 3D point cloud
-    radius = torch.norm(data_.pos - data_.pos.mean(dim=0), dim=1).max()
-    data_.pos_rgb = (data_.pos - data_.pos.mean(dim=0)) / (2 * radius) + 0.5
+    radius = torch.norm(data.pos - data.pos.mean(dim=0), dim=1).max()
+    data.pos_rgb = (data.pos - data.pos.mean(dim=0)) / (2 * radius) + 0.5
     fig.add_trace(
         go.Scatter3d(
             name='Position RGB',
-            x=data_.pos[:, 0],
-            y=data_.pos[:, 1],
-            z=data_.pos[:, 2],
+            x=data.pos[:, 0],
+            y=data.pos[:, 1],
+            z=data.pos[:, 2],
             mode='markers',
             marker=dict(
                 size=pointsize,
-                color=rgb_to_plotly_rgb(data_.pos_rgb),),
+                color=rgb_to_plotly_rgb(data.pos_rgb),),
             hoverinfo='x+y+z',
             showlegend=False,
             visible=False,))
     n_pos_rgb_traces = 1  # keep track of the number of traces
 
     # Draw image positions
-    image_xyz = np.asarray(images_.pos.clone())
-    image_opk = np.asarray(images_.opk.clone())
+    if images.num_settings >= 2:
+        image_xyz = torch.cat([im.pos for im in images]).numpy()
+        image_opk = torch.cat([im.opk for im in images]).numpy()
+    else:
+        image_xyz = images[0].pos.numpy()
+        image_opk = images[0].opk.numpy()
     if len(image_xyz.shape) == 1:
         image_xyz = image_xyz.reshape((1, -1))
     for i, (xyz, opk) in enumerate(zip(image_xyz, image_opk)):
@@ -261,70 +275,81 @@ def visualize_3d(
 def visualize_2d(
         mm_data, figsize=800, width=None, height=None,
         alpha=6, color_mode='light', class_colors=None, **kwargs):
-    """2D data visualization with interaction tools."""
+    """2D data interactive visualization tools."""
     assert isinstance(mm_data, MMData)
-    assert isinstance(mm_data.images, ImageData)
 
-    # Get the mapping of all points in the sample
-    mappings = mm_data.images.mappings
-    idx_batch, idx_height, idx_width = mappings.feature_map_indexing
+    # Make copies of the data and images to be modified in this scope
+    data = mm_data.data.clone()
+    images = mm_data.images.clone()
 
-    # Color the images where points are projected and darken the rest
-    if mm_data.images.images is None:
-        mm_data.load_images()
-    image_batch = mm_data.images.images.clone()
-    image_batch = (image_batch.float() / alpha).floor().type(torch.uint8)
+    # Convert images to MultiSettingImageData for convenience
+    if isinstance(images, ImageData):
+        images = MultiSettingImageData([images])
 
-    color_mode = color_mode if color_mode in ['light', 'rgb', 'pos', 'y'] \
-        else 'light'
-    if color_mode == 'y' and class_colors is None:
-        color_mode = 'light'
+    for im in images:
+        # Load images if need be
+        im = im.load_images() if im.images is None else im
 
-    if color_mode == 'light':
-        # Set mapping mask back to original lighting
-        color = torch.full((3,), alpha, dtype=torch.uint8)
-        color = image_batch[idx_batch, :, idx_height, idx_width] * color
+        # Color the images where points are projected and darken the rest
+        im.images = (im.images.float() / alpha).floor().type(torch.uint8)
 
-    elif color_mode == 'rgb':
-        # Set mapping mask to point cloud RGB colors
-        color = (mm_data.data.rgb * 255).type(torch.uint8)
-        color = torch.repeat_interleave(
-            color,
-            mappings.pointers[1:] - mappings.pointers[:-1],
-            dim=0)
-        color = torch.repeat_interleave(
-            color,
-            mappings.values[1].pointers[1:] - mappings.values[1].pointers[:-1],
-            dim=0)
+        # Get the mapping of all points in the sample
+        idx_batch, idx_height, idx_width = im.mappings.feature_map_indexing
 
-    elif color_mode == 'pos':
-        # Set mapping mask to point cloud positional RGB colors
-        radius = torch.norm(
-            mm_data.data.pos - mm_data.data.pos.mean(dim=0), dim=1).max()
-        color = ((mm_data.data.pos - mm_data.data.pos.mean(dim=0)) / (2 * radius) * 255 + 127).type(torch.uint8)
-        color = torch.repeat_interleave(
-            color,
-            mappings.pointers[1:] - mappings.pointers[:-1],
-            dim=0)
-        color = torch.repeat_interleave(
-            color,
-            mappings.values[1].pointers[1:] - mappings.values[1].pointers[:-1],
-            dim=0)
+        color_mode = color_mode if color_mode in ['light', 'rgb', 'pos', 'y'] \
+            else 'light'
+        if color_mode == 'y' and class_colors is None:
+            color_mode = 'light'
 
-    elif color_mode == 'y':
-        # Set mapping mask to point labels
-        color = torch.ByteTensor(class_colors)[mm_data.data.y]
-        color = torch.repeat_interleave(
-            color,
-            mappings.pointers[1:] - mappings.pointers[:-1],
-            dim=0)
-        color = torch.repeat_interleave(
-            color,
-            mappings.values[1].pointers[1:] - mappings.values[1].pointers[:-1],
-            dim=0)
+        if color_mode == 'light':
+            # Set mapping mask back to original lighting
+            color = torch.full((3,), alpha, dtype=torch.uint8)
+            color = im.images[idx_batch, :, idx_height, idx_width] * color
 
-    # Apply the coloring to the mapping masks
-    image_batch[idx_batch, :, idx_height, idx_width] = color
+        elif color_mode == 'rgb':
+            # Set mapping mask to point cloud RGB colors
+            color = (data.rgb * 255).type(torch.uint8)
+            color = torch.repeat_interleave(
+                color,
+                im.mappings.pointers[1:] - im.mappings.pointers[:-1],
+                dim=0)
+            color = torch.repeat_interleave(
+                color,
+                im.mappings.values[1].pointers[1:]
+                - im.mappings.values[1].pointers[:-1],
+                dim=0)
+
+        elif color_mode == 'pos':
+            # Set mapping mask to point cloud positional RGB colors
+            radius = torch.norm(
+                data.pos - data.pos.mean(dim=0), dim=1).max()
+            color = ((data.pos - data.pos.mean(dim=0))
+                     / (2 * radius) * 255 + 127).type(torch.uint8)
+            color = torch.repeat_interleave(
+                color,
+                im.mappings.pointers[1:] - im.mappings.pointers[:-1],
+                dim=0)
+            color = torch.repeat_interleave(
+                color,
+                im.mappings.values[1].pointers[1:]
+                - im.mappings.values[1].pointers[:-1],
+                dim=0)
+
+        elif color_mode == 'y':
+            # Set mapping mask to point labels
+            color = torch.ByteTensor(class_colors)[data.y]
+            color = torch.repeat_interleave(
+                color,
+                im.mappings.pointers[1:] - im.mappings.pointers[:-1],
+                dim=0)
+            color = torch.repeat_interleave(
+                color,
+                im.mappings.values[1].pointers[1:]
+                - im.mappings.values[1].pointers[:-1],
+                dim=0)
+
+        # Apply the coloring to the mapping masks
+        im.images[idx_batch, :, idx_height, idx_width] = color
 
     # Prepare figure
     width = width if width and height else figsize
@@ -340,8 +365,9 @@ def visualize_2d(
     fig.update_yaxes(visible=False)  # hide image axes
 
     # Draw the images
-    n_img_traces = mm_data.images.num_images
-    for i, image in enumerate(image_batch):
+    n_img_traces = images.num_images
+    for i, image in enumerate(chain(*[im.images.__iter__()
+                                          for im in images])):
         fig.add_trace(
             go.Image(
                 z=image.permute(1, 2, 0),

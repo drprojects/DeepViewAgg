@@ -5,7 +5,6 @@ from torch_points3d.datasets.multimodal.csr import CSRData
 from .projection import compute_index_map
 
 
-
 class ComposeMultiModal(object):
     """Composes several multimodal transforms together.
     Args:

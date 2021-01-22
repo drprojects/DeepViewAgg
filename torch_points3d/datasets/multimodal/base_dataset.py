@@ -5,7 +5,6 @@ import torch_geometric
 import copy
 
 
-
 def explode_multimodal_transform(transforms):
     """ Returns a flattened list of transform
     Arguments:
@@ -27,7 +26,6 @@ def explode_multimodal_transform(transforms):
     return out
 
 
-
 class BaseDatasetMM(BaseDataset):
     """
     BaseDataset with multimodal support.
@@ -38,14 +36,12 @@ class BaseDatasetMM(BaseDataset):
 
         BaseDatasetMM.set_multimodal_transform(self, dataset_opt)
 
-
     def process(self):
         """
         Instantiate this in child classes because multimodal transforms are 
         very dataset-dependent.
         """
         raise NotImplementedError
-
 
     @staticmethod
     def _get_collate_function(conv_type, is_multiscale):
@@ -67,7 +63,29 @@ class BaseDatasetMM(BaseDataset):
         # when batching. The values are reindexed, which is what we
         # need for our forward star indexing structure.
         return torch_geometric.data.batch.Batch.from_data_list
-        
+
+    @staticmethod
+    def remove_multimodal_transform(transform_in, list_transform_class):
+        """Remove a multimodal transform if within list_transform_class
+
+        Arguments:
+            transform_in {[type]} -- [ComposeMultiModal | List of transform]
+            list_transform_class {[type]} -- [List of transform class to be removed]
+
+        Returns:
+            [type] -- [description]
+        """
+        if isinstance(transform_in, ComposeMultiModal) or isinstance(transform_in, list):
+            if len(list_transform_class) > 0:
+                transform_out = []
+                transforms = transform_in.transforms if isinstance(transform_in, ComposeMultiModal) else transform_in
+                for t in transforms:
+                    if not isinstance(t, tuple(list_transform_class)):
+                        transform_out.append(t)
+                transform_out = ComposeMultiModal(transform_out)
+        else:
+            transform_out = transform_in
+        return transform_out
 
     @staticmethod
     def set_multimodal_transform(obj, dataset_opt):

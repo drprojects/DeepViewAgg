@@ -59,7 +59,7 @@ data:
       - transform: CenterRoll  # Roll images to center mappings
         params:
           angular_res: 16
-     - transform: CropImageGroups  # Compute cropping groups to minimize embedding cost
+      - transform: CropImageGroups  # Compute cropping groups to minimize embedding cost
         params:
           padding: 10
           min_size: 64
