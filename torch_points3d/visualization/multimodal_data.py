@@ -274,7 +274,7 @@ def visualize_3d(
 
 def visualize_2d(
         mm_data, figsize=800, width=None, height=None,
-        alpha=6, color_mode='light', class_colors=None, **kwargs):
+        alpha=3, color_mode='light', class_colors=None, **kwargs):
     """2D data interactive visualization tools."""
     assert isinstance(mm_data, MMData)
 

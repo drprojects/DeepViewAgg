@@ -469,8 +469,6 @@ class S3DISOriginalFusedMM(InMemoryDataset):
         # Recover image data
         # --------------------------------------------------------------
         if not osp.exists(self.image_data_path):
-            # TODO: precompute resized images so they can be loaded
-            #  faster to memory
             print('Computing image data...')
             rooms = [
                 (int(f[-1]) - 1, room_name)

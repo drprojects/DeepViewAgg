@@ -9,8 +9,6 @@ from torch_points3d.utils.multimodal import tensor_idx
 MODALITY_NAMES = ["image"]
 
 
-# TODO : modify MMData to fit the structure in torch_points3d/modules/multimodal/modules.py
-
 class MMData(object):
     """
     A holder for multimodal data.
@@ -30,7 +28,6 @@ class MMData(object):
         self.debug()
 
     def debug(self):
-        # TODO: this is ImageData-centric. Need to extend to other modalities
         assert isinstance(self.data, Data)
         assert isinstance(self.images, (ImageData, MultiSettingImageData))
         assert self.images.num_points > 0
@@ -112,8 +109,6 @@ class MMData(object):
         info = '\n'.join(info)
         return f"{self.__class__.__name__}(\n{info}\n)"
 
-
-# TODO : modify MMBatch to fit the structure in torch_points3d/modules/multimodal/modules.py
 
 class MMBatch(MMData):
     """

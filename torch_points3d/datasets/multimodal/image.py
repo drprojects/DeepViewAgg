@@ -11,10 +11,6 @@ from torch_points3d.utils.multimodal import lexargsort, lexargunique, \
 from torch_points3d.utils.multimodal import tensor_idx
 
 
-# TODO: load and read with rollings
-# TODO: mask impact on crop, resize, rolling ?
-# TODO: initial circular custom padding? This would affect all sizes,
-#  mappings, crop offsets, etc. For now, let's just leave that aside.
 class ImageData(object):
     """
     Class to hold arrays of images information, along with shared 3D-2D 
@@ -60,6 +56,7 @@ class ImageData(object):
             opk=torch.empty([0, 3]),
             ref_size=(512, 256),
             proj_upscale=2,
+            downscale=1,
             rollings=None,
             crop_size=None,
             crop_offsets=None,
@@ -98,7 +95,7 @@ class ImageData(object):
         self.crop_size = crop_size if crop_size is not None else self.ref_size
         self.crop_offsets = crop_offsets if crop_offsets is not None \
             else torch.zeros((self.num_images, 2), dtype=torch.int64)
-        self.downscale = 1
+        self.downscale = downscale
         self.voxel = voxel
         self.r_max = r_max
         self.r_min = r_min
@@ -718,6 +715,7 @@ class ImageData(object):
             opk=self.opk[idx],
             ref_size=copy.deepcopy(self.ref_size),
             proj_upscale=copy.deepcopy(self.proj_upscale),
+            downscale=copy.deepcopy(self.downscale),
             crop_size=copy.deepcopy(self.crop_size),
             crop_offsets=self.crop_offsets[idx],
             voxel=copy.deepcopy(self.voxel),
@@ -1265,10 +1263,6 @@ class ImageMapping(CSRData):
 
         Returns a new ImageMapping object.
         """
-        # TODO: Take the occlusions into account when reducing the
-        #  resolution ? Is it problematic if a point that should have
-        #  been occluded - had the projection been directly computed on
-        #  the lower resolution, is visible ?
         # TODO: careful with the device used at train time. Can't rely
         #  on CUDA...
         assert ratio >= 1, \
