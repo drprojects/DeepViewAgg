@@ -12,13 +12,16 @@ from torch_geometric.nn.pool.consecutive import consecutive_cluster
 from torch_geometric.nn import voxel_grid
 from torch_geometric.data import Data
 from torch_cluster import grid_cluster
-from torch_points3d.core.data_transform.multimodal.image import _MAPPING_KEY
 
 log = logging.getLogger(__name__)
 
 
 # Label will be the majority label in each voxel
 _INTEGER_LABEL_KEYS = ["y", "instance_labels"]
+
+
+# Key expected to be used for multimodal mappings
+_MAPPING_KEY='mapping_key'
 
 
 def shuffle_data(data):

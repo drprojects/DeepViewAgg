@@ -3,6 +3,7 @@ import torch
 import torch_scatter
 from torch_geometric.data import Data
 from torch_points3d.core.data_transform import SphereSampling
+from torch_points3d.core.data_transform.grid_transform import _MAPPING_KEY
 from torch_points3d.datasets.multimodal.image import ImageData, ImageMapping, \
     MultiSettingImageData
 from torch_points3d.utils.multimodal import lexunique
@@ -16,8 +17,6 @@ torch_points3d and torch_geometric transforms on data, with a signature
 allowing for multimodal transform composition: 
 __call(data, images, mappings)__
 """
-
-_MAPPING_KEY='mapping_key'
 
 
 class ImageTransform:
