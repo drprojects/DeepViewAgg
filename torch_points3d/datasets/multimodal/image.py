@@ -621,11 +621,11 @@ class ImageData(object):
                 f"Expected tensor of shape {idx.shape[0]} but got " \
                 f"{rollings.shape[0]} instead."
         else:
-            rollings = crop_offsets = torch.zeros(idx.shape[0]).long()
+            rollings = torch.zeros(idx.shape[0]).long()
 
         # Cropping boxes size and offsets
         # XAND(crop_size and crop_offsets)
-        assert bool(crop_size is not None) == bool(crop_offsets is not None), \
+        assert bool(crop_size) == bool(crop_offsets is not None), \
             f"If either 'crop_size' or 'crop_offsets' is specified, both " \
             f"must be specified."
         if crop_size is not None:
