@@ -575,7 +575,6 @@ class S3DISOriginalFusedMM(InMemoryDataset):
             return data_
 
         # Extract and save train preprocessed multimodal data
-
         transform = SelectMappingFromPointId()
         data = [indexer(d, ~is_val)
                 for d, is_val in zip(mm_data_list[0], is_val_list)]

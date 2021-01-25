@@ -749,8 +749,10 @@ class ImageData(object):
         which are cloned as they may carry gradients.
         """
         out = copy.copy(self)
-        out._images = self.images.clone()
-        out._mappings = self.mappings.clone()
+        out._images = self.images.clone() if self.images is not None \
+            else None
+        out._mappings = self.mappings.clone() if self.mappings is not None \
+            else None
         return out
 
     def to(self, device):
