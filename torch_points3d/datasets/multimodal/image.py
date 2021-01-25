@@ -1347,7 +1347,7 @@ class ImageMapping(CSRData):
         assert idx.shape[0] == self.num_groups, \
             f"Merge correspondences has size {idx.shape[0]} but size " \
             f"{self.num_groups} was expected."
-        assert torch.equal(torch.arange(idx.max()), torch.unique(idx)), \
+        assert (torch.arange(idx.max()+1) == torch.unique(idx)).all(), \
             "Merge correspondences must map to a compact set of " \
             "indices."
 
@@ -1363,14 +1363,15 @@ class ImageMapping(CSRData):
         pixels = self.pixels
 
         # Remove duplicates and aggregate projection features
-        idx_unique = lexargunique(point_ids, image_ids, pixels)
+        idx_unique = lexargunique(point_ids, image_ids, pixels[:, 0],
+                                  pixels[:, 1])
         point_ids = point_ids[idx_unique]
         image_ids = image_ids[idx_unique]
         pixels = pixels[idx_unique]
 
         # Convert to CSR format
         return ImageMapping.from_dense(point_ids, image_ids, pixels,
-                                       num_points=self.num_groups)
+                                       num_points=idx.max()+1)
 
     def index_images(self, idx):
         """
