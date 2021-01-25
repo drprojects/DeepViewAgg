@@ -52,7 +52,7 @@ def visualize_3d(
             data)
 
     # Subsample the mappings accordingly
-    transform = SelectMappingFromPointId(key='point_index')
+    transform = SelectMappingFromPointId()
     data, images = transform(data, images)
 
     # Round to the cm for cleaner hover info

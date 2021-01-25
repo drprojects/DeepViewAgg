@@ -3,7 +3,7 @@ import torch
 from torch_geometric.data import Data, Batch
 from torch_points3d.datasets.multimodal.image import *
 from torch_points3d.core.data_transform.multimodal.image import \
-    SelectMappingFromPointId
+    SelectMappingFromPointId, _MAPPING_KEY
 from torch_points3d.utils.multimodal import tensor_idx
 
 MODALITY_NAMES = ["image"]
@@ -21,10 +21,10 @@ class MMData(object):
     Pytorch.
     """
 
-    def __init__(self, data, images, key='point_index'):
+    def __init__(self, data, images):
         self.data = data
         self.images = images
-        self.key = key
+        self.key = _MAPPING_KEY
         self.debug()
 
     def debug(self):
@@ -76,8 +76,7 @@ class MMData(object):
     def clone(self):
         return MMData(
             self.data.clone(),
-            self.images.clone(),
-            key=self.key)
+            self.images.clone())
 
     def __getitem__(self, idx):
         """
@@ -98,10 +97,10 @@ class MMData(object):
         # Update the ImageData and ImageMapping accordingly
         # Data and ImageData should be cloned beforehand because
         # transforms may affect the input parameters in-place
-        transform = SelectMappingFromPointId(key=self.key)
+        transform = SelectMappingFromPointId()
         data, images = transform(data, self.images)
 
-        return MMData(data, images, key=self.key)
+        return MMData(data, images)
 
     def __repr__(self):
         info = [f"    {key} = {getattr(self, key)}"
@@ -118,8 +117,8 @@ class MMBatch(MMData):
     Relies on several assumptions that MMData.debug() keeps in check. 
     """
 
-    def __init__(self, data, images, key='point_index'):
-        super(MMBatch, self).__init__(data, images, key=key)
+    def __init__(self, data, images):
+        super(MMBatch, self).__init__(data, images)
         self.__sizes__ = None
 
     @property
@@ -140,13 +139,12 @@ class MMBatch(MMData):
     def clone(self):
         out = MMBatch(
             self.data.clone(),
-            self.images.clone(),
-            key=self.key)
+            self.images.clone())
         out.__sizes__ = self.__sizes__
         return out
 
     @staticmethod
-    def from_mm_data_list(mm_data_list, key='point_index'):
+    def from_mm_data_list(mm_data_list):
         assert isinstance(mm_data_list, list) and len(mm_data_list) > 0
         assert all([isinstance(mm_data, MMData) for mm_data in mm_data_list])
 
@@ -159,7 +157,7 @@ class MMBatch(MMData):
             [mm_data.images for mm_data in mm_data_list])
         sizes = [len(mm_data) for mm_data in mm_data_list]
 
-        batch = MMBatch(data, images, key=key)
+        batch = MMBatch(data, images)
         batch.__sizes__ = np.array(sizes)
 
         return batch
@@ -174,6 +172,6 @@ class MMBatch(MMData):
         data_list = self.data.to_data_list()
         images_list = self.images.to_image_data_list()
 
-        return [MMData(data, images, key=self.key)
+        return [MMData(data, images)
                 for data, images
                 in zip(data_list, images_list)]

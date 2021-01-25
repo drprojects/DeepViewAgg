@@ -17,6 +17,8 @@ allowing for multimodal transform composition:
 __call(data, images, mappings)__
 """
 
+_MAPPING_KEY='mapping_key'
+
 
 class ImageTransform:
     """Transforms on ImageData and associated ImageMapping."""
@@ -146,9 +148,8 @@ class MapImages(ImageTransform):
     """
 
     def __init__(self, ref_size=None, proj_upscale=None, voxel=None, r_max=None,
-                 r_min=None, growth_k=None, growth_r=None, empty=0, no_id=-1,
-                 key='point_index'):
-        self.key = key
+                 r_min=None, growth_k=None, growth_r=None, empty=0, no_id=-1):
+        self.key = _MAPPING_KEY
         self.empty = empty
         self.no_id = no_id
 
@@ -352,8 +353,8 @@ class SelectMappingFromPointId(ImageTransform):
     self.key in [0, ..., len(mappings)].
     """
 
-    def __init__(self, key='point_index'):
-        self.key = key
+    def __init__(self):
+        self.key = _MAPPING_KEY
 
     def _process(self, data, images):
         assert isinstance(data, Data)
