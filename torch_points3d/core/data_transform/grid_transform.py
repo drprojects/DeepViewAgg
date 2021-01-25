@@ -67,7 +67,9 @@ def group_data(data, cluster=None, unique_pos_indices=None, mode="last", skip_ke
             continue
 
         if torch.is_tensor(item) and item.size(0) == num_nodes:
-            if mode == "last" or key == "batch" or key == SaveOriginalPosId().key or key == _MAPPING_KEY:
+            if mode == "last" or key == "batch" \
+                    or key == SaveOriginalPosId().key \
+                    or key == _MAPPING_KEY:
                 data[key] = item[unique_pos_indices]
             elif mode == "mean":
                 is_item_bool = item.dtype == torch.bool
