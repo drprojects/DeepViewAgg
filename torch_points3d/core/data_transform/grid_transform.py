@@ -21,7 +21,7 @@ _INTEGER_LABEL_KEYS = ["y", "instance_labels"]
 
 
 # Key expected to be used for multimodal mappings
-_MAPPING_KEY='mapping_key'
+_MAPPING_KEY = 'mapping_index'
 
 
 def shuffle_data(data):
