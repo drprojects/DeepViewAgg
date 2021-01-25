@@ -12,6 +12,7 @@ from torch_geometric.nn.pool.consecutive import consecutive_cluster
 from torch_geometric.nn import voxel_grid
 from torch_geometric.data import Data
 from torch_cluster import grid_cluster
+from torch_points3d.core.data_transform.multimodal.image import _MAPPING_KEY
 
 log = logging.getLogger(__name__)
 
@@ -63,7 +64,7 @@ def group_data(data, cluster=None, unique_pos_indices=None, mode="last", skip_ke
             continue
 
         if torch.is_tensor(item) and item.size(0) == num_nodes:
-            if mode == "last" or key == "batch" or key == SaveOriginalPosId().key:
+            if mode == "last" or key == "batch" or key == SaveOriginalPosId().key or key == _MAPPING_KEY:
                 data[key] = item[unique_pos_indices]
             elif mode == "mean":
                 is_item_bool = item.dtype == torch.bool

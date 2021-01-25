@@ -446,9 +446,9 @@ class S3DISOriginalFusedMM(InMemoryDataset):
         # --------------------------------------------------------------
         if not osp.exists(self.pre_collated_path):
 
-            # Run the pre_collate_transform to finalize the data preparation
-            # Among other things, the 'origin_id' and 'point_index' are
-            # generated here
+            # Run the pre_collate_transform to finalize the data
+            # preparation. Among other things, the 'origin_id' and
+            # 'mapping_index' are generated here
             if self.pre_collate_transform:
                 print('Running pre-collate on 3D data...')
                 log.info("pre_collate_transform ...")
@@ -576,7 +576,7 @@ class S3DISOriginalFusedMM(InMemoryDataset):
 
         # Extract and save train preprocessed multimodal data
 
-        transform = SelectMappingFromPointId(key='point_index')
+        transform = SelectMappingFromPointId()
         data = [indexer(d, ~is_val)
                 for d, is_val in zip(mm_data_list[0], is_val_list)]
         images = [im for im in mm_data_list[1]]

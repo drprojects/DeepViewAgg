@@ -1,5 +1,5 @@
 data_multimodal:
-  point_id: point_index
+  mapping_key: mapping_index  # hardcoded key used to sync 3D points and modality mappings
   ref_size: [512, 256]
   proj_upscale: 4
   r_max: 8
@@ -21,7 +21,7 @@ data:
           size: ${data.first_subsampling}
       - transform: SaveOriginalPosId  # Required so that one can recover the multimodal mappings after the transforms
         params:
-          key: ${data_multimodal.point_id}
+          key: ${data_multimodal.mapping_key}
   multimodal:  # Each modality must be inserted in a dedicated 'multimodal' section
     modality: image
     pre_transform:
@@ -42,11 +42,9 @@ data:
           r_min: ${data_multimodal.r_min}
           growth_k: ${data_multimodal.growth_k}
           growth_r: ${data_multimodal.growth_r}
-          key: ${data_multimodal.point_id}
     train_transforms:
       - transform: SelectMappingFromPointId  # Select mappings after 3D points sampling
         params:
-          key: ${data_multimodal.point_id}
       - transform: DropUninformativeImages  # Remove images with not enough mappings
         params:
           ratio: 0.02
