@@ -625,7 +625,7 @@ class ImageData(object):
 
         # Cropping boxes size and offsets
         # XAND(crop_size and crop_offsets)
-        assert bool(crop_size) == bool(crop_offsets is not None), \
+        assert bool(crop_size is not None) == bool(crop_offsets is not None), \
             f"If either 'crop_size' or 'crop_offsets' is specified, both " \
             f"must be specified."
         if crop_size is not None:
