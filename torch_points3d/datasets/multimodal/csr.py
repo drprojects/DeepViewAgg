@@ -48,7 +48,7 @@ class CSRData(object):
     When defining a subclass A of CSRData, it is recommended to create
     an associated CSRBatch subclass by doing the following:
         - ABatch inherits from (A, CSRBatch)
-        - A.get_batch_type returns ABatch
+        - A.get_batch_type() returns ABatch
     """
 
     def __init__(self, pointers: torch.LongTensor, *args, dense=False,
@@ -138,8 +138,8 @@ class CSRData(object):
     def num_items(self):
         return self.pointers[-1].item()
 
-    @staticmethod
-    def get_batch_type():
+    @classmethod
+    def get_batch_type(cls):
         """Required by CSRBatch.from_csr_list."""
         return CSRBatch
 
@@ -322,7 +322,7 @@ class CSRBatch(CSRData):
     When defining a subclass A of CSRData, it is recommended to create
     an associated CSRBatch subclass by doing the following:
         - ABatch inherits from (A, CSRBatch)
-        - A.get_batch_type returns ABatch
+        - A.get_batch_type() returns ABatch
     """
 
     def __init__(self, pointers, *args, dense=False, is_index_value=None):

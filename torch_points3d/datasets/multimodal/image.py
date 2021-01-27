@@ -496,7 +496,7 @@ class ImageData(object):
         Tensor of loaded images with shape NxCxHxW, where N='num_images'
         and (W, H)='img_size'. Can be None if no images were loaded.
 
-        For clean load, consider using 'ImageData.load_images()'.
+        For clean load, consider using 'ImageData.load()'.
         """
         return self._images
 
@@ -566,7 +566,7 @@ class ImageData(object):
                 f"{mask.shape} instead."
             self._mask = mask.to(self.device)
 
-    def load_images(self):
+    def load(self):
         """
         Load images to the 'images' attribute.
 
@@ -784,6 +784,11 @@ class ImageData(object):
         keys = tuple(set(ImageData._shared_keys) - set([ImageData._mask_key]))
         return hash(tuple(getattr(self, k) for k in keys))
 
+    @classmethod
+    def get_batch_type(cls):
+        """Required by MMData.from_mm_data_list."""
+        return ImageBatch
+
 
 class ImageBatch(ImageData):
     """
@@ -815,7 +820,7 @@ class ImageBatch(ImageData):
         return len(self.__sizes__) if self.__sizes__ is not None else None
 
     @staticmethod
-    def from_image_data_list(image_data_list):
+    def from_data_list(image_data_list):
         assert isinstance(image_data_list, list) and len(image_data_list) > 0
         assert all(isinstance(x, ImageData) for x in image_data_list)
 
@@ -850,7 +855,7 @@ class ImageBatch(ImageData):
                     batch_dict[key] += [value]
 
                 # Prepare the sizes for items recovery with
-                # .to_image_data_list
+                # .to_data_list
                 sizes.append(image_data.num_images)
 
         # Concatenate numpy array attributes
@@ -883,12 +888,12 @@ class ImageBatch(ImageData):
 
         return batch
 
-    def to_image_data_list(self):
+    def to_data_list(self):
         if self.__sizes__ is None:
             raise RuntimeError(
                 'Cannot reconstruct image data list from batch because '
                 'the batch object was not created using '
-                '`ImageBatch.from_image_data_list()`.')
+                '`ImageBatch.from_data_list()`.')
 
         batch_pointers = self.batch_pointers
         return [self[batch_pointers[i]:batch_pointers[i + 1]]
@@ -962,8 +967,8 @@ class MultiSettingImageData:
         # view_pooling_arangement_index) atomic-pooled features.
         pass
 
-    def load_images(self):
-        self._list = [im.load_images() for im in self]
+    def load(self):
+        self._list = [im.load() for im in self]
         return self
 
     def clone(self):
@@ -976,6 +981,11 @@ class MultiSettingImageData:
     @property
     def device(self):
         return self[0].device
+
+    @classmethod
+    def get_batch_type(cls):
+        """Required by MMData.from_mm_data_list."""
+        return MultiSettingImageBatch
 
 
 class MultiSettingImageBatch(MultiSettingImageData):
@@ -999,7 +1009,7 @@ class MultiSettingImageBatch(MultiSettingImageData):
         self.__cum_pts__ = None
 
     @staticmethod
-    def from_image_data_list(image_data_list):
+    def from_data_list(image_data_list):
         assert isinstance(image_data_list, list) and len(image_data_list) > 0
         assert all(isinstance(x, MultiSettingImageData)
                    for x in image_data_list)
@@ -1036,7 +1046,7 @@ class MultiSettingImageBatch(MultiSettingImageData):
                 batches[hashes_idx[h]] = batches[hashes_idx[h]] + [im]
 
         # Batch the ImageData for each hash
-        batches = [ImageBatch.from_image_data_list(x) for x in batches]
+        batches = [ImageBatch.from_data_list(x) for x in batches]
 
         # Update the ImageBatches' mappings pointers to account for
         # global points reindexing
@@ -1057,7 +1067,7 @@ class MultiSettingImageBatch(MultiSettingImageData):
 
         return msi_batch
 
-    def to_image_data_list(self):
+    def to_data_list(self):
         assert (self.__il_sizes__ is not None
                 and self.__hashes__ is not None
                 and self.__il_idx_dict__ is not None
@@ -1065,7 +1075,7 @@ class MultiSettingImageBatch(MultiSettingImageData):
                 and self.__cum_pts__ is not None), \
             "Cannot reconstruct the list of MultiSettingImages because " \
             "the MultiSettingImageBatch was not created using " \
-            "'MultiSettingImageBatch.from_image_data_list'."
+            "'MultiSettingImageBatch.from_data_list'."
 
         # Initialize the MultiSettingImages
         msi_list = [[None] * s for s in self.__il_sizes__]
@@ -1075,7 +1085,7 @@ class MultiSettingImageBatch(MultiSettingImageData):
             for il_idx, im_idx, im in zip(
                     self.__il_idx_dict__[h],
                     self.__im_idx_dict__[h],
-                    ib.to_image_data_list()):
+                    ib.to_data_list()):
                 # Restore the point ids in the mappings
                 im.mappings = im.mappings[self.__cum_pts__[il_idx]
                                           :self.__cum_pts__[il_idx+1]]
@@ -1186,8 +1196,8 @@ class ImageMapping(CSRData):
     def pixels(self, pixels):
         self.values[1].values[0] = pixels
 
-    @staticmethod
-    def get_batch_type():
+    @classmethod
+    def get_batch_type(cls):
         """Required by CSRBatch.from_csr_list."""
         return ImageMappingBatch
 

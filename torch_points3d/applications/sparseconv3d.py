@@ -7,9 +7,9 @@ from torch_geometric.data import Batch
 
 from torch_points3d.applications.modelfactory import ModelFactory
 import torch_points3d.modules.SparseConv3d as sp3d
-from torch_points3d.core.base_conv.message_passing import *
+# from torch_points3d.core.base_conv.message_passing import *
 from torch_points3d.modules.SparseConv3d.modules import *
-from torch_points3d.core.base_conv.partial_dense import *
+# from torch_points3d.core.base_conv.partial_dense import *
 from torch_points3d.models.base_architectures.unet import UnwrappedUnetBasedModel
 from torch_points3d.core.common_modules.base_modules import MLP
 
@@ -130,7 +130,12 @@ class BaseSparseConv3d(UnwrappedUnetBasedModel):
         data:
             a dictionary that contains the data itself and its metadata information.
         """
-        self.input = sp3d.nn.SparseTensor(data.x, data.coords, data.batch, self.device)
+        if self.is_multimodal:
+            self.input = (
+                sp3d.nn.SparseTensor(data.x, data.coords, data.batch, self.device),
+                data.to(self.device).modalities)
+        else:
+            self.input = sp3d.nn.SparseTensor(data.x, data.coords, data.batch, self.device)
         if data.pos is not None:
             self.xyz = data.pos
         else:
@@ -152,10 +157,18 @@ class SparseConv3dEncoder(BaseSparseConv3d):
             - x [1, output_nc]
 
         """
+        # TODO:
+        #  set data input for basic 3D conv
+        #  set and pass multimodal input for multimodal module
         self._set_input(data)
         data = self.input
         for i in range(len(self.down_modules)):
             data = self.down_modules[i](data)
+
+        # Discard the modalities used in the down modules, only
+        # pointwise features are used in subsequent modules.
+        if self.is_multimodal:
+            data = data[0]
 
         out = Batch(x=data.F, batch=data.C[:, 0].long().to(data.F.device))
         if not isinstance(self.inner_modules[0], Identity):
@@ -187,15 +200,31 @@ class SparseConv3dUnet(BaseSparseConv3d):
             - x [N, output_nc]
             - batch [N]
         """
+        # TODO:
+        #  set data input for basic 3D conv
+        #  set and pass multimodal input for multimodal module
         self._set_input(data)
         data = self.input
         stack_down = []
         for i in range(len(self.down_modules) - 1):
             data = self.down_modules[i](data)
-            stack_down.append(data)
 
+            # Append the 3D data features of each down module, the
+            # modality features are discarded, if any.
+            if self.is_multimodal:
+                stack_down.append(data[0])
+            else:
+                stack_down.append(data)
+
+        # Last down conv module
         data = self.down_modules[-1](data)
         stack_down.append(None)
+
+        # Discard the modalities used in the down modules, only
+        # pointwise features are used in subsequent modules.
+        if self.is_multimodal:
+            data = data[0]
+
         # TODO : Manage the inner module
         for i in range(len(self.up_modules)):
             data = self.up_modules[i](data, stack_down.pop())

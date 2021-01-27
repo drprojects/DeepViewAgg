@@ -39,7 +39,7 @@ def visualize_3d(
 
     # Make copies of the data and images to be modified in this scope
     data = mm_data.data.clone()
-    images = mm_data.images.clone()
+    images = mm_data.modalities['image'].clone()
 
     # Convert images to MultiSettingImageData for convenience
     if isinstance(images, ImageData):
@@ -280,7 +280,7 @@ def visualize_2d(
 
     # Make copies of the data and images to be modified in this scope
     data = mm_data.data.clone()
-    images = mm_data.images.clone()
+    images = mm_data.modalities['image'].clone()
 
     # Convert images to MultiSettingImageData for convenience
     if isinstance(images, ImageData):
@@ -288,7 +288,7 @@ def visualize_2d(
 
     for im in images:
         # Load images if need be
-        im = im.load_images() if im.images is None else im
+        im = im.load() if im.images is None else im
 
         # Color the images where points are projected and darken the rest
         if im.images.is_floating_point():

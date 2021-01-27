@@ -660,7 +660,7 @@ class S3DISSphereMM(S3DISOriginalFusedMM):
         # Get the corresponding images and mappings
         data, images = self.transform_image(data, self._images[i_area].clone())
 
-        return MMData(data, images)
+        return MMData(data, image=images)
 
     def get(self, idx):
         """

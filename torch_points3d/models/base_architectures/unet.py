@@ -416,7 +416,7 @@ class UnwrappedUnetBasedModel(BaseModel):
 
         # Factories for creating modules for additional modalities
         if self.is_multimodal:
-            for m in self._modalities:
+            for m in self.modalities:
                 modality_opt = getattr(opt.down_conv, m)
                 self._module_factories[m] = ModalityFactory(m,
                     modality_opt.module_name, modality_opt.merge.module_name)
@@ -456,7 +456,7 @@ class UnwrappedUnetBasedModel(BaseModel):
                 # Build the conv and merge modules for each modality
                 # Prepare MMBlockDown expected input format
                 modal_conv = {}
-                for m in self._modalities:
+                for m in self.modalities:
                     conv = self._build_module(
                         getattr(opt.down_conv, m), i, modality=m)
                     merge = self._build_module(

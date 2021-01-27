@@ -6,59 +6,74 @@ from torch_points3d.core.data_transform.multimodal.image import \
     SelectMappingFromPointId, _MAPPING_KEY
 from torch_points3d.utils.multimodal import tensor_idx
 
-MODALITY_NAMES = ["image"]
+MODALITY_FORMATS = {"image": (ImageData, MultiSettingImageData)}
+MODALITY_NAMES = list(MODALITY_FORMATS.keys())
 
 
 class MMData(object):
     """
     A holder for multimodal data.
 
-    Combines 3D point in torch_geometric Data, Images in ImageData and
-    mappings in CSRData objects.
+    Combines 3D point in torch_geometric Data, with modality-specific
+    data representations equipped with mappings to the 3D Data points.
+    These modalities are expected to be passed as kwargs, with keywords
+    matching supported modalities in MODALITIES.
 
     Provides sanity checks to ensure the validity of the data, along
     with loading methods to leverage multimodal information with
     Pytorch.
     """
 
-    def __init__(self, data, images):
+    def __init__(self, data: Data, **kwargs):
         self.data = data
-        self.images = images
-        self.key = _MAPPING_KEY
+        self.modalities = kwargs
+        self.mapping_key = _MAPPING_KEY
+        for k in self.data.keys:
+            setattr(self, k, getattr(self.data, k))
         self.debug()
 
     def debug(self):
         assert isinstance(self.data, Data)
-        assert isinstance(self.images, (ImageData, MultiSettingImageData))
-        assert self.images.num_points > 0
 
         # Ensure Data have the key attribute necessary for linking
-        # points with images in mappings. Each point must have a
+        # points with modality mappings. Each point must have a
         # mapping, even if empty.
         # NB: just like images, the same point may be used multiple
         #  times.
-        assert hasattr(self.data, self.key)
-        assert 'index' in self.key, \
-            f"Key {self.key} must contain 'index' to benefit from " \
+        assert hasattr(self.data, self.mapping_key)
+        assert 'index' in self.mapping_key, \
+            f"Key {self.mapping_key} must contain 'index' to benefit from " \
             f"Batch mechanisms."
-        idx = np.unique(self.data[self.key])
-        assert idx.max() + 1 == idx.shape[0] == self.num_points \
-               == self.images.num_points, \
-            f"Discrepancy between the Data point indices and the mappings. " \
-            f"Data {self.key} counts {idx.shape[0]} unique values with " \
-            f"max={idx.max()}, with {self.num_points} points in total, while " \
-            f"mappings cover point indices in [0, {self.images.num_points}]."
+        idx = np.unique(self.data[self.mapping_key])
+        assert idx.max() + 1 == idx.shape[0] == self.num_points, \
+            f"Discrepancy between the Data point indices and the mappings " \
+            f"indices. Data {self.mapping_key} counts {idx.shape[0]} unique " \
+            f"values with max={idx.max()}, with {self.num_points} points in " \
+            f"total."
+
+        # Modality-specific checks
+        for mod, data_mod in self.modalities.items():
+            assert mod in MODALITY_NAMES, \
+                f"Received kwarg={mod} but expected key to belong to " \
+                f"supported modalities: {MODALITY_NAMES}."
+
+            assert isinstance(data_mod, MODALITY_FORMATS[mod]), \
+                f"Expected modality '{mod}' data to be of type " \
+                f"{MODALITY_FORMATS[mod]} but got type {type(data_mod)} " \
+                f"instead."
+            assert data_mod.num_points > 0
+            assert self.num_points == data_mod.num_points, \
+                f"Discrepancy between the Data point indices and the '{mod}' " \
+                f"modality mappings. Data '{self.mapping_key}' counts " \
+                f"{self.num_points} points in total, while '{mod}' mappings " \
+                f"cover point indices in [0, {data_mod.num_points}]."
 
     def __len__(self):
         return self.data.num_nodes
 
     @property
     def num_points(self):
-        return self.data.num_nodes
-
-    @property
-    def num_images(self):
-        return self.images.num_images
+        return len(self)
 
     @property
     def num_node_features(self):
@@ -66,28 +81,32 @@ class MMData(object):
 
     def to(self, device):
         self.data = self.data.to(device)
-        self.images = self.images.to(device)
+        self.modalities = {mod: data_mod.to(device)
+                           for mod, data_mod in self.modalities.items()}
         return self
 
     @property
     def device(self):
-        return self.images.device
+        for data_mod in self.modalities.values():
+            return data_mod.device
 
-    def load_images(self):
-        self.images.load_images()
+    def load(self):
+        self.modalities = {mod: data_mod.load()
+                           for mod, data_mod in self.modalities.items()}
         return self
 
     def clone(self):
         return MMData(
             self.data.clone(),
-            self.images.clone())
+            **{mod: data_mod.clone()
+             for mod, data_mod in self.modalities.items()})
 
     def __getitem__(self, idx):
         """
         Indexing mechanism on the points.
 
-        Returns a new copy of the indexed MMData, with updated ImageData
-        and ImageMapping. Supports torch and numpy indexing.
+        Returns a new copy of the indexed MMData, with updated modality data
+         and mappings. Supports torch and numpy indexing.
         """
         idx = tensor_idx(idx)
         idx = idx.to(self.device)
@@ -98,17 +117,20 @@ class MMData(object):
             if torch.is_tensor(item) and item.size(0) == self.data.num_nodes:
                 data[key] = data[key][idx]
 
-        # Update the ImageData and ImageMapping accordingly
-        # Data and ImageData should be cloned beforehand because
-        # transforms may affect the input parameters in-place
+        # Update the modality data and mappings accordingly
+        # TODO: modality-specific data and mapping update ?
         transform = SelectMappingFromPointId()
-        data, images = transform(data, self.images)
+        modalities = {mod: None for mod in self.modalities.keys()}
+        for mod, data_mod in self.modalities.items():
+            data_out, modalities[mod] = transform(data, data_mod)
 
-        return MMData(data, images)
+        return MMData(data_out, **modalities)
 
     def __repr__(self):
-        info = [f"    {key} = {getattr(self, key)}"
-                for key in ['data', 'images']]
+        info = [f"    data = {self.data}"]
+        info = info + \
+               [f"    {mod} = {data_mod}"
+                for mod, data_mod in self.modalities.items()]
         info = '\n'.join(info)
         return f"{self.__class__.__name__}(\n{info}\n)"
 
@@ -121,8 +143,8 @@ class MMBatch(MMData):
     Relies on several assumptions that MMData.debug() keeps in check. 
     """
 
-    def __init__(self, data, images):
-        super(MMBatch, self).__init__(data, images)
+    def __init__(self, data, **kwargs):
+        super(MMBatch, self).__init__(data, **kwargs)
         self.__sizes__ = None
 
     @property
@@ -143,7 +165,8 @@ class MMBatch(MMData):
     def clone(self):
         out = MMBatch(
             self.data.clone(),
-            self.images.clone())
+            **{mod: data_mod.clone()
+             for mod, data_mod in self.modalities.items()})
         out.__sizes__ = self.__sizes__
         return out
 
@@ -151,18 +174,26 @@ class MMBatch(MMData):
     def from_mm_data_list(mm_data_list):
         assert isinstance(mm_data_list, list) and len(mm_data_list) > 0
         assert all([isinstance(mm_data, MMData) for mm_data in mm_data_list])
+        assert all([set(mm_data.modalities.keys())
+                    == set(mm_data_list[0].modalities.keys())
+                    for mm_data in mm_data_list]), \
+            "All MMData in the list must have the same modalities."
 
+        # Convert list of Data to Batch
         data = Batch.from_data_list(
             [mm_data.data for mm_data in mm_data_list])
-        im_batch_class = MultiSettingImageBatch \
-            if isinstance(mm_data_list[0].images, MultiSettingImageData) \
-            else ImageBatch
-        images = im_batch_class.from_image_data_list(
-            [mm_data.images for mm_data in mm_data_list])
-        sizes = [len(mm_data) for mm_data in mm_data_list]
 
-        batch = MMBatch(data, images)
-        batch.__sizes__ = np.array(sizes)
+        # Convert list of modality-specific data to their batch
+        # counterpart
+        modalities = {mod: data_mod.get_batch_type().from_data_list(
+            [mm_data.modalities[mod] for mm_data in mm_data_list])
+            for mod, data_mod in mm_data_list[0].modalities.items()}
+
+        # Instantiate the MMBatch and set the __sizes__ to allow input
+        # MMData list MMBatch.recovery with to_mm_data_list()
+        batch = MMBatch(data, **modalities)
+        batch.__sizes__ = np.array(
+            [len(mm_data) for mm_data in mm_data_list])
 
         return batch
 
@@ -174,8 +205,12 @@ class MMBatch(MMData):
                 '`MMBatch.from_mm_data_list()`.')
 
         data_list = self.data.to_data_list()
-        images_list = self.images.to_image_data_list()
 
-        return [MMData(data, images)
-                for data, images
-                in zip(data_list, images_list)]
+        mods_list = {mod: data_mod.to_data_list()
+                     for mod, data_mod in self.modalities.items()}
+        mods_list = [{mod: data_mod[i] for mod, data_mod in mods_list.items()}
+                     for i in range(self.num_batch_items)]
+
+        return [MMData(data, **modalities)
+                for data, modalities
+                in zip(data_list, mods_list)]

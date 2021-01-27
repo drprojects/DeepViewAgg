@@ -132,6 +132,10 @@ class BaseModel(torch.nn.Module, TrackerInterface, DatasetInterface, CheckpointI
     def is_multimodal(self):
         return len(self._modalities) > 0
 
+    @property
+    def modalities(self):
+        return self._modalities
+
     def set_input(self, input, device):
         """Unpack input data from the dataloader and perform necessary pre-processing steps.
         Parameters:

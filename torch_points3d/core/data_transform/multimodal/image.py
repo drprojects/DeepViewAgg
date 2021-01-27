@@ -72,7 +72,7 @@ class LoadImages(ImageTransform):
             images.downscale = self.downscale
 
         # Load images wrt ImageData internal state
-        images.load_images()
+        images.load()
 
         return data, images
 
@@ -609,7 +609,7 @@ class AddPixelHeightFeature(ImageTransform):
     """Transform to add the pixel height to the image features."""
     def _process(self, data: Data, images: ImageData):
         if images.images is None:
-            images.load_images()
+            images.load()
 
         batch, channels, height, width = images.images.shape
         feat = torch.linspace(0, 1, height).float()
@@ -623,7 +623,7 @@ class AddPixelWidthFeature(ImageTransform):
     """Transform to add the pixel width to the image features."""
     def _process(self, data: Data, images: ImageData):
         if images.images is None:
-            images.load_images()
+            images.load()
 
         batch, channels, height, width = images.images.shape
         feat = torch.linspace(0, 1, width).float()
@@ -646,7 +646,7 @@ class RandomHorizontalFlip(ImageTransform):
 
     def _process(self, data: Data, images: ImageData):
         if images.images is None:
-            images.load_images()
+            images.load()
 
         if torch.rand(1) <= self.p:
             images.images = torch.flip(images.images, [3])
@@ -661,7 +661,7 @@ class ToFloatImage(ImageTransform):
     """Transform to convert [0, 255] uint8 images into [0, 1] float tensors."""
     def _process(self, data: Data, images: ImageData):
         if images.images is None:
-            images.load_images()
+            images.load()
 
         images.images = images.images.float() / 255
 

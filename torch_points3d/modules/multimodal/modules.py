@@ -66,10 +66,20 @@ class MultimodalBlockDown(nn.Module):
     def extra_repr(self):
         return f"(modalities): {tuple(self.modalities)}"
 
-    def forward(self, mm_data):
+    def forward(self, mm_data_tuple):
+        """Forward pass of the MultiModalBlockDown.
+
+        Expects a tuple of 3D data (Data, SparseTensor, etc.) destined
+        for the 3D convolutional modules, and a dictionary of
+        modality-specific data equipped with corresponding mappings.
+        """
+        # Unpack the multimodal data tuple
+        data_3d, data_mod = mm_data_tuple
+
         # TODO : what about SparseTensor and other weird formats ?
         # Conv on the main 3D modality - assumed to reduce 3D resolution
-        mm_data.data = self.down_block(mm_data.data)
+        print('3D conv down...')
+        data_3d = self.down_block(data_3d)
 
         for m in self.modalities:
             # Update mappings after the 3D down conv
@@ -77,24 +87,36 @@ class MultimodalBlockDown(nn.Module):
             #  3D downconv. KpConv uses GridSampling3D, PointNet++ uses FPS
             #  sampler, SparseConv uses strides, ... Not uniform. Should store
             #  sampling idx in the conv module after sampling ?
-            mm_data.modalities[m].mappings = update_mappings(mm_data)
+            #  FOR NON-SPARSE CONV, save the last resampling in self.sampler...
+            #  hoping there are never 2 samplings ? Or update samplings when
+            #  called and reset it when required (here) ?
+            #  NORMALLY, if I am correct, even the MultiScale convs sample only
+            #  once (it is the neighborhood search they do multiple times).
+            print(f'{m} mapping 3D downsampling...')
 
+            def get_3d_sampling_idx(data, down_conv):
+                # if data is sparse, get mapping from here
+                # else, get last_idx from conv sampler
+                # otherwise raise error
+                return 
+            idx = self.down_block.sampler.last_idx
+
+            data_mod[m].mappings = update_mappings(data_mod[m])
+
+            print(f'{m} conv down...')
             # Conv on the modality-specific data
-            mm_data.modalities[m].data = self.modality_blocks[m]['conv'](
-                mm_data.modalities[m].data)
+            data_mod[m].data = self.modality_blocks[m]['conv'](data_mod[m])
 
+            print(f'{m} mapping modality downsampling...')
             # Update mappings after modality conv
             # TODO : update mappings after modality conv
-            mm_data.modalities[m].mappings = update_mappings(mm_data)
+            data_mod[m].mappings = update_mappings(data_mod[m])
 
             # Merge the modality into the main 3D features
             # TODO : create merge blocks class. Are they modality-specific ?
-            mm_data.data = self.modality_blocks[m]['merge'](
-                mm_data.data,
-                mm_data.modalities[m].data,
-                mm_data.modalities[m].mappings
-            )
+            data_3d = self.modality_blocks[m]['merge'](data_3d, data_mod[m])
 
         # Conv on the main 3D modality
-        mm_data.data = self.conv_block(mm_data.data)
-        return mm_data
+        data_3d = self.conv_block(data_3d)
+
+        return (data_3d, data_mod)

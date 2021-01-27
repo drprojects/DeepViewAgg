@@ -30,8 +30,11 @@ class BaseSampler(ABC):
         else:
             raise Exception('At least ["ratio, num_to_sample, subsampling_param"] should be defined')
 
+        self.last_idx = torch.empty((0,)).long()
+
     def __call__(self, pos, x=None, batch=None):
-        return self.sample(pos, batch=batch, x=x)
+        self.last_idx = self.sample(pos, batch=batch, x=x)
+        return self.last_idx
 
     def _get_num_to_sample(self, batch_size) -> int:
         if hasattr(self, "_num_to_sample"):
