@@ -16,6 +16,7 @@ from torch.nn import (
 from omegaconf.listconfig import ListConfig
 from omegaconf.dictconfig import DictConfig
 import logging
+import copy
 from torch_points3d.datasets.base_dataset import BaseDataset
 from torch_points3d.models.base_model import BaseModel
 from torch_points3d.core.common_modules.base_modules import Identity
@@ -108,9 +109,10 @@ class UnetBasedModel(BaseModel):
         * up_conv
         * OPTIONAL: innermost
         """
+        opt = copy.deepcopy(opt)
         super(UnetBasedModel, self).__init__(opt)
         self._spatial_ops_dict = {"neighbour_finder": [], "sampler": [], "upsample_op": []}
-        # detect which options format has been used to define the model
+        # Detect which options format has been used to define the model
         if type(opt.down_conv) is ListConfig or "down_conv_nn" not in opt.down_conv:
             self._init_from_layer_list_format(opt, model_type, dataset, modules_lib)
         else:
@@ -139,7 +141,11 @@ class UnetBasedModel(BaseModel):
             args_up["up_conv_cls"] = self._factory_module.get_module("UP")
 
             unet_block = UnetSkipConnectionBlock(
-                args_up=args_up, args_innermost=opt.innermost, modules_lib=modules_lib, submodule=None, innermost=True,
+                args_up=args_up,
+                args_innermost=opt.innermost,
+                modules_lib=modules_lib,
+                submodule=None,
+                innermost=True,
             )  # add the innermost layer
         else:
             unet_block = Identity()
@@ -181,7 +187,10 @@ class UnetBasedModel(BaseModel):
             up_layer["up_conv_cls"] = getattr(modules_lib, up_layer["module_name"])
 
             unet_block = UnetSkipConnectionBlock(
-                args_up=up_layer, args_innermost=opt.innermost, modules_lib=modules_lib, innermost=True,
+                args_up=up_layer,
+                args_innermost=opt.innermost,
+                modules_lib=modules_lib,
+                innermost=True,
             )
 
         for index in range(num_convs - 1, 0, -1):
@@ -192,7 +201,10 @@ class UnetBasedModel(BaseModel):
             up_layer["up_conv_cls"] = getattr(modules_lib, up_layer["module_name"])
 
             unet_block = UnetSkipConnectionBlock(
-                args_up=up_layer, args_down=down_layer, modules_lib=modules_lib, submodule=unet_block,
+                args_up=up_layer,
+                args_down=down_layer,
+                modules_lib=modules_lib,
+                submodule=unet_block,
             )
 
         up_layer = dict(up_conv_layers[-1])
@@ -245,8 +257,7 @@ class UnetBasedModel(BaseModel):
         return args_up, args_down
 
     def _flatten_compact_options(self, opt):
-        """Converts from a dict of lists, to a list of dicts
-        """
+        """Converts from a dict of lists, to a list of dicts"""
         flattenedOpts = []
 
         for index in range(int(1e6)):
@@ -260,8 +271,8 @@ class UnetBasedModel(BaseModel):
 
 class UnetSkipConnectionBlock(nn.Module):
     """Defines the Unet submodule with skip connection.
-        X -------------------identity----------------------
-        |-- downsampling -- |submodule| -- upsampling --|
+    X -------------------identity----------------------
+    |-- downsampling -- |submodule| -- upsampling --|
 
     """
 
@@ -370,6 +381,7 @@ class UnwrappedUnetBasedModel(BaseModel):
                 up_conv_nn: ...
                 *args
         """
+        opt = copy.deepcopy(opt)
         super(UnwrappedUnetBasedModel, self).__init__(opt)
         self._spatial_ops_dict = {"neighbour_finder": [], "sampler": [], "upsample_op": []}
 
@@ -578,8 +590,7 @@ class UnwrappedUnetBasedModel(BaseModel):
         return module(**args)
 
     def _flatten_compact_options(self, opt):
-        """Converts from a dict of lists, to a list of dicts
-        """
+        """Converts from a dict of lists, to a list of dicts"""
         flattenedOpts = []
 
         for index in range(int(1e6)):
@@ -591,7 +602,7 @@ class UnwrappedUnetBasedModel(BaseModel):
         return flattenedOpts
 
     def forward(self, data, precomputed_down=None, precomputed_up=None, **kwargs):
-        """ This method does a forward on the Unet assuming symmetrical skip connections
+        """This method does a forward on the Unet assuming symmetrical skip connections
 
         Parameters
         ----------
