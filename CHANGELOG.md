@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Bug fixes
+- Fix bug in data loader https://github.com/nicolas-chaulet/torch-points3d/issues/443 thanks @JloveU
+- Fix bug in base unet that created problems when loading pointnet++ model checkpoint
+
+## 1.2.0
+
 ### Added
 
 - Support for the IRALab benchmark (https://arxiv.org/abs/2003.12841), with data from the ETH, Canadian Planetary, Kaist and TUM datasets. (thanks @simone-fontana)
@@ -25,11 +31,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - BatchNorm1d fix (thanks @Wundersam)
 - Fix process hanging when processing scannet with multiprocessing (thanks @zetyquickly)
 - wandb does not log the weights when set in private mode (thanks @jamesjiro)
+- Fixed VoteNet loss definitions and data augmentation parameters (got up to 59.2% mAP25)
 
 ### Changed
 
 - More general API for Minkowski with support for Bottleneck blocks and Squeeze and excite.
 - Docker images tags on dockerhub are now `latest-gpu` and `latest-cpu` for the latest CPU adn GPU images.
+
+### Removed
+
+- Removed VoteNet from the API because it was not up to date. You can still use the models defined [there](https://github.com/nicolas-chaulet/torch-points3d/tree/master/torch_points3d/models/object_detection)
 
 ## 1.1.1
 
