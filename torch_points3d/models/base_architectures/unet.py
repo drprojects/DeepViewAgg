@@ -48,20 +48,25 @@ class ModalityFactory:
      modules.
 
      Modules are expected to be found in:
-        torch_points3d.modules.multimodal.<modality>.module_name
+        torch_points3d.modules.multimodal.modalities.<modality>.module_name
      """
     def __init__(self, modality, module_name, merge_name):
         self.modality = modality
         self.module_name = module_name
         self.merge_name = merge_name
-        self.modality_lib = importlib.import_module(f"torch_points3d.modules.multimodal.{modality}")
+        self.modality_lib = importlib.import_module(
+            f"torch_points3d.modules.multimodal.modalities.{modality}")
+        self.merge_lib = importlib.import_module(
+            f"torch_points3d.modules.multimodal.merge")
 
     def get_module(self, flow):
         if flow.upper() == "MERGE":
-            # Search for the modality merger in torch_points3d.modules.multimodal.{modality}
-            return getattr(self.modality_lib, self.merge_name, None)
+            # Search for the modality merger in
+            # torch_points3d.modules.multimodal.merge
+            return getattr(self.merge_lib, self.merge_name, None)
         else:
-            # Search for the modality conv in torch_points3d.modules.multimodal.{modality}
+            # Search for the modality conv in
+            # torch_points3d.modules.multimodal.modalities.{modality}
             return getattr(self.modality_lib, self.module_name, None)
 
 
@@ -381,7 +386,7 @@ class UnwrappedUnetBasedModel(BaseModel):
         """
 
         # Check if one of the supported modalities is present in the config
-        self._modalities = self._fetch_modalities(opt)
+        self._modalities = self._fetch_modalities(opt.down_conv)
 
         self.save_sampling_id = opt.down_conv.save_sampling_id
 
@@ -392,18 +397,21 @@ class UnwrappedUnetBasedModel(BaseModel):
         # Factory for creating up and down modules for the main 3D modality
         factory_module_cls = self._get_factory(model_type, modules_lib)
         down_conv_cls_name = opt.down_conv.module_name
-        up_conv_cls_name = opt.up_conv.module_name if opt.up_conv is not None else None
-        self._module_factories = {
-            'main': factory_module_cls(down_conv_cls_name, up_conv_cls_name, modules_lib)}
+        up_conv_cls_name = opt.up_conv.module_name if opt.up_conv is not None \
+            else None
+        self._module_factories = {'main': factory_module_cls(
+                down_conv_cls_name, up_conv_cls_name, modules_lib)}
 
         # Factories for creating modules for additional modalities
         if self.is_multimodal:
             for m in self._modalities:
                 modality_opt = getattr(opt.down_conv, m)
-                self._module_factories[m] = ModalityFactory(modality_opt.module_name, modality_opt.merge.module_name, m)
+                self._module_factories[m] = ModalityFactory(m,
+                    modality_opt.module_name, modality_opt.merge.module_name)
 
         # Innermost module
-        contains_global = hasattr(opt, "innermost") and opt.innermost is not None
+        contains_global = hasattr(opt, "innermost") \
+                          and opt.innermost is not None
         if contains_global:
             inners = self._create_inner_modules(opt.innermost, modules_lib)
             for inner in inners:
@@ -424,23 +432,29 @@ class UnwrappedUnetBasedModel(BaseModel):
             for i in range(len(opt.down_conv.down_conv_nn) // 2):
 
                 # Build first 3D down conv module - affects sampling
-                down_conv_3d = self._build_module(opt.down_conv, 2 * i, flow="DOWN")
+                down_conv_3d = self._build_module(
+                    opt.down_conv, 2 * i, flow="DOWN")
                 self._save_sampling_and_search(down_conv_3d)
 
                 # Build the second 3D conv module - should not affect sampling
-                conv_3d = self._build_module(opt.down_conv, 2 * i + 1, flow="DOWN")
+                conv_3d = self._build_module(
+                    opt.down_conv, 2 * i + 1, flow="DOWN")
                 self._save_sampling_and_search(conv_3d)
 
                 # Build the conv and merge modules for each modality
                 # Prepare MMBlockDown expected input format
                 modal_conv = {}
                 for m in self._modalities:
-                    conv = self._build_module(getattr(opt.down_conv, m), i, modality=m)
-                    merge = self._build_module(getattr(opt.down_conv, m).merge, i, modality=m, flow='MERGE')
+                    conv = self._build_module(
+                        getattr(opt.down_conv, m), i, modality=m)
+                    merge = self._build_module(
+                        getattr(opt.down_conv, m).merge, i, modality=m,
+                        flow='MERGE')
                     modal_conv[m] = {'conv': conv, 'merge': merge}
 
                 # Build the multimodal block
-                self.down_modules.append(MultimodalBlockDown(down_conv_3d, conv_3d, **modal_conv))
+                self.down_modules.append(
+                    MultimodalBlockDown(down_conv_3d, conv_3d, **modal_conv))
 
         # Up modules
         if up_conv_cls_name:
@@ -449,9 +463,9 @@ class UnwrappedUnetBasedModel(BaseModel):
                 self._save_upsample(up_module)
                 self.up_modules.append(up_module)
 
-        self.metric_loss_module, self.miner_module = BaseModel.get_metric_loss_and_miner(
-            getattr(opt, "metric_loss", None), getattr(opt, "miner", None)
-        )
+        self.metric_loss_module, self.miner_module = \
+            BaseModel.get_metric_loss_and_miner(
+                getattr(opt, "metric_loss", None), getattr(opt, "miner", None))
 
     def _save_sampling_and_search(self, down_conv):
         sampler = getattr(down_conv, "sampler", None)
@@ -515,13 +529,15 @@ class UnwrappedUnetBasedModel(BaseModel):
         for o, v in opt.items():
             name = str(o).lower()
             if name in MODALITY_NAMES:
-                if getattr(v, "down_conv_nn", None) is not None and getattr(v, "merge", None) is not None:
+                if getattr(v, "down_conv_nn", None) is not None \
+                        and getattr(v, "merge", None) is not None:
                     # Check the modality config has expected format
                     modalities.append(name)
         return modalities
 
     def _get_factory(self, model_name, modules_lib):
-        factory_module_cls = getattr(modules_lib, "{}Factory".format(model_name), None)
+        factory_module_cls = getattr(
+            modules_lib, "{}Factory".format(model_name), None)
         if factory_module_cls is None:
             factory_module_cls = BaseFactory
         return factory_module_cls

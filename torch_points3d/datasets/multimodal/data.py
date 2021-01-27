@@ -60,6 +60,10 @@ class MMData(object):
     def num_images(self):
         return self.images.num_images
 
+    @property
+    def num_node_features(self):
+        return self.data.num_node_features
+
     def to(self, device):
         self.data = self.data.to(device)
         self.images = self.images.to(device)

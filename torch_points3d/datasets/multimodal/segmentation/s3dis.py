@@ -797,16 +797,16 @@ class S3DISFusedDataset(BaseDatasetMM):
         assert sampling_format == 'sphere', \
             f"Only sampling format 'sphere' is supported."
 
-        # self.train_dataset = S3DISSphereMM(
-        #     self._data_path,
-        #     sample_per_epoch=3000,
-        #     test_area=self.dataset_opt.fold,
-        #     split="train",
-        #     pre_collate_transform=self.pre_collate_transform,
-        #     transform=self.train_transform,
-        #     pre_transform_image=self.pre_transform_image,
-        #     transform_image=self.train_transform_image)
-        #
+        self.train_dataset = S3DISSphereMM(
+            self._data_path,
+            sample_per_epoch=3000,
+            test_area=self.dataset_opt.fold,
+            split="train",
+            pre_collate_transform=self.pre_collate_transform,
+            transform=self.train_transform,
+            pre_transform_image=self.pre_transform_image,
+            transform_image=self.train_transform_image)
+
         # self.val_dataset = S3DISSphereMM(
         #     self._data_path,
         #     sample_per_epoch=-1,

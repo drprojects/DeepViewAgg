@@ -20,10 +20,11 @@ class BimodalMerge(nn.Module):
     performed prior to the multimodal pooling.
     """
     def __init__(self, **kwargs):
+        super(BimodalMerge, self).__init__()
         self.pooling = BimodalPool(**kwargs)
         self.fusion = BimodalFusion(**kwargs)
 
     def forward(self, x_main, x_mod, mappings):
-        x_agg = self.poling(x_main, x_mod, mappings)
+        x_agg = self.pooling(x_main, x_mod, mappings)
         x_main = self.fusion(x_main, x_agg)
         return x_main, x_mod, mappings

@@ -6,15 +6,12 @@ from torch_points3d.core.common_modules.base_modules import Identity
 class MultimodalBlockDown(nn.Module):
     """Multimodal block with downsampling that looks like:
 
-    IN MMData         --- 3D Down Conv ---- Merge 1 --- Merge i ---- 3D Conv ---         OUT MMData
-                                              |           |
-                      --- Mod 1 Down Conv ----           |
-                                                        |
-                      ...                              |
-                                                      |
-                      --- Mod i Down Conv ------------
-
-                      ...
+    IN MMData    -- 3D Down Conv -- Merge 1 -- Merge i -- 3D Conv --    OUT MMData
+                                      |          |
+                 -- Mod 1 Down Conv --          |
+                          ...                  |
+                 -- Mod i Down Conv -----------
+                          ...
     """
     def __init__(self, down_block, conv_block, **kwargs):
         """Build the Multimodal module from already-instantiated modules.
@@ -22,7 +19,7 @@ class MultimodalBlockDown(nn.Module):
         holding the conv and merge modules under 'conv' and 'merge' keys.
         """
         # BaseModule initialization
-        super().__init__()
+        super(MultimodalBlockDown, self).__init__()
 
         # Blocks for the implicitly main modality: 3D
         self.down_block = down_block if down_block is not None else Identity
@@ -39,11 +36,16 @@ class MultimodalBlockDown(nn.Module):
 
         # Expose the 3D down_conv .sampler attribute (for UnwrappedUnetBasedModel)
         # TODO this is for KPConv, is it doing the intended, is it needed at all ?
-        self.sampler = [getattr(self.down_block, "sampler", None), getattr(self.down_block, "sampler", None)]
+        self.sampler = [getattr(self.down_block, "sampler", None),
+                        getattr(self.conv_block, "sampler", None)]
 
         # TODO : check layers compatibility
 
     def _init_from_kwargs(self, **kwargs):
+        """Kwargs are expected to carry fully-fledged modality-specific conv
+        and merge modules in the following format:
+            kwargs[modality] = {'conv': conv_block, 'merge': merge_block}.
+        """
         for m in MODALITY_NAMES:
             if m in kwargs.keys():
                 if 'conv' not in kwargs[m].keys():
@@ -61,6 +63,9 @@ class MultimodalBlockDown(nn.Module):
     def num_modalities(self):
         return len(self.modalities) + 1
 
+    def extra_repr(self):
+        return f"(modalities): {tuple(self.modalities)}"
+
     def forward(self, mm_data):
         # TODO : what about SparseTensor and other weird formats ?
         # Conv on the main 3D modality - assumed to reduce 3D resolution
@@ -68,13 +73,15 @@ class MultimodalBlockDown(nn.Module):
 
         for m in self.modalities:
             # Update mappings after the 3D down conv
-            # TODO : recover sampling indices and update mappings based on the 3D downconv. KpConv uses GridSampling3D,
-            #  PointNet++ uses FPS sampler, SparseConv uses strides, ... Not uniform. Should store sampling idx in the
-            #  conv module after sampling ?
+            # TODO : recover sampling indices and update mappings based on the
+            #  3D downconv. KpConv uses GridSampling3D, PointNet++ uses FPS
+            #  sampler, SparseConv uses strides, ... Not uniform. Should store
+            #  sampling idx in the conv module after sampling ?
             mm_data.modalities[m].mappings = update_mappings(mm_data)
 
             # Conv on the modality-specific data
-            mm_data.modalities[m].data = self.modality_blocks[m]['conv'](mm_data.modalities[m].data)
+            mm_data.modalities[m].data = self.modality_blocks[m]['conv'](
+                mm_data.modalities[m].data)
 
             # Update mappings after modality conv
             # TODO : update mappings after modality conv
@@ -82,7 +89,7 @@ class MultimodalBlockDown(nn.Module):
 
             # Merge the modality into the main 3D features
             # TODO : create merge blocks class. Are they modality-specific ?
-            mm_data.data = self.merge_block_mod(
+            mm_data.data = self.modality_blocks[m]['merge'](
                 mm_data.data,
                 mm_data.modalities[m].data,
                 mm_data.modalities[m].mappings
