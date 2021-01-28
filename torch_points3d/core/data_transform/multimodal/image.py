@@ -103,7 +103,7 @@ class NonStaticMask(ImageTransform):
 
         # Compute the mask of identical pixels across a range of
         # 'n_sample' sampled images
-        n_sample = min(self.n_sample, images.num_images)
+        n_sample = min(self.n_sample, images.num_views)
         if n_sample < 2:
             mask = torch.ones(images.proj_size, dtype=torch.bool)
         else:
@@ -112,7 +112,7 @@ class NonStaticMask(ImageTransform):
 
             # Iteratively update the mask w.r.t. a reference image
             idx = torch.multinomial(
-                torch.arange(images.num_images, dtype=torch.float), n_sample)
+                torch.arange(images.num_views, dtype=torch.float), n_sample)
 
             # Read individual RGB images and squeeze them shape 3xHxW
             img_1 = images.read_images(idx=idx[0], size=images.proj_size
@@ -164,7 +164,7 @@ class MapImages(ImageTransform):
     def _process(self, data: Data, images: ImageData):
         assert hasattr(data, self.key)
         assert isinstance(images, ImageData)
-        assert images.num_images >= 1, \
+        assert images.num_views >= 1, \
             "At least one image must be provided."
 
         # Edit ImageData internal state attributes
@@ -342,10 +342,11 @@ class MapImages(ImageTransform):
 
 class SelectMappingFromPointId(ImageTransform):
     """
-    Transform-like structure. Intended to be called on data and images_data.
+    Transform-like structure. Intended to be called on data and
+    images_data.
 
-    Populate the passed Data sample with attributes extracted from the input
-    CSRData mappings, based on the self.key point identifiers.
+    Populate the passed Data sample with attributes extracted from the
+    input CSRData mappings, based on the self.key point identifiers.
 
     The indices in data are expected to be included in those in
     mappings. The CSRData format implicitly holds values for all
@@ -361,33 +362,13 @@ class SelectMappingFromPointId(ImageTransform):
         assert isinstance(images, ImageData)
         assert images.mappings is not None
 
-        # Point indices to subselect mappings. Selected mappings are
-        # sorted by their order in point_indices. NB: just like images,
-        # the same point may be used multiple times.
-        mappings = images.mappings[data[self.key]]
+        # Select mappings and images wrt point key indices
+        images = images.select_points(data[self.key], mode='pick')
 
         # Update point indices to the new mappings length. This is
         # important to preserve the mappings and for multimodal data
         # batching mechanisms.
         data[self.key] = torch.arange(data.num_nodes)
-
-        # Subselect the images used in the mappings. Selected images
-        # are sorted by their order in image_indices. Mappings'
-        # image indices will also be updated to the new ones.
-        # Mappings are temporarily removed from the images as they will
-        # be affected by the indexing on images.
-        seen_image_ids = lexunique(mappings.images)
-        images.mappings = None
-        images = images[seen_image_ids]
-        images.mappings = mappings.index_images(seen_image_ids)
-
-        # # Update image indices to the new images length. This is
-        # # important for preserving the mappings and for multimodal data
-        # # batching mechanisms.
-        # mappings.images = torch.bucketize(mappings.images, seen_image_ids)
-        #
-        # # Save the mapping in the ImageData
-        # images.mappings = mappings
 
         return data, images
 
@@ -486,7 +467,7 @@ class CenterRoll(ImageTransform):
         roll_idx = w_cost.min(axis=1).indices
         rollings = (rolls[roll_idx] / 256. * images.ref_size[0]).long()
         # Make sure the image ids are preserved
-        assert (idx == torch.arange(images.num_images)).all(), \
+        assert (idx == torch.arange(images.num_views)).all(), \
             "Image indices discrepancy in the rollings."
 
         # Edit images internal state
@@ -540,7 +521,7 @@ class CropImageGroups(ImageTransform):
         crop_families = {}
         size = (self.min_size, self.min_size)
         i_crop = 0
-        image_ids = torch.arange(images.num_images)
+        image_ids = torch.arange(images.num_views)
         while all(a <= b for a, b in zip(size, images.img_size)):
             if image_ids.shape[0] == 0:
                 break
@@ -608,13 +589,13 @@ class PadImages(ImageTransform):
 class AddPixelHeightFeature(ImageTransform):
     """Transform to add the pixel height to the image features."""
     def _process(self, data: Data, images: ImageData):
-        if images.images is None:
+        if images.x is None:
             images.load()
 
-        batch, channels, height, width = images.images.shape
+        batch, channels, height, width = images.x.shape
         feat = torch.linspace(0, 1, height).float()
         feat = feat.view(1, 1, height, 1).repeat(batch, 1, 1, width)
-        images.images = torch.cat((images.images, feat), 1)
+        images.x = torch.cat((images.x, feat), 1)
 
         return data, images
 
@@ -622,13 +603,13 @@ class AddPixelHeightFeature(ImageTransform):
 class AddPixelWidthFeature(ImageTransform):
     """Transform to add the pixel width to the image features."""
     def _process(self, data: Data, images: ImageData):
-        if images.images is None:
+        if images.x is None:
             images.load()
 
-        batch, channels, height, width = images.images.shape
+        batch, channels, height, width = images.x.shape
         feat = torch.linspace(0, 1, width).float()
         feat = feat.view(1, 1, 1, width).repeat(batch, 1, height, 1)
-        images.images = torch.cat((images.images, feat), 1)
+        images.x = torch.cat((images.x, feat), 1)
 
         return data, images
 
@@ -645,11 +626,11 @@ class RandomHorizontalFlip(ImageTransform):
         self.p = p
 
     def _process(self, data: Data, images: ImageData):
-        if images.images is None:
+        if images.x is None:
             images.load()
 
         if torch.rand(1) <= self.p:
-            images.images = torch.flip(images.images, [3])
+            images.x = torch.flip(images.x, [3])
             _, _, _, width = images.shape
             images.mappings.pixels[:, 0] = \
                 width - 1 - images.mappings.pixels[:, 0]
@@ -660,10 +641,10 @@ class RandomHorizontalFlip(ImageTransform):
 class ToFloatImage(ImageTransform):
     """Transform to convert [0, 255] uint8 images into [0, 1] float tensors."""
     def _process(self, data: Data, images: ImageData):
-        if images.images is None:
+        if images.x is None:
             images.load()
 
-        images.images = images.images.float() / 255
+        images.x = images.x.float() / 255
 
         return data, images
 
@@ -675,8 +656,8 @@ class TorchvisionTransform(ImageTransform):
         raise NotImplementedError
 
     def _process(self, data: Data, images: ImageData):
-        images.images = torch.cat([self.transform(im).unsqueeze(0) 
-                                   for im in images.images], dim=0)
+        images.x = torch.cat([self.transform(im).unsqueeze(0)
+                              for im in images.x], dim=0)
         return data, images
 
     def __repr__(self):

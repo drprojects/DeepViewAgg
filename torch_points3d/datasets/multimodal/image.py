@@ -4,11 +4,11 @@ from PIL import Image
 import torch
 import torch_scatter
 from typing import List
-
 from torch_points3d.datasets.multimodal.csr import CSRData, CSRBatch
-from torch_points3d.utils.multimodal import lexargsort, lexargunique, \
-    CompositeTensor
+from torch_points3d.utils.multimodal import lexargsort, lexunique, \
+    lexargunique, CompositeTensor
 from torch_points3d.utils.multimodal import tensor_idx
+
 
 
 class ImageData(object):
@@ -34,41 +34,27 @@ class ImageData(object):
         growth_k:float          pixel growth factor
         growth_r:float          pixel growth radius
 
-        images:Tensor           tensor of images or image features
+        x:Tensor                tensor of features
         mappings:ImageMapping   mappings between 3D points and the images
         mask:BoolTensor         projection mask
     """
     _numpy_keys = ['path']
     _torch_keys = ['pos', 'opk', 'crop_offsets', 'rollings']
     _map_key = 'mappings'
-    _img_key = 'images'
+    _x_key = 'x'
     _mask_key = 'mask'
     _shared_keys = ['ref_size', 'proj_upscale', 'downscale', 'crop_size',
-                    'voxel', 'r_max', 'r_min', 'growth_k', 'growth_r'] \
-                   + [_mask_key]
-    _own_keys = _numpy_keys + _torch_keys + [_map_key, _img_key]
+                    'voxel', 'r_max', 'r_min', 'growth_k', 'growth_r',
+                    _mask_key]
+    _own_keys = _numpy_keys + _torch_keys + [_map_key, _x_key]
     _keys = _shared_keys + _own_keys
 
     def __init__(
-            self,
-            path=np.empty(0, dtype='O'),
-            pos=torch.empty([0, 3]),
-            opk=torch.empty([0, 3]),
-            ref_size=(512, 256),
-            proj_upscale=2,
-            downscale=1,
-            rollings=None,
-            crop_size=None,
-            crop_offsets=None,
-            voxel=0.1,
-            r_max=30,
-            r_min=0.5,
-            growth_k=0.2,
-            growth_r=10,
-            images=None,
-            mappings=None,
-            mask=None,
-            **kwargs):
+            self, path=np.empty(0, dtype='O'), pos=torch.empty([0, 3]),
+            opk=torch.empty([0, 3]), ref_size=(512, 256), proj_upscale=2,
+            downscale=1, rollings=None, crop_size=None, crop_offsets=None,
+            voxel=0.1, r_max=30, r_min=0.5, growth_k=0.2, growth_r=10, x=None,
+            mappings=None, mask=None, **kwargs):
 
         assert path.shape[0] == pos.shape[0] == opk.shape[0], \
             f"Attributes 'path', 'pos' and 'opk' must have the same length."
@@ -80,7 +66,7 @@ class ImageData(object):
         self._downscale = None
         self._crop_size = None
         self._crop_offsets = None
-        self._images = None
+        self._x = None
         self._mappings = None
         self._mask = None
 
@@ -91,17 +77,17 @@ class ImageData(object):
         self.ref_size = ref_size
         self.proj_upscale = proj_upscale
         self.rollings = rollings if rollings is not None \
-            else torch.zeros(self.num_images, dtype=torch.int64)
+            else torch.zeros(self.num_views, dtype=torch.int64)
         self.crop_size = crop_size if crop_size is not None else self.ref_size
         self.crop_offsets = crop_offsets if crop_offsets is not None \
-            else torch.zeros((self.num_images, 2), dtype=torch.int64)
+            else torch.zeros((self.num_views, 2), dtype=torch.int64)
         self.downscale = downscale
         self.voxel = voxel
         self.r_max = r_max
         self.r_min = r_min
         self.growth_k = growth_k
         self.growth_r = growth_r
-        self.images = images
+        self.x = x
         self.mappings = mappings
         self.mask = mask
 
@@ -118,32 +104,32 @@ class ImageData(object):
         assert self.proj_upscale >= 1, \
             f"Expected scalar larger than 1 but got {self.proj_upscale} " \
             f"instead."
-        assert self.rollings.shape[0] == self.num_images, \
-            f"Expected tensor of size {self.num_images} but got " \
+        assert self.rollings.shape[0] == self.num_views, \
+            f"Expected tensor of size {self.num_views} but got " \
             f"{self.rollings.shape[0]} instead."
         assert len(tuple(self.crop_size)) == 2, \
             f"Expected len(crop_size)=2 but got {len(self.crop_size)} instead."
         assert all(a <= b for a, b in zip(self.crop_size, self.ref_size)), \
             f"Expected size smaller than {self.ref_size} but got " \
             f"{self.crop_size} instead."
-        assert self.crop_offsets.shape == (self.num_images, 2), \
-            f"Expected tensor of shape {(self.num_images, 2)} but got " \
+        assert self.crop_offsets.shape == (self.num_views, 2), \
+            f"Expected tensor of shape {(self.num_views, 2)} but got " \
             f"{self.crop_offsets.shape} instead."
         assert self._downscale >= 1, \
             f"Expected scalar larger than 1 but got {self._downscale} instead."
 
-        if self.images is not None:
-            assert isinstance(self.images, torch.Tensor), \
-                f"Expected a tensor of images but got {type(self.images)} " \
+        if self.x is not None:
+            assert isinstance(self.x, torch.Tensor), \
+                f"Expected a tensor of image features but got {type(self.x)} " \
                 f"instead."
-            assert self.images.shape[0] == self.num_images \
-                   and self.images.shape[2] == self.img_size[1] \
-                   and self.images.shape[3] == self.img_size[0], \
-                f"Expected a tensor of shape ({self.num_images}, :, " \
+            assert self.x.shape[0] == self.num_views \
+                   and self.x.shape[2] == self.img_size[1] \
+                   and self.x.shape[3] == self.img_size[0], \
+                f"Expected a tensor of shape ({self.num_views}, :, " \
                 f"{self.img_size[1]}, {self.img_size[0]}) but got " \
-                f"{self.images.shape} instead."
-            assert self.device == self.images.device, \
-                f"Discrepancy in the devices of 'pos' and 'images' " \
+                f"{self.x.shape} instead."
+            assert self.device == self.x.device, \
+                f"Discrepancy in the devices of 'pos' and 'x' " \
                 f"attributes. Please use `ImageData.to()` to set the device."
 
         if self.mappings is not None:
@@ -151,7 +137,7 @@ class ImageData(object):
                 f"Expected an ImageMapping but got {type(self.mappings)} " \
                 f"instead."
             unique_idx = torch.unique(self.mappings.images)
-            img_idx = torch.arange(self.num_images)
+            img_idx = torch.arange(self.num_views)
             assert (unique_idx == img_idx).all(), \
                 f"Image indices in the mappings do not match the ImageData " \
                 f"image indices."
@@ -178,7 +164,7 @@ class ImageData(object):
         return {key: getattr(self, key) for key in self._keys}
 
     @property
-    def num_images(self):
+    def num_views(self):
         return self.pos.shape[0]
 
     @property
@@ -191,7 +177,7 @@ class ImageData(object):
     @property
     def img_size(self):
         """
-        Current size of the 'images' and 'mappings'. Depends on the
+        Current size of the 'x' and 'mappings'. Depends on the
         cropping size and the downsampling scale.
         """
         return tuple(int(x / self.downscale) for x in self.crop_size)
@@ -199,7 +185,7 @@ class ImageData(object):
     @property
     def ref_size(self):
         """
-        Initial size of the loaded images and the mappings.
+        Initial size of the loaded image features and the mappings.
 
         This size is used as reference to characterize other ImageData
         attributes such as the crop offsets, resolution. As such, it
@@ -210,12 +196,12 @@ class ImageData(object):
     @ref_size.setter
     def ref_size(self, ref_size):
         ref_size = tuple(ref_size)
-        assert (self.images is None
+        assert (self.x is None
                 and self.mappings is None
                 and self.mask is None) \
                or self.ref_size == ref_size, \
-            "Can't directly edit 'ref_size' if 'images', 'mappings' and 'mask' are " \
-            "not all None."
+            "Can't directly edit 'ref_size' if 'x', 'mappings' and 'mask' " \
+            "are not all None."
         assert len(ref_size) == 2, \
             f"Expected len(ref_size)=2 but got {len(ref_size)} instead."
         self._ref_size = ref_size
@@ -276,20 +262,20 @@ class ImageData(object):
 
         By convention, rolling is applied first, then cropping, then
         resizing. For that reason, rollings should be defined before
-        'images' or 'mappings' are cropped or resized.
+        'x' or 'mappings' are cropped or resized.
         """
         return self._rollings
 
     @rollings.setter
     def rollings(self, rollings):
-        assert (self.images is None and self.mappings is None) \
+        assert (self.x is None and self.mappings is None) \
                or (self.rollings == rollings).all(), \
-            "Can't directly edit 'rollings' if 'images' or 'mappings' are " \
+            "Can't directly edit 'rollings' if 'x' or 'mappings' are " \
             "not both None. Consider using 'update_rollings'."
         assert isinstance(rollings, torch.LongTensor), \
             f"Expected LongTensor but got {type(rollings)} instead."
-        assert rollings.shape[0] == self.num_images, \
-            f"Expected tensor of size {self.num_images} but got " \
+        assert rollings.shape[0] == self.num_views, \
+            f"Expected tensor of size {self.num_views} but got " \
             f"{rollings.shape[0]} instead."
         self._rollings = rollings.to(self.device)
 
@@ -320,12 +306,12 @@ class ImageData(object):
         # Edit the internal rollings attribute
         self._rollings = rollings
 
-        # Roll the images
-        if self.images is not None:
-            images = [torch.roll(im, roll.item(), dims=-1)
-                      for im, roll in zip(self.images, self.rollings)]
-            images = torch.cat([im.unsqueeze(0) for im in images])
-            self.images = images
+        # Roll the image features
+        if self.x is not None:
+            x = [torch.roll(im, roll.item(), dims=-1)
+                 for im, roll in zip(self.x, self.rollings)]
+            x = torch.cat([im.unsqueeze(0) for im in x])
+            self.x = x
 
         # Roll the mappings
         if self.mappings is not None:
@@ -351,7 +337,7 @@ class ImageData(object):
         Size of the cropping to apply to the 'ref_size' to obtain the
         current image cropping.
 
-        This size is used to characterize 'images' and 'mappings'. As
+        This size is used to characterize 'x' and 'mappings'. As
         such, it should not be modified directly.
         """
         return self._crop_size
@@ -359,9 +345,9 @@ class ImageData(object):
     @crop_size.setter
     def crop_size(self, crop_size):
         crop_size = tuple(crop_size)
-        assert (self.images is None and self.mappings is None) \
+        assert (self.x is None and self.mappings is None) \
                or self.crop_size == crop_size, \
-            "Can't directly edit 'crop_size' if 'images' or 'mappings' are " \
+            "Can't directly edit 'crop_size' if 'x' or 'mappings' are " \
             "not both None. Consider using 'update_cropping'."
         assert len(crop_size) == 2, \
             f"Expected len(crop_size)=2 but got {len(crop_size)} instead."
@@ -378,22 +364,22 @@ class ImageData(object):
         boxes to apply to the 'ref_size' in order to obtain the current
         image cropping.
 
-        These offsets must match the 'num_images' and is used to
-        characterize 'images' and 'mappings'. As such, it should not be
+        These offsets must match the 'num_views' and is used to
+        characterize 'x' and 'mappings'. As such, it should not be
         modified directly.
         """
         return self._crop_offsets
 
     @crop_offsets.setter
     def crop_offsets(self, crop_offsets):
-        assert (self.images is None and self.mappings is None) \
+        assert (self.x is None and self.mappings is None) \
                or (self.crop_offsets == crop_offsets).all(), \
-            "Can't directly edit 'crop_offsets' if 'images' or 'mappings' " \
+            "Can't directly edit 'crop_offsets' if 'x' or 'mappings' " \
             "are not both None. Consider using 'update_cropping'."
         assert isinstance(crop_offsets, torch.LongTensor), \
             f"Expected LongTensor but got {type(crop_offsets)} instead."
-        assert crop_offsets.shape == (self.num_images, 2), \
-            f"Expected tensor of shape {(self.num_images, 2)} but got " \
+        assert crop_offsets.shape == (self.num_views, 2), \
+            f"Expected tensor of shape {(self.num_views, 2)} but got " \
             f"{crop_offsets.shape} instead."
         self._crop_offsets = crop_offsets.to(self.device)
 
@@ -405,7 +391,7 @@ class ImageData(object):
         Parameters crop_size and crop_offsets are resized to the
         'ref_size'
 
-        Crop the 'images' and 'mappings', with respect to their current
+        Crop the 'x' and 'mappings', with respect to their current
         'img_size' (as opposed to the 'ref_size').
         """
         # Update the private 'crop_size' and 'crop_offsets' attributes
@@ -415,20 +401,15 @@ class ImageData(object):
         self._crop_offsets = (self.crop_offsets
                               + crop_offsets * self.downscale).long()
 
-        # Update the images cropping
-        #   - Images have format: BxCxHxW
+        # Update the images' cropping
+        #   - Image features have format: BxCxHxW
         #   - Crop size has format: (W, H)
         #   - Crop offsets have format: (W, H)
-        if self.images is not None:
-            # self.images = self.images[
-            #               :,
-            #               :,
-            #               crop_offsets[:, 1]:crop_offsets[:, 1] + crop_size[1],
-            #               crop_offsets[:, 0]:crop_offsets[:, 0] + crop_size[0]]
-            images = [i[:, o[1]:o[1] + crop_size[1], o[0]:o[0] + crop_size[0]]
-                      for i, o in zip(self.images, crop_offsets)]
-            images = torch.cat([im.unsqueeze(0) for im in images])
-            self.images = images
+        if self.x is not None:
+            x = [i[:, o[1]:o[1] + crop_size[1], o[0]:o[0] + crop_size[0]]
+                 for i, o in zip(self.x, crop_offsets)]
+            x = torch.cat([im.unsqueeze(0) for im in x])
+            self.x = x
 
         # Update the mappings
         if self.mappings is not None:
@@ -448,10 +429,10 @@ class ImageData(object):
 
     @downscale.setter
     def downscale(self, scale):
-        assert (self.images is None and self.mappings is None) \
+        assert (self.x is None and self.mappings is None) \
                or self.downscale == scale, \
-            "Can't directly edit 'downscale' if 'images' or 'mappings' are " \
-            "not both None. Consider using 'update_downscaling'."
+            "Can't directly edit 'downscale' if 'x' or 'mappings' are " \
+            "not both None. Consider using 'update_features_and_scale'."
         assert scale >= 1, \
             f"Expected scalar larger than 1 but got {scale} instead."
         # assert isinstance(scale, int), \
@@ -460,59 +441,53 @@ class ImageData(object):
         #     f"Expected a power of 2 but got {scale} instead."
         self._downscale = scale
 
-    def update_downscaling(self, images=None, scale=1):
+    def update_features_and_scale(self, x):
         """
         Update the downscaling state of the ImageData, WITH RESPECT TO
         ITS CURRENT STATE 'img_size'.
 
-        Downscaling 'images' attribute is ambiguous. As such, they are
+        Downscaling 'x' attribute is ambiguous. As such, they are
         expected to be scaled outside of the ImageData object before
-        being passed to 'update_downscaling', for 'downscale' and
+        being passed to 'update_features_and_scale', for 'downscale' and
         'mappings' to be updated accordingly.
         """
-        if images is not None:
-            # Update internal attributes based on the input
-            # downscaled images
-            scale = self.img_size[0] / images.shape[3]
-            self._downscale = self.downscale * scale
-            self.images = images
-        else:
-            assert self.images is None, \
-                "Can't directly edit 'downscale' if 'images' are not None " \
-                "and not already resized to new scale. Image resizing is " \
-                "ambiguous and should be performed outside of ImageData and " \
-                "provided as input to 'update_downscaling'."
-            self._downscale = self.downscale * scale
+        # Update internal attributes based on the input
+        # downscaled image features
+        scale = self.img_size[0] / x.shape[3]
+        self._downscale = self.downscale * scale
+        self.x = x
 
         if scale > 1:
-            self.mappings = self.mappings.subsample_2d(scale) \
+            self.mappings = self.mappings.downscale_views(scale) \
                 if self.mappings is not None else None
         
         return self
 
     @property
-    def images(self):
+    def x(self):
         """
-        Tensor of loaded images with shape NxCxHxW, where N='num_images'
-        and (W, H)='img_size'. Can be None if no images were loaded.
+        Tensor of loaded image features with shape NxCxHxW, where
+        N='num_views' and (W, H)='img_size'. Can be None if no image
+        features were loaded.
 
         For clean load, consider using 'ImageData.load()'.
         """
-        return self._images
+        return self._x
 
-    @images.setter
-    def images(self, images):
-        if images is None:
-            self._images = None
+    @x.setter
+    def x(self, x):
+        if x is None:
+            self._x = None
         else:
-            assert isinstance(images, torch.Tensor), \
-                f"Expected a tensor of images but got {type(images)} instead."
-            assert images.shape[0] == self.num_images \
-                   and images.shape[2:][::-1] == self.img_size, \
-                f"Expected a tensor of shape ({self.num_images}, :, " \
+            assert isinstance(x, torch.Tensor), \
+                f"Expected a tensor of image features but got {type(x)} " \
+                f"instead."
+            assert x.shape[0] == self.num_views \
+                   and x.shape[2:][::-1] == self.img_size, \
+                f"Expected a tensor of shape ({self.num_views}, :, " \
                 f"{self.img_size[1]}, {self.img_size[0]}) but got " \
-                f"{images.shape} instead."
-            self._images = images.to(self.device)
+                f"{x.shape} instead."
+            self._x = x.to(self.device)
 
     @property
     def mappings(self):
@@ -520,7 +495,7 @@ class ImageData(object):
         ImageMapping data mapping 3D points to the images.
 
         The state of the mappings is closely linked to the state of the
-        images. The image indices must agree with 'num_images', the
+        images. The image indices must agree with 'num_views', the
         pixel coordinates must correspond to the current 'img_size',
         scaling and cropping. As such, it is recommended not to
         manipulate the mappings directly.
@@ -535,7 +510,7 @@ class ImageData(object):
             assert isinstance(mappings, ImageMapping), \
                 f"Expected an ImageMapping but got {type(mappings)} instead."
             unique_idx = torch.unique(mappings.images)
-            img_idx = torch.arange(self.num_images)
+            img_idx = torch.arange(self.num_views)
             assert (unique_idx == img_idx).all(), \
                 f"Image indices in the mappings do not match the ImageData " \
                 f"image indices."
@@ -544,6 +519,79 @@ class ImageData(object):
                 f"Max pixel values should be smaller than ({self.img_size}) " \
                 f"but got ({w_max, h_max}) instead."
             self._mappings = mappings.to(self.device)
+
+    def select_points(self, idx, mode='pick'):
+        """
+        Update the 3D points sampling. Typically called after a 3D
+        sampling or strided convolution layer in a 3D CNN encoder. For
+        mappings to preserve their meaning, the corresponding 3D points
+        are assumed to have been sampled with the same index.
+
+        To update the 3D resolution in the modality data and mappings,
+        two methods - ruled by the `mode` parameter - may be used:
+        picking or merging.
+
+          - 'pick' (default): only a subset of points is sampled, the
+            rest is discarded. In this case, a 1D indexing array must be
+            provided.
+
+          - 'merge': points are agglomerated. The mappings are combined,
+            duplicates are removed. If any other value (such as
+            projection features) is present in the mapping, the value
+            of one of the duplicates is picked at random. In this case,
+            the correspondence map for the N points in the mapping must
+            be provided as a 1D array of size N such that i -> idx[i].
+
+        Returns a new ImageData object.
+        """
+        # TODO: careful with the device used at train time. Can't rely
+        #  on CUDA...
+        # TODO: make sure the merge mode works on real data...
+
+        # Images are not affected if no mappings are present or idx is
+        # None
+        if self.mappings is None or idx is None:
+            return self.clone()
+
+        # Work on a clone of self, to avoid in-place modifications.
+        idx = tensor_idx(idx)
+        images = self.clone()
+
+        # Picking mode by default
+        if mode == 'pick':
+            # Select mappings wrt the point index
+            mappings = images.mappings.select_points(idx, mode=mode)
+
+            # Select the images used in the mappings. Selected images
+            # are sorted by their order in image_indices. Mappings'
+            # image indices will also be updated to the new ones.
+            # Mappings are temporarily removed from the images as they will
+            # be affected by the indexing on images.
+            seen_image_idx = lexunique(mappings.images)
+            images.mappings = None
+            images = images[seen_image_idx]
+            images.mappings = mappings.select_views(seen_image_idx)
+
+            return images
+
+        # Merge mode
+        elif mode == 'merge':
+            assert idx.shape[0] == self.num_points, \
+                f"Merge correspondences has size {idx.shape[0]} but size " \
+                f"{self.num_points} was expected."
+            assert (torch.arange(idx.max() + 1) == torch.unique(idx)).all(), \
+                "Merge correspondences must map to a compact set of " \
+                "indices."
+
+            # Select mappings wrt the point index
+            # Images are not modified, since the 'merge' mode
+            # guarantees no image is discarded
+            images.mappings = images.mappings.select_points(idx, mode=mode)
+
+        else:
+            raise ValueError(f"Unknown point selection mode '{mode}'.")
+
+        return images
 
     @property
     def mask(self):
@@ -568,15 +616,15 @@ class ImageData(object):
 
     def load(self):
         """
-        Load images to the 'images' attribute.
+        Load images to the 'x' attribute.
 
         Images are batched into a tensor of size NxCxHxW, where
-        N='num_images' and (W, H)='img_size'. They are read with
+        N='num_views' and (W, H)='img_size'. They are read with
         respect to their order in 'path', resized to 'ref_size', rolled
         with 'rollings', cropped with 'crop_size' and 'crop_offsets'
         and subsampled by 'downscale'.
         """
-        self._images = self.read_images(
+        self._x = self.read_images(
             size=self.ref_size,
             rollings=self.rollings,
             crop_size=self.crop_size,
@@ -599,13 +647,13 @@ class ImageData(object):
         """
         # Index to select part of the images in 'path'
         if idx is None:
-            idx = np.arange(self.num_images)
+            idx = np.arange(self.num_views)
         elif isinstance(idx, int):
             idx = np.array([idx])
         elif isinstance(idx, torch.Tensor):
             idx = np.asarray(idx)
         elif isinstance(idx, slice):
-            idx = np.arange(self.num_images)[idx]
+            idx = np.arange(self.num_views)[idx]
         if len(idx.shape) < 1:
             idx = np.array([idx])
 
@@ -691,8 +739,8 @@ class ImageData(object):
         return images
 
     def __len__(self):
-        """Returns the number of images present."""
-        return self.num_images
+        """Returns the number of image views in the ImageData."""
+        return self.num_views
 
     def __getitem__(self, idx):
         """
@@ -723,8 +771,8 @@ class ImageData(object):
             r_min=copy.deepcopy(self.r_min),
             growth_k=copy.deepcopy(self.growth_k),
             growth_r=copy.deepcopy(self.growth_r),
-            images=self.images[idx] if self.images is not None else None,
-            mappings=self.mappings.index_images(idx)
+            x=self.x[idx] if self.x is not None else None,
+            mappings=self.mappings.select_views(idx)
             if self.mappings is not None else None,
             mask=self.mask if self.mask is not None else None)
 
@@ -733,23 +781,23 @@ class ImageData(object):
         Iteration mechanism.
         
         Looping over the ImageData will return an ImageData for each
-        individual item.
+        individual image view.
         """
         i: int
         for i in range(self.__len__()):
             yield self[i]
 
     def __repr__(self):
-        return f"{self.__class__.__name__}(num_images={self.num_images}, " \
+        return f"{self.__class__.__name__}(num_views={self.num_views}, " \
                f"num_points={self.num_points}, device={self.device})"
 
     def clone(self):
         """
-        Returns a shallow copy of self, except for 'images' and 'mappings',
+        Returns a shallow copy of self, except for 'x' and 'mappings',
         which are cloned as they may carry gradients.
         """
         out = copy.copy(self)
-        out._images = self.images.clone() if self.images is not None \
+        out._x = self.x.clone() if self.x is not None \
             else None
         out._mappings = self.mappings.clone() if self.mappings is not None \
             else None
@@ -760,7 +808,7 @@ class ImageData(object):
         self.pos = self.pos.to(device)
         self.opk = self.opk.to(device)
         self.crop_offsets = self.crop_offsets.to(device)
-        self.images = self.images.to(device) if self.images is not None \
+        self.x = self.x.to(device) if self.x is not None \
             else None
         self.mappings = self.mappings.to(device) if self.mappings is not None \
             else None
@@ -784,8 +832,8 @@ class ImageData(object):
         keys = tuple(set(ImageData._shared_keys) - set([ImageData._mask_key]))
         return hash(tuple(getattr(self, k) for k in keys))
 
-    @classmethod
-    def get_batch_type(cls):
+    @staticmethod
+    def get_batch_type():
         """Required by MMData.from_mm_data_list."""
         return ImageBatch
 
@@ -827,7 +875,7 @@ class ImageBatch(ImageData):
         # Recover the attributes of the first ImageData to compare the
         # shared attributes with the other ImageData
         batch_dict = image_data_list[0].to_dict()
-        sizes = [image_data_list[0].num_images]
+        sizes = [image_data_list[0].num_views]
         for key in ImageData._own_keys:
             batch_dict[key] = [batch_dict[key]]
 
@@ -856,7 +904,7 @@ class ImageBatch(ImageData):
 
                 # Prepare the sizes for items recovery with
                 # .to_data_list
-                sizes.append(image_data.num_images)
+                sizes.append(image_data.num_views)
 
         # Concatenate numpy array attributes
         for key in ImageData._numpy_keys:
@@ -867,12 +915,12 @@ class ImageBatch(ImageData):
             batch_dict[key] = torch.cat(batch_dict[key])
 
         # Concatenate images, unless one of the items does not have
-        # images
-        if any(img is None for img in batch_dict[ImageData._img_key]):
-            batch_dict[ImageData._img_key] = None
+        # image features
+        if any(img is None for img in batch_dict[ImageData._x_key]):
+            batch_dict[ImageData._x_key] = None
         else:
-            batch_dict[ImageData._img_key] = torch.cat(
-                batch_dict[ImageData._img_key])
+            batch_dict[ImageData._x_key] = torch.cat(
+                batch_dict[ImageData._x_key])
 
         # Batch mappings, unless one of the items does not have mappings
         if any(mpg is None for mpg in batch_dict[ImageData._map_key]):
@@ -915,12 +963,28 @@ class MultiSettingImageData:
         return len(self)
 
     @property
-    def num_images(self):
-        return sum([im.num_images for im in self])
+    def num_views(self):
+        return sum([im.num_views for im in self])
 
     @property
     def num_points(self):
         return self[0].num_points
+
+    @property
+    def x(self):
+        return [im.x for im in self]
+
+    @x.setter
+    def x(self, x_list):
+        assert x_list is None or isinstance(x_list, list) \
+               and all(isinstance(x, torch.Tensor) for x in x_list), \
+            f"Expected a List(torch.Tensor) but got {type(x_list)} instead."
+
+        if x_list is None:
+            x_list = [None] * self.num_settings
+
+        for im, x in (self, x_list):
+            im.x = x
 
     def debug(self):
         assert isinstance(self._list, list), \
@@ -952,8 +1016,19 @@ class MultiSettingImageData:
 
     def __repr__(self):
         return f"{self.__class__.__name__}(num_settings={self.num_settings}, " \
-               f"num_images={self.num_images}, num_points={self.num_points}, " \
+               f"num_views={self.num_views}, num_points={self.num_points}, " \
                f"device={self.device})"
+
+    def select_points(self, idx, mode='pick'):
+        return self.__class__([im.select_points(idx, mode=mode) for im in self])
+
+    def update_features_and_scale(self, x_list):
+        assert isinstance(x_list, list) \
+               and all(isinstance(x, torch.Tensor) for x in x_list), \
+            f"Expected a List(torch.Tensor) but got {type(x_list)} instead."
+        self._list = [im.update_features_and_scale(x)
+                      for im, x in zip(self, x_list)]
+        return self
 
     # TODO: necessary multi-imaagedata pooling helpers
     def view_pooling_arangement_index(self):
@@ -982,8 +1057,8 @@ class MultiSettingImageData:
     def device(self):
         return self[0].device
 
-    @classmethod
-    def get_batch_type(cls):
+    @staticmethod
+    def get_batch_type():
         """Required by MMData.from_mm_data_list."""
         return MultiSettingImageBatch
 
@@ -1196,8 +1271,8 @@ class ImageMapping(CSRData):
     def pixels(self, pixels):
         self.values[1].values[0] = pixels
 
-    @classmethod
-    def get_batch_type(cls):
+    @staticmethod
+    def get_batch_type():
         """Required by CSRBatch.from_csr_list."""
         return ImageMappingBatch
 
@@ -1233,14 +1308,14 @@ class ImageMapping(CSRData):
         return idx_batch.long(), idx_height.long(), idx_width.long()
 
     @property
-    def atomic_pooling_indices(self):
+    def atomic_indexing(self):
         """
         Return the indices that will be used for atomic-level pooling.
         """
         raise NotImplementedError
 
     @property
-    def atomic_pooling_csr_indices(self):
+    def atomic_csr_indexing(self):
         """
         Return the indices that will be used for atomic-level pooling on
         CSR-formatted data.
@@ -1248,21 +1323,21 @@ class ImageMapping(CSRData):
         return self.values[1].pointers
 
     @property
-    def view_pooling_indices(self):
+    def view_indexing(self):
         """
         Return the indices that will be used for view-level pooling.
         """
         raise NotImplementedError
 
     @property
-    def view_pooling_csr_indices(self):
+    def view_csr_indexing(self):
         """
         Return the indices that will be used for view-level pooling on
         CSR-formatted data.
         """
         return self.pointers
 
-    def subsample_2d(self, ratio):
+    def downscale_views(self, ratio):
         """
         Update the image resolution after subsampling. Typically called
         after a pooling layer in an image CNN encoder.
@@ -1325,67 +1400,7 @@ class ImageMapping(CSRData):
 
         return out
 
-    def subsample_3d(self, idx, merge=False):
-        """
-        Update the 3D resolution after subsampling. Typically called
-        after a 3D sampling or sampling layer in a 3D CNN encoder.
-
-        To update the 3D resolution in the mappings, two methods may
-        be used picking and merging, ruled by the  `merge` parameter.
-
-          - Picking (default): only a subset of points is sampled, the
-            rest is discarded. In this case, a 1D indexing array must be
-            provided.
-
-          - Merging: points are agglomerated. The mappings are combined,
-            duplicates are removed. If any other value (such as
-            projection features) is present in the mapping, the value
-            of one of the duplicates is picked at random. In this case,
-            the correspondence map for the N points in the mapping must
-            be provided as a 1D array of size N.
-
-        Returns a new ImageMapping object.
-        """
-        # TODO: careful with the device used at train time. Can't rely
-        #  on CUDA...
-        # TODO: make sure the merge mode works on real data...
-        assert isinstance(idx, torch.LongTensor)
-
-        # Picking mode by default
-        if not merge:
-            return self[idx]
-
-        # Merge mode
-        assert idx.shape[0] == self.num_groups, \
-            f"Merge correspondences has size {idx.shape[0]} but size " \
-            f"{self.num_groups} was expected."
-        assert (torch.arange(idx.max()+1) == torch.unique(idx)).all(), \
-            "Merge correspondences must map to a compact set of " \
-            "indices."
-
-        # Expand to dense format
-        point_ids = torch.repeat_interleave(
-            idx, self.pointers[1:] - self.pointers[:-1])
-        point_ids = torch.repeat_interleave(
-            point_ids,
-            self.values[1].pointers[1:] - self.values[1].pointers[:-1])
-        image_ids = torch.repeat_interleave(
-            self.images,
-            self.values[1].pointers[1:] - self.values[1].pointers[:-1])
-        pixels = self.pixels
-
-        # Remove duplicates and aggregate projection features
-        idx_unique = lexargunique(point_ids, image_ids, pixels[:, 0],
-                                  pixels[:, 1])
-        point_ids = point_ids[idx_unique]
-        image_ids = image_ids[idx_unique]
-        pixels = pixels[idx_unique]
-
-        # Convert to CSR format
-        return ImageMapping.from_dense(point_ids, image_ids, pixels,
-                                       num_points=idx.max()+1)
-
-    def index_images(self, idx):
+    def select_views(self, idx):
         """
         Return a copy of self with images selected with idx.
 
@@ -1431,6 +1446,81 @@ class ImageMapping(CSRData):
         out = out.insert_empty_groups(point_ids, num_groups=self.num_groups)
 
         out.debug()
+
+        return out
+
+    def select_points(self, idx, mode='pick'):
+        """
+        Update the 3D points sampling. Typically called after a 3D
+        sampling or strided convolution layer in a 3D CNN encoder.
+
+        To update the 3D resolution in the modality data and mappings,
+        two methods - ruled by the `mode` parameter - may be used:
+        picking or merging.
+
+          - 'pick' (default): only a subset of points is sampled, the
+            rest is discarded. In this case, a 1D indexing array must be
+            provided.
+
+          - 'merge': points are agglomerated. The mappings are combined,
+            duplicates are removed. If any other value (such as
+            projection features) is present in the mapping, the value
+            of one of the duplicates is picked at random. In this case,
+            the correspondence map for the N points in the mapping must
+            be provided as a 1D array of size N.
+
+        Returns a new ImageMapping object.
+        """
+        # TODO: careful with the device used at train time. Can't rely
+        #  on CUDA...
+        # TODO: make sure the merge mode works on real data...
+        MODES = ['pick', 'merge']
+        assert mode in MODES, \
+            f"Unknown mode '{mode}'. Supported modes are {MODES}."
+        assert isinstance(idx, torch.LongTensor)
+
+        # Mappings are not affected if idx is None
+        if idx is None:
+            return self.clone()
+
+        idx = tensor_idx(idx)
+
+        # Picking mode by default
+        if mode == 'pick':
+            out = self[idx]
+
+        # Merge mode
+        elif mode == 'merge':
+            assert idx.shape[0] == self.num_groups, \
+                f"Merge correspondences has size {idx.shape[0]} but size " \
+                f"{self.num_groups} was expected."
+            assert (torch.arange(idx.max()+1) == torch.unique(idx)).all(), \
+                "Merge correspondences must map to a compact set of " \
+                "indices."
+
+            # Expand to dense format
+            point_ids = torch.repeat_interleave(
+                idx, self.pointers[1:] - self.pointers[:-1])
+            point_ids = torch.repeat_interleave(
+                point_ids,
+                self.values[1].pointers[1:] - self.values[1].pointers[:-1])
+            image_ids = torch.repeat_interleave(
+                self.images,
+                self.values[1].pointers[1:] - self.values[1].pointers[:-1])
+            pixels = self.pixels
+
+            # Remove duplicates and aggregate projection features
+            idx_unique = lexargunique(point_ids, image_ids, pixels[:, 0],
+                                      pixels[:, 1])
+            point_ids = point_ids[idx_unique]
+            image_ids = image_ids[idx_unique]
+            pixels = pixels[idx_unique]
+
+            # Convert to CSR format
+            out = ImageMapping.from_dense(point_ids, image_ids, pixels,
+                                          num_points=idx.max()+1)
+        else:
+            raise ValueError(f"Unknown point selection mode '{mode}'.")
 
         return out
 

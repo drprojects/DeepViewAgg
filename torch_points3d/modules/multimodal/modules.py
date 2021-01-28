@@ -1,6 +1,10 @@
+import torch
 import torch.nn as nn
 from torch_points3d.datasets.multimodal.data import MODALITY_NAMES
 from torch_points3d.core.common_modules.base_modules import Identity
+import MinkowskiEngine as me
+import torchsparse as ts
+from torchsparse.nn.functional import sphash, sphashquery
 
 
 class MultimodalBlockDown(nn.Module):
@@ -67,7 +71,8 @@ class MultimodalBlockDown(nn.Module):
         return f"(modalities): {tuple(self.modalities)}"
 
     def forward(self, mm_data_tuple):
-        """Forward pass of the MultiModalBlockDown.
+        """
+        Forward pass of the MultiModalBlockDown.
 
         Expects a tuple of 3D data (Data, SparseTensor, etc.) destined
         for the 3D convolutional modules, and a dictionary of
@@ -76,42 +81,34 @@ class MultimodalBlockDown(nn.Module):
         # Unpack the multimodal data tuple
         data_3d, data_mod = mm_data_tuple
 
-        # TODO : what about SparseTensor and other weird formats ?
+        print("3D conv down...")
         # Conv on the main 3D modality - assumed to reduce 3D resolution
-        print('3D conv down...')
-        data_3d = self.down_block(data_3d)
+        data_3d, idx, idx_mode = self.forward_3d_block_down(
+            self.down_block, data_3d)
 
         for m in self.modalities:
-            # Update mappings after the 3D down conv
-            # TODO : recover sampling indices and update mappings based on the
-            #  3D downconv. KpConv uses GridSampling3D, PointNet++ uses FPS
-            #  sampler, SparseConv uses strides, ... Not uniform. Should store
-            #  sampling idx in the conv module after sampling ?
-            #  FOR NON-SPARSE CONV, save the last resampling in self.sampler...
-            #  hoping there are never 2 samplings ? Or update samplings when
-            #  called and reset it when required (here) ?
-            #  NORMALLY, if I am correct, even the MultiScale convs sample only
-            #  once (it is the neighborhood search they do multiple times).
-            print(f'{m} mapping 3D downsampling...')
+            print(f"{m} mapping 3D downsampling with '{idx_mode}' mode...")
+            # Update modality-specific data and mappings wrt point idx
+            data_mod[m] = data_mod[m].select_points(idx, mode=idx_mode)
 
-            def get_3d_sampling_idx(data, down_conv):
-                # if data is sparse, get mapping from here
-                # else, get last_idx from conv sampler
-                # otherwise raise error
-                return 
-            idx = self.down_block.sampler.last_idx
-
-            data_mod[m].mappings = update_mappings(data_mod[m])
-
-            print(f'{m} conv down...')
+            print(f"{m} conv down...")
             # Conv on the modality-specific data
-            data_mod[m].data = self.modality_blocks[m]['conv'](data_mod[m])
+            # TODO: this is multisetting-oriented: list of feature
+            #  tensors Need to make the multisetting the default, for
+            #  all modalities
+            x = data_mod[m].x
+            a_idx = data_mod[m].mappings.atomic_csr_indexing()
+            if isinstance(x, list):
+                x = [self.modality_blocks[m]['conv'](f) for f in x]
+            else:
+                x = self.modality_blocks[m]['conv'](x)
 
-            print(f'{m} mapping modality downsampling...')
-            # Update mappings after modality conv
-            # TODO : update mappings after modality conv
-            data_mod[m].mappings = update_mappings(data_mod[m])
+            print(f"{m} mapping modality downsampling...")
+            # Update modality-specific data and mappings wrt modality
+            # scale
+            data_mod[m] = data_mod[m].update_features_and_scale(x)
 
+            print(f"{m} features atomic pooling...")
             # Merge the modality into the main 3D features
             # TODO : create merge blocks class. Are they modality-specific ?
             data_3d = self.modality_blocks[m]['merge'](data_3d, data_mod[m])
@@ -119,4 +116,78 @@ class MultimodalBlockDown(nn.Module):
         # Conv on the main 3D modality
         data_3d = self.conv_block(data_3d)
 
-        return (data_3d, data_mod)
+        return tuple(data_3d, data_mod)
+
+    @staticmethod
+    def forward_3d_block_down(block, x):
+        """
+        Wrapper method to apply the forward pass on a 3D down conv
+        block.
+
+        This both runs the forward method of the input block but also
+        catches the reindexing scheme, in case a sampling or sparse
+        strided convolution is applied in the 3D conv block.
+
+        For MinkowskiEngine or TorchSparse sparse tensors, the
+        reindexing is recovered from the input/output coordinates. If
+        no strided convolution was applied, the indexing stays the same
+        and a None index is returned. Otherwise, the returned index
+        maps indices as follows: i -> idx[i].
+
+        For non-sparse convolutions, the reindexing is carried by the
+        sampler's 'last_index' attribute. If no sampling was applied,
+        the indexing stays the same and a None index is returned.
+        Otherwise, the returned index carries the indices of the
+        selected points with respect to their input order.
+        """
+        # MinkowskiEngine forward and reindexing
+        if isinstance(x, me.SparseTensor):
+            mode = 'merge'
+
+            # Forward pass on the block while keeping track of the
+            # stride levels
+            stride_in = x.tensor_stride[0]
+            x = block(x)
+            stride_out = x.tensor_stride[0]
+
+            if stride_in == stride_out:
+                return x, None, mode
+
+            src, target = x.coords_man.get_coords_map(stride_in, stride_out)
+            idx = target[src.argsort()]
+            return x, idx, mode
+
+        # TorchSparse forward and reindexing
+        elif isinstance(x, ts.SparseTensor):
+            mode = 'merge'
+
+            # Forward pass on the block while keeping track of the
+            # stride levels
+            stride_in = x.s
+            x = block(x)
+            stride_out = x.s
+
+            if stride_in == stride_out:
+                return x, None, mode
+
+            if stride_out % stride_in == 0:
+                ratio = int(stride_out / stride_in)
+            else:
+                raise ValueError(
+                    f"Output stride {stride_out} should be a multiple of input "
+                    f"stride {stride_in}.")
+            in_coords = x.coord_maps[stride_in] // ratio * ratio
+            out_coords = x.coord_maps[stride_out]
+            idx = sphashquery(sphash(in_coords), sphash(out_coords))
+            return x, idx, mode
+
+        # Non-sparse forward and reindexing
+        else:
+            mode = 'pick'
+
+            # Forward pass on the block while keeping track of the
+            # sampler indices
+            block.sampler.last_idx = None
+            x = block(x)
+            idx = block.sampler.last_idx
+            return x, idx, mode

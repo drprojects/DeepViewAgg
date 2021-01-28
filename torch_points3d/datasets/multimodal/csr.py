@@ -138,8 +138,8 @@ class CSRData(object):
     def num_items(self):
         return self.pointers[-1].item()
 
-    @classmethod
-    def get_batch_type(cls):
+    @staticmethod
+    def get_batch_type():
         """Required by CSRBatch.from_csr_list."""
         return CSRBatch
 

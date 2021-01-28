@@ -288,12 +288,12 @@ def visualize_2d(
 
     for im in images:
         # Load images if need be
-        im = im.load() if im.images is None else im
+        im = im.load() if im.x is None else im
 
         # Color the images where points are projected and darken the rest
-        if im.images.is_floating_point():
-            im.images = (im.images * 255).byte()
-        im.images = (im.images.float() / alpha).floor().type(torch.uint8)
+        if im.x.is_floating_point():
+            im.x = (im.x * 255).byte()
+        im.x = (im.x.float() / alpha).floor().type(torch.uint8)
 
         # Get the mapping of all points in the sample
         idx_batch, idx_height, idx_width = im.mappings.feature_map_indexing
@@ -306,7 +306,7 @@ def visualize_2d(
         if color_mode == 'light':
             # Set mapping mask back to original lighting
             color = torch.full((3,), alpha, dtype=torch.uint8)
-            color = im.images[idx_batch, :, idx_height, idx_width] * color
+            color = im.x[idx_batch, :, idx_height, idx_width] * color
 
         elif color_mode == 'rgb':
             # Set mapping mask to point cloud RGB colors
@@ -351,7 +351,7 @@ def visualize_2d(
                 dim=0)
 
         # Apply the coloring to the mapping masks
-        im.images[idx_batch, :, idx_height, idx_width] = color
+        im.x[idx_batch, :, idx_height, idx_width] = color
 
     # Prepare figure
     width = width if width and height else figsize
@@ -367,8 +367,8 @@ def visualize_2d(
     fig.update_yaxes(visible=False)  # hide image axes
 
     # Draw the images
-    n_img_traces = images.num_images
-    for i, image in enumerate(chain(*[im.images.__iter__()
+    n_img_traces = images.num_views
+    for i, image in enumerate(chain(*[im.x.__iter__()
                                           for im in images])):
         fig.add_trace(
             go.Image(
