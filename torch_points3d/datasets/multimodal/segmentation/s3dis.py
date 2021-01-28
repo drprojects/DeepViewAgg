@@ -4,7 +4,7 @@ from torch_points3d.datasets.multimodal.base_dataset import BaseDatasetMM
 from torch_points3d.datasets.segmentation.s3dis import *
 from torch_geometric.data import Data
 from torch_points3d.datasets.multimodal.data import MMData
-from torch_points3d.datasets.multimodal.image import ImageData
+from torch_points3d.datasets.multimodal.image import SameSettingImageData
 from torch_points3d.core.data_transform.multimodal.image import \
     SelectMappingFromPointId
 
@@ -504,15 +504,15 @@ class S3DISOriginalFusedMM(InMemoryDataset):
                       f"{len(image_info_list)} images")
 
                 # Local helper function to combine image info lists into a more
-                # convenient ImageData object.
+                # convenient SameSettingImageData object.
                 def info_list_to_image_data(info_list):
                     if len(info_list) > 0:
                         path, pos, opk = [list(x) for x in zip(*info_list)]
-                        image_data = ImageData(
+                        image_data = SameSettingImageData(
                             path=np.array(path), pos=torch.Tensor(pos),
                             opk=torch.Tensor(opk))
                     else:
-                        image_data = ImageData()
+                        image_data = SameSettingImageData()
                     return image_data
 
                 # Keep all images for the test area

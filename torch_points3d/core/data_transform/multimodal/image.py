@@ -4,8 +4,8 @@ import torch_scatter
 from torch_geometric.data import Data
 from torch_points3d.core.data_transform import SphereSampling
 from torch_points3d.core.data_transform.grid_transform import _MAPPING_KEY
-from torch_points3d.datasets.multimodal.image import ImageData, ImageMapping, \
-    MultiSettingImageData
+from torch_points3d.datasets.multimodal.image import SameSettingImageData, \
+    ImageMapping, ImageData
 from torch_points3d.utils.multimodal import lexunique
 import torchvision.transforms as T
 from .projection import compute_index_map
@@ -15,26 +15,29 @@ from tqdm.auto import tqdm as tq
 Image-based transforms for multimodal data processing. Inspired by 
 torch_points3d and torch_geometric transforms on data, with a signature 
 allowing for multimodal transform composition: 
-__call(data, images, mappings)__
+__call(Data, ImageData)__
 """
 
 
 class ImageTransform:
-    """Transforms on ImageData and associated ImageMapping."""
+    """
+    Transforms on Data, ImageData / SameSettingImageData and associated
+    ImageMapping.
+    """
 
-    def _process(self, data: Data, images: ImageData):
+    def _process(self, data: Data, images: SameSettingImageData):
         raise NotImplementedError
 
     def __call__(self, data, images):
         if isinstance(data, list):
             assert isinstance(images, list) and len(data) == len(images), \
-                f"List(Data) items and List(ImageData) must have the same " \
-                f"lengths."
+                f"List(Data) items and List(SameSettingImageData) must " \
+                f"have the same lengths."
             out = [self.__call__(da, im) for da, im in zip(data, images)]
             data_out, images_out = [list(x) for x in zip(*out)]
-        elif isinstance(images, MultiSettingImageData):
+        elif isinstance(images, ImageData):
             out = [self.__call__(data, im) for im in images]
-            images_out = MultiSettingImageData([im for _, im in out])
+            images_out = ImageData([im for _, im in out])
             data_out = out[0][0]
         else:
             data_out, images_out = self._process(data.clone(), images.clone())
@@ -46,10 +49,10 @@ class ImageTransform:
 
 class LoadImages(ImageTransform):
     """
-    Transform to load images from disk to the ImageData.
+    Transform to load images from disk to the SameSettingImageData.
 
-    ImageData internal state is updated if resizing and cropping parameters are
-    passed. Images are loaded with respect to the ImageData resizing and
+    SameSettingImageData internal state is updated if resizing and cropping parameters are
+    passed. Images are loaded with respect to the SameSettingImageData resizing and
     cropping internal state.
     """
 
@@ -60,8 +63,8 @@ class LoadImages(ImageTransform):
         self.crop_offsets = crop_offsets
         self.downscale = downscale
 
-    def _process(self, data: Data, images: ImageData):
-        # Edit ImageData internal state attributes.
+    def _process(self, data: Data, images: SameSettingImageData):
+        # Edit SameSettingImageData internal state attributes.
         if self.ref_size is not None:
             images.ref_size = self.ref_size
         if self.crop_size is not None:
@@ -71,7 +74,7 @@ class LoadImages(ImageTransform):
         if self.downscale is not None:
             images.downscale = self.downscale
 
-        # Load images wrt ImageData internal state
+        # Load images wrt SameSettingImageData internal state
         images.load()
 
         return data, images
@@ -85,7 +88,7 @@ class NonStaticMask(ImageTransform):
     Compute the projection of data points into images and return the input data
     augmented with attributes mapping points to pixels in provided images.
 
-    Returns the same input. The mask is saved in ImageData attributes, to be
+    Returns the same input. The mask is saved in SameSettingImageData attributes, to be
     used for any subsequent image processing.
     """
 
@@ -94,8 +97,8 @@ class NonStaticMask(ImageTransform):
         self.proj_upscale = proj_upscale
         self.n_sample = n_sample
 
-    def _process(self, data: Data, images: ImageData):
-        # Edit ImageData internal state attributes
+    def _process(self, data: Data, images: SameSettingImageData):
+        # Edit SameSettingImageData internal state attributes
         if self.ref_size is not None:
             images.ref_size = self.ref_size
         if self.proj_upscale is not None:
@@ -127,7 +130,7 @@ class NonStaticMask(ImageTransform):
                 idx_diff_new = torch.where(torch.logical_and(mask_diff, ~mask))
                 mask[idx_diff_new] = 1
 
-        # Save the mask in the ImageData 'mask' attribute
+        # Save the mask in the SameSettingImageData 'mask' attribute
         images.mask = mask
 
         return data, images
@@ -142,7 +145,7 @@ class MapImages(ImageTransform):
     Compute the projection of data points into images and return the input data
     augmented with attributes mapping points to pixels in provided images.
 
-    Returns the input data and ImageData augmented with the point-image-pixel
+    Returns the input data and SameSettingImageData augmented with the point-image-pixel
     ImageMapping.
     """
 
@@ -161,13 +164,13 @@ class MapImages(ImageTransform):
         self.growth_k = growth_k
         self.growth_r = growth_r
 
-    def _process(self, data: Data, images: ImageData):
+    def _process(self, data: Data, images: SameSettingImageData):
         assert hasattr(data, self.key)
-        assert isinstance(images, ImageData)
+        assert isinstance(images, SameSettingImageData)
         assert images.num_views >= 1, \
             "At least one image must be provided."
 
-        # Edit ImageData internal state attributes
+        # Edit SameSettingImageData internal state attributes
         if self.ref_size is not None:
             images.ref_size = self.ref_size
         if self.proj_upscale is not None:
@@ -243,7 +246,7 @@ class MapImages(ImageTransform):
                 continue
             t_init_torch_pixels += time() - start
 
-            # Convert to ImageData coordinate system with proper
+            # Convert to SameSettingImageData coordinate system with proper
             # resampling and cropping
             # TODO: add circular padding here if need be
             start = time()
@@ -309,7 +312,7 @@ class MapImages(ImageTransform):
                 "transformation.")
 
         # Reindex seen images
-        # We want all images present in the mappings and in ImageData to
+        # We want all images present in the mappings and in SameSettingImageData to
         # have been seen. If an image has not been seen, we remove it
         # here.
         # NB: The reindexing here relies on the fact that `unique`
@@ -334,7 +337,7 @@ class MapImages(ImageTransform):
             num_points=getattr(data, self.key).numpy().max() + 1)
         print(f"        t_ImageMapping_init: {time() - start:0.3f}\n")
 
-        # Save the mapping in the ImageData
+        # Save the mapping in the SameSettingImageData
         images.mappings = mappings
 
         return data, images
@@ -359,7 +362,7 @@ class SelectMappingFromPointId(ImageTransform):
     def _process(self, data, images):
         assert isinstance(data, Data)
         assert hasattr(data, self.key)
-        assert isinstance(images, ImageData)
+        assert isinstance(images, SameSettingImageData)
         assert images.mappings is not None
 
         # Select mappings and images wrt point key indices
@@ -382,7 +385,7 @@ class DropUninformativeImages(ImageTransform):
     def __init__(self, ratio=0.02):
         self.ratio = ratio
 
-    def _process(self, data: Data, images: ImageData):
+    def _process(self, data: Data, images: SameSettingImageData):
         assert images.mappings is not None, "No mappings found in images."
 
         # Threshold below which the number of pixels in the mappings
@@ -418,7 +421,7 @@ class CenterRoll(ImageTransform):
         assert angular_res <= 256
         self.angular_res = angular_res
 
-    def _process(self, data: Data, images: ImageData):
+    def _process(self, data: Data, images: SameSettingImageData):
         # Make sure no prior cropping or resizing was applied to the
         # images and mappings
         assert images.mappings is not None, "No mappings found in images."
@@ -487,7 +490,7 @@ class CropImageGroups(ImageTransform):
     mappings and the padding. Images with the same cropping size are batched
     together.
 
-    Returns an MultiSettingImageData made of ImageData of fixed cropping sizes
+    Returns an ImageData made of SameSettingImageData of fixed cropping sizes
     with their respective mappings.
     """
 
@@ -499,7 +502,7 @@ class CropImageGroups(ImageTransform):
         self.padding = padding
         self.min_size = min_size
 
-    def _process(self, data: Data, images: ImageData):
+    def _process(self, data: Data, images: SameSettingImageData):
         assert images.mappings is not None, "No mappings found in images."
 
         # Compute the bounding boxes for each image
@@ -565,8 +568,8 @@ class CropImageGroups(ImageTransform):
             # Index images and mappings and update their cropping
             crop_families[size] = images[idx].update_cropping(size, offsets)
 
-        # Create a holder for the ImageData of each crop size
-        return data, MultiSettingImageData(list(crop_families.values()))
+        # Create a holder for the SameSettingImageData of each crop size
+        return data, ImageData(list(crop_families.values()))
 
 
 # TODO: CropFromMask
@@ -588,7 +591,7 @@ class PadImages(ImageTransform):
 
 class AddPixelHeightFeature(ImageTransform):
     """Transform to add the pixel height to the image features."""
-    def _process(self, data: Data, images: ImageData):
+    def _process(self, data: Data, images: SameSettingImageData):
         if images.x is None:
             images.load()
 
@@ -602,7 +605,7 @@ class AddPixelHeightFeature(ImageTransform):
     
 class AddPixelWidthFeature(ImageTransform):
     """Transform to add the pixel width to the image features."""
-    def _process(self, data: Data, images: ImageData):
+    def _process(self, data: Data, images: SameSettingImageData):
         if images.x is None:
             images.load()
 
@@ -625,7 +628,7 @@ class RandomHorizontalFlip(ImageTransform):
     def __init__(self, p=0.50):
         self.p = p
 
-    def _process(self, data: Data, images: ImageData):
+    def _process(self, data: Data, images: SameSettingImageData):
         if images.x is None:
             images.load()
 
@@ -640,7 +643,7 @@ class RandomHorizontalFlip(ImageTransform):
 
 class ToFloatImage(ImageTransform):
     """Transform to convert [0, 255] uint8 images into [0, 1] float tensors."""
-    def _process(self, data: Data, images: ImageData):
+    def _process(self, data: Data, images: SameSettingImageData):
         if images.x is None:
             images.load()
 
@@ -655,7 +658,7 @@ class TorchvisionTransform(ImageTransform):
     def __init__(self):
         raise NotImplementedError
 
-    def _process(self, data: Data, images: ImageData):
+    def _process(self, data: Data, images: SameSettingImageData):
         images.x = torch.cat([self.transform(im).unsqueeze(0)
                               for im in images.x], dim=0)
         return data, images

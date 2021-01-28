@@ -28,15 +28,10 @@ class MultimodalBlockDown(nn.Module):
         # Blocks for the implicitly main modality: 3D
         self.down_block = down_block if down_block is not None else Identity
         self.conv_block = conv_block if conv_block is not None else Identity
-        # TODO get the 3D conv type and set input from the down module ?
-        # TODO get the 3D sampling from the down module ?
 
         # Initialize the dict holding the conv and merge blocks for all modalities
         self.modality_blocks = {}
         self._init_from_kwargs(**kwargs)
-
-        # TODO : create modality-specific block modules
-        # TODO : create merge block modules
 
         # Expose the 3D down_conv .sampler attribute (for UnwrappedUnetBasedModel)
         # TODO this is for KPConv, is it doing the intended, is it needed at all ?

@@ -11,7 +11,7 @@ from torch_points3d.utils.multimodal import tensor_idx
 
 
 
-class ImageData(object):
+class SameSettingImageData(object):
     """
     Class to hold arrays of images information, along with shared 3D-2D 
     projection information.
@@ -98,7 +98,7 @@ class ImageData(object):
             f"Attributes 'path', 'pos' and 'opk' must have the same length."
         assert self.pos.device == self.opk.device, \
             f"Discrepancy in the devices of 'pos' and 'opk' attributes. " \
-            f"Please use `ImageData.to()` to set the device."
+            f"Please use `SameSettingImageData.to()` to set the device."
         assert len(tuple(self.ref_size)) == 2, \
             f"Expected len(ref_size)=2 but got {len(self.ref_size)} instead."
         assert self.proj_upscale >= 1, \
@@ -120,8 +120,8 @@ class ImageData(object):
 
         if self.x is not None:
             assert isinstance(self.x, torch.Tensor), \
-                f"Expected a tensor of image features but got {type(self.x)} " \
-                f"instead."
+                f"Expected a tensor of image features but got " \
+                f"{type(self.x)} instead."
             assert self.x.shape[0] == self.num_views \
                    and self.x.shape[2] == self.img_size[1] \
                    and self.x.shape[3] == self.img_size[0], \
@@ -129,8 +129,8 @@ class ImageData(object):
                 f"{self.img_size[1]}, {self.img_size[0]}) but got " \
                 f"{self.x.shape} instead."
             assert self.device == self.x.device, \
-                f"Discrepancy in the devices of 'pos' and 'x' " \
-                f"attributes. Please use `ImageData.to()` to set the device."
+                f"Discrepancy in the devices of 'pos' and 'x' attributes. " \
+                f"Please use `SameSettingImageData.to()` to set the device."
 
         if self.mappings is not None:
             assert isinstance(self.mappings, ImageMapping), \
@@ -139,15 +139,16 @@ class ImageData(object):
             unique_idx = torch.unique(self.mappings.images)
             img_idx = torch.arange(self.num_views)
             assert (unique_idx == img_idx).all(), \
-                f"Image indices in the mappings do not match the ImageData " \
-                f"image indices."
+                f"Image indices in the mappings do not match the " \
+                f"SameSettingImageData image indices."
             w_max, h_max = self.mappings.pixels.max(dim=0).values
             assert w_max < self.img_size[0] and h_max < self.img_size[1], \
                 f"Max pixel values should be smaller than ({self.img_size}) " \
                 f"but got ({w_max, h_max}) instead."
             assert self.device == self.mappings.device, \
                 f"Discrepancy in the devices of 'pos' and 'mappings' " \
-                f"attributes. Please use `ImageData.to()` to set the device."
+                f"attributes. Please use `SameSettingImageData.to()` to set " \
+                f"the device."
             self.mappings.debug()
 
         if self.mask is not None:
@@ -158,7 +159,7 @@ class ImageData(object):
                 f"{self.mask.shape} instead."
             assert self.device == self.mask.device, \
                 f"Discrepancy in the devices of 'pos' and 'mask' attributes." \
-                f" Please use `ImageData.to()` to set the device."
+                f" Please use `SameSettingImageData.to()` to set the device."
 
     def to_dict(self):
         return {key: getattr(self, key) for key in self._keys}
@@ -170,7 +171,8 @@ class ImageData(object):
     @property
     def num_points(self):
         """
-        Number of points implied by ImageMapping. Zero is 'mappings' is None.
+        Number of points implied by ImageMapping. Zero is 'mappings' is
+        None.
         """
         return self.mappings.num_groups if self.mappings is not None else 0
 
@@ -187,9 +189,9 @@ class ImageData(object):
         """
         Initial size of the loaded image features and the mappings.
 
-        This size is used as reference to characterize other ImageData
-        attributes such as the crop offsets, resolution. As such, it
-        should not be modified directly.
+        This size is used as reference to characterize other
+        SameSettingImageData attributes such as the crop offsets,
+        resolution. As such, it should not be modified directly.
         """
         return self._ref_size
 
@@ -221,8 +223,8 @@ class ImageData(object):
     @property
     def proj_upscale(self):
         """
-        Upsampling scale factor of the projection map and mask size, with
-        respect to 'ref_size'.
+        Upsampling scale factor of the projection map and mask size,
+        with respect to 'ref_size'.
 
         Must follow: proj_upscale >= 1
         """
@@ -232,8 +234,8 @@ class ImageData(object):
     def proj_upscale(self, scale):
         assert (self.mask is None and self.mappings is None) \
                or self.proj_upscale == scale, \
-            "Can't directly edit 'proj_upscale' if 'mask' and 'mappings' are not both " \
-            "None."
+            "Can't directly edit 'proj_upscale' if 'mask' and 'mappings' " \
+            "are not both None."
         assert scale >= 1, \
             f"Expected scalar larger than 1 but got {scale} instead."
         # assert isinstance(scale, int), \
@@ -281,8 +283,8 @@ class ImageData(object):
 
     def update_rollings(self, rollings):
         """
-        Update the rollings state of the ImageData, WITH RESPECT TO ITS
-        REFERENCE STATE 'ref_size'.
+        Update the rollings state of the SameSettingImageData, WITH
+        RESPECT TO ITS REFERENCE STATE 'ref_size'.
 
         This assumes the images have a circular representation (ie that
         the first and last pixels along the width are adjacent in
@@ -353,8 +355,8 @@ class ImageData(object):
             f"Expected len(crop_size)=2 but got {len(crop_size)} instead."
         assert crop_size[0] <= self.ref_size[0] \
                and crop_size[1] <= self.ref_size[1], \
-            f"Expected size smaller than {self.ref_size} but got {crop_size} " \
-            f"instead."
+            f"Expected size smaller than {self.ref_size} but got " \
+            f"{crop_size} instead."
         self._crop_size = crop_size
 
     @property
@@ -385,8 +387,8 @@ class ImageData(object):
 
     def update_cropping(self, crop_size, crop_offsets):
         """
-        Update the cropping state of the ImageData, WITH RESPECT TO
-        ITS CURRENT STATE 'img_size'.
+        Update the cropping state of the SameSettingImageData, WITH
+        RESPECT TO ITS CURRENT STATE 'img_size'.
 
         Parameters crop_size and crop_offsets are resized to the
         'ref_size'
@@ -443,13 +445,13 @@ class ImageData(object):
 
     def update_features_and_scale(self, x):
         """
-        Update the downscaling state of the ImageData, WITH RESPECT TO
-        ITS CURRENT STATE 'img_size'.
+        Update the downscaling state of the SameSettingImageData, WITH
+        RESPECT TO ITS CURRENT STATE 'img_size'.
 
         Downscaling 'x' attribute is ambiguous. As such, they are
-        expected to be scaled outside of the ImageData object before
-        being passed to 'update_features_and_scale', for 'downscale' and
-        'mappings' to be updated accordingly.
+        expected to be scaled outside of the SameSettingImageData
+        object before being passed to 'update_features_and_scale', for
+        'downscale' and 'mappings' to be updated accordingly.
         """
         # Update internal attributes based on the input
         # downscaled image features
@@ -470,7 +472,7 @@ class ImageData(object):
         N='num_views' and (W, H)='img_size'. Can be None if no image
         features were loaded.
 
-        For clean load, consider using 'ImageData.load()'.
+        For clean load, consider using 'SameSettingImageData.load()'.
         """
         return self._x
 
@@ -512,8 +514,8 @@ class ImageData(object):
             unique_idx = torch.unique(mappings.images)
             img_idx = torch.arange(self.num_views)
             assert (unique_idx == img_idx).all(), \
-                f"Image indices in the mappings do not match the ImageData " \
-                f"image indices."
+                f"Image indices in the mappings do not match the " \
+                f"SameSettingImageData image indices."
             w_max, h_max = mappings.pixels.max(dim=0).values
             assert w_max < self.img_size[0] and h_max < self.img_size[1], \
                 f"Max pixel values should be smaller than ({self.img_size}) " \
@@ -542,7 +544,7 @@ class ImageData(object):
             the correspondence map for the N points in the mapping must
             be provided as a 1D array of size N such that i -> idx[i].
 
-        Returns a new ImageData object.
+        Returns a new SameSettingImageData object.
         """
         # TODO: careful with the device used at train time. Can't rely
         #  on CUDA...
@@ -565,8 +567,8 @@ class ImageData(object):
             # Select the images used in the mappings. Selected images
             # are sorted by their order in image_indices. Mappings'
             # image indices will also be updated to the new ones.
-            # Mappings are temporarily removed from the images as they will
-            # be affected by the indexing on images.
+            # Mappings are temporarily removed from the images as they
+            # will be affected by the indexing on images.
             seen_image_idx = lexunique(mappings.images)
             images.mappings = None
             images = images[seen_image_idx]
@@ -681,8 +683,8 @@ class ImageData(object):
             assert len(crop_size) == 2, \
                 f"Expected len(crop_size)=2 but got {len(crop_size)} instead."
             assert all(a <= b for a, b in zip(crop_size, size)), \
-                f"Expected crop_size to be smaller than size but got size={size} " \
-                f"and crop_size={crop_size} instead."
+                f"Expected crop_size to be smaller than size but got " \
+                f"size={size} and crop_size={crop_size} instead."
             assert isinstance(crop_offsets, torch.LongTensor), \
                 f"Expected LongTensor but got {type(crop_offsets)} instead."
             assert crop_offsets.shape == (idx.shape[0], 2), \
@@ -725,12 +727,14 @@ class ImageData(object):
         if downscale is None:
             w, h = crop_size
             images = [im.crop((left, top, left + w, top + h))
-                      for im, (left, top) in zip(images, np.asarray(crop_offsets))]
+                      for im, (left, top)
+                      in zip(images, np.asarray(crop_offsets))]
         else:
             end_size = tuple(int(x / downscale) for x in crop_size)
             w, h = crop_size
             images = [im.resize(end_size, box=(left, top, left + w, top + h))
-                      for im, (left, top) in zip(images, np.asarray(crop_offsets))]
+                      for im, (left, top)
+                      in zip(images, np.asarray(crop_offsets))]
 
         # Convert to torch batch
         images = torch.from_numpy(np.stack([np.asarray(im) for im in images]))
@@ -739,16 +743,19 @@ class ImageData(object):
         return images
 
     def __len__(self):
-        """Returns the number of image views in the ImageData."""
+        """
+        Returns the number of image views in the SameSettingImageData.
+        """
         return self.num_views
 
     def __getitem__(self, idx):
         """
         Indexing mechanism.
 
-        Returns a new copy of the indexed ImageData. Supports torch and
-        numpy indexing. For practical reasons, we don't want to have
-        duplicate images in the ImageData, so indexing with duplicates
+        Returns a new copy of the indexed SameSettingImageData.
+        Supports torch and numpy indexing. For practical reasons, we
+        don't want to have duplicate images in the SameSettingImageData,
+        so indexing with duplicates
         will raise an error.
         """
         idx = tensor_idx(idx)
@@ -780,8 +787,8 @@ class ImageData(object):
         """
         Iteration mechanism.
         
-        Looping over the ImageData will return an ImageData for each
-        individual image view.
+        Looping over the SameSettingImageData will return an
+        SameSettingImageData for each individual image view.
         """
         i: int
         for i in range(self.__len__()):
@@ -824,34 +831,36 @@ class ImageData(object):
     @property
     def settings_hash(self):
         """
-        Produces a hash of the shared ImageData settings (except for the
-        mask). This hash can be used as an identifier to characterize the
-        ImageData for Batching mechanisms.
+        Produces a hash of the shared SameSettingImageData settings
+        (except for the mask). This hash can be used as an identifier
+        to characterize the SameSettingImageData for Batching
+        mechanisms.
         """
         # Assert shared keys are the same for all items
-        keys = tuple(set(ImageData._shared_keys) - set([ImageData._mask_key]))
+        keys = tuple(set(SameSettingImageData._shared_keys)
+                     - set([SameSettingImageData._mask_key]))
         return hash(tuple(getattr(self, k) for k in keys))
 
     @staticmethod
     def get_batch_type():
         """Required by MMData.from_mm_data_list."""
-        return ImageBatch
+        return SameSettingImageBatch
 
 
-class ImageBatch(ImageData):
+class SameSettingImageBatch(SameSettingImageData):
     """
-    Wrapper class of ImageData to build a batch from a list of
-    ImageData and reconstruct it afterwards.
+    Wrapper class of SameSettingImageData to build a batch from a list
+    of SameSettingImageData and reconstruct it afterwards.
 
-    Each ImageData in the batch is assumed to refer to different Data
-    objects in its mappings. For that reason, if the ImageData have
-    mappings, they will also be batched with their point ids reindexed.
-    For consistency, this implies that associated Data points are
-    expected to be batched in the same order.
+    Each SameSettingImageData in the batch is assumed to refer to
+    different Data objects in its mappings. For that reason, if the
+    SameSettingImageData have mappings, they will also be batched with
+    their point ids reindexed. For consistency, this implies that
+    associated Data points are expected to be batched in the same order.
     """
 
     def __init__(self, **kwargs):
-        super(ImageBatch, self).__init__(**kwargs)
+        super(SameSettingImageBatch, self).__init__(**kwargs)
         self.__sizes__ = None
 
     @property
@@ -870,36 +879,38 @@ class ImageBatch(ImageData):
     @staticmethod
     def from_data_list(image_data_list):
         assert isinstance(image_data_list, list) and len(image_data_list) > 0
-        assert all(isinstance(x, ImageData) for x in image_data_list)
+        assert all(isinstance(x, SameSettingImageData)
+                   for x in image_data_list)
 
-        # Recover the attributes of the first ImageData to compare the
-        # shared attributes with the other ImageData
+        # Recover the attributes of the first SameSettingImageData to
+        # compare the shared attributes with the other
+        # SameSettingImageData
         batch_dict = image_data_list[0].to_dict()
         sizes = [image_data_list[0].num_views]
-        for key in ImageData._own_keys:
+        for key in SameSettingImageData._own_keys:
             batch_dict[key] = [batch_dict[key]]
 
-        # Only stack if all ImageData have the same shared attributes,
-        # except for the 'mask' attribute, for which the value of the
-        # first ImageData is taken for the whole batch. This is because
-        # masks may differ slightly when computed statistically with
-        # NonStaticImageMask.
+        # Only stack if all SameSettingImageData have the same shared
+        # attributes, except for the 'mask' attribute, for which the
+        # value of the first SameSettingImageData is taken for the
+        # whole batch. This is because masks may differ slightly when
+        # computed statistically with NonStaticImageMask.
         if len(image_data_list) > 1:
 
             # Make sure shared keys are the same across the batch
             hash_ref = image_data_list[0].settings_hash
             assert all(im.settings_hash == hash_ref
                        for im in image_data_list), \
-                f"All ImageData values for shared keys " \
-                f"{ImageData._shared_keys} must be the same (except for the " \
-                f"'mask')."
+                f"All SameSettingImageData values for shared keys " \
+                f"{SameSettingImageData._shared_keys} must be the same " \
+                f"(except for the 'mask')."
 
             for image_data in image_data_list[1:]:
 
                 # Prepare stack keys for concatenation or batching
                 image_dict = image_data.to_dict()
                 for key, value in [(k, v) for (k, v) in image_dict.items()
-                                   if k in ImageData._own_keys]:
+                                   if k in SameSettingImageData._own_keys]:
                     batch_dict[key] += [value]
 
                 # Prepare the sizes for items recovery with
@@ -907,31 +918,33 @@ class ImageBatch(ImageData):
                 sizes.append(image_data.num_views)
 
         # Concatenate numpy array attributes
-        for key in ImageData._numpy_keys:
+        for key in SameSettingImageData._numpy_keys:
             batch_dict[key] = np.concatenate(batch_dict[key])
 
         # Concatenate torch array attributes
-        for key in ImageData._torch_keys:
+        for key in SameSettingImageData._torch_keys:
             batch_dict[key] = torch.cat(batch_dict[key])
 
         # Concatenate images, unless one of the items does not have
         # image features
-        if any(img is None for img in batch_dict[ImageData._x_key]):
-            batch_dict[ImageData._x_key] = None
+        if any(img is None for img in batch_dict[SameSettingImageData._x_key]):
+            batch_dict[SameSettingImageData._x_key] = None
         else:
-            batch_dict[ImageData._x_key] = torch.cat(
-                batch_dict[ImageData._x_key])
+            batch_dict[SameSettingImageData._x_key] = torch.cat(
+                batch_dict[SameSettingImageData._x_key])
 
         # Batch mappings, unless one of the items does not have mappings
-        if any(mpg is None for mpg in batch_dict[ImageData._map_key]):
-            batch_dict[ImageData._map_key] = None
+        if any(mpg is None
+               for mpg in batch_dict[SameSettingImageData._map_key]):
+            batch_dict[SameSettingImageData._map_key] = None
         else:
-            batch_dict[ImageData._map_key] = \
-                ImageMappingBatch.from_csr_list(batch_dict[ImageData._map_key])
+            batch_dict[SameSettingImageData._map_key] = \
+                ImageMappingBatch.from_csr_list(
+                    batch_dict[SameSettingImageData._map_key])
 
         # Initialize the batch from dict and keep track of the item
         # sizes
-        batch = ImageBatch(**batch_dict)
+        batch = SameSettingImageBatch(**batch_dict)
         batch.__sizes__ = np.array(sizes)
 
         return batch
@@ -941,20 +954,22 @@ class ImageBatch(ImageData):
             raise RuntimeError(
                 'Cannot reconstruct image data list from batch because '
                 'the batch object was not created using '
-                '`ImageBatch.from_data_list()`.')
+                '`SameSettingImageBatch.from_data_list()`.')
 
         batch_pointers = self.batch_pointers
         return [self[batch_pointers[i]:batch_pointers[i + 1]]
                 for i in range(self.num_batch_items)]
 
 
-class MultiSettingImageData:
+class ImageData:
     """
-    Basic holder for ImageData items. Useful when ImageData can't be batched
-    together because their internal settings differ.
+    Holder for SameSettingImageData items. Useful when
+    SameSettingImageData can't be batched together because their
+    internal settings differ. Default format for handling image
+    attributes, features and mappings in multimodal models and modules.
     """
 
-    def __init__(self, image_list: List[ImageData]):
+    def __init__(self, image_list: List[SameSettingImageData]):
         self._list = image_list
         self.debug()
 
@@ -988,17 +1003,18 @@ class MultiSettingImageData:
 
     def debug(self):
         assert isinstance(self._list, list), \
-            f"Expected a list of ImageData but got {type(self._list)} " \
-            f"instead."
-        assert all(isinstance(im, ImageData) for im in self), \
-            f"All list elements must be of type ImageData."
+            f"Expected a list of SameSettingImageData but got " \
+            f"{type(self._list)} instead."
+        assert all(isinstance(im, SameSettingImageData) for im in self), \
+            f"All list elements must be of type SameSettingImageData."
         assert all(im.num_points == self.num_points for im in self), \
-            "All ImageData mappings must refer to the same Data. Hence, all" \
-            "must have the same number of points in their mappings."
+            "All SameSettingImageData mappings must refer to the same Data. " \
+            "Hence, all must have the same number of points in their mappings."
         assert len(set([im.settings_hash for im in self])) == len(self), \
-            "All ImageData in MultiSettingImageData must have different " \
-            "settings. ImageData with the same settings are expected to be " \
-            "grouped together in the same ImageData.)"
+            "All SameSettingImageData in ImageData must have " \
+            "different settings. SameSettingImageData with the same " \
+            "settings are expected to be grouped together in the same " \
+            "SameSettingImageData.)"
         for im in self:
             im.debug()
 
@@ -1020,7 +1036,8 @@ class MultiSettingImageData:
                f"device={self.device})"
 
     def select_points(self, idx, mode='pick'):
-        return self.__class__([im.select_points(idx, mode=mode) for im in self])
+        return self.__class__([im.select_points(idx, mode=mode)
+                               for im in self])
 
     def update_features_and_scale(self, x_list):
         assert isinstance(x_list, list) \
@@ -1032,9 +1049,9 @@ class MultiSettingImageData:
 
     # TODO: necessary multi-imaagedata pooling helpers
     def view_pooling_arangement_index(self):
-        # Index to apply to concatenated atomic-pooled features, so that the
-        # features are ordered by point ID. This way, we can use a CSR
-        # representation to view-pool them using scatter_csr.
+        # Index to apply to concatenated atomic-pooled features, so that
+        # the features are ordered by point ID. This way, we can use a
+        # CSR representation to view-pool them using scatter_csr.
         pass
 
     def view_pooling_csr_indices(self):
@@ -1060,23 +1077,23 @@ class MultiSettingImageData:
     @staticmethod
     def get_batch_type():
         """Required by MMData.from_mm_data_list."""
-        return MultiSettingImageBatch
+        return ImageBatch
 
 
-class MultiSettingImageBatch(MultiSettingImageData):
+class ImageBatch(ImageData):
     """
-    Wrapper class of MultiSettingImageData to build a batch from a list of
-    MultiSettingImageData and reconstruct it afterwards.
+    Wrapper class of ImageData to build a batch from a list
+    of ImageData and reconstruct it afterwards.
 
-    Like ImageBatch, each MultiSettingImageData in the batch here is
+    Like SameSettingImageBatch, each ImageData in the batch here is
     assumed to refer to different Data objects. Hence, the point ids in
-    MultiSettingImageBatch mappings are reindexed. For consistency, this
-    implies that associated Data points are expected to be batched in the same
-    order.
+    ImageBatch mappings are reindexed. For consistency, this
+    implies that associated Data points are expected to be batched in
+    the same sorder.
     """
 
-    def __init__(self, image_list: List[ImageData]):
-        super(MultiSettingImageBatch, self).__init__(image_list)
+    def __init__(self, image_list: List[SameSettingImageData]):
+        super(ImageBatch, self).__init__(image_list)
         self.__il_sizes__ = None
         self.__hashes__ = None
         self.__il_idx_dict__ = None
@@ -1086,7 +1103,7 @@ class MultiSettingImageBatch(MultiSettingImageData):
     @staticmethod
     def from_data_list(image_data_list):
         assert isinstance(image_data_list, list) and len(image_data_list) > 0
-        assert all(isinstance(x, MultiSettingImageData)
+        assert all(isinstance(x, ImageData)
                    for x in image_data_list)
 
         # Recover the list of unique hashes
@@ -1095,23 +1112,24 @@ class MultiSettingImageBatch(MultiSettingImageData):
                            for im in il]))
         hashes_idx = {h: i for i, h in enumerate(hashes)}
 
-        # Recover the number of points in each MultiSettingImageData
+        # Recover the number of points in each ImageData
         n_pts = torch.LongTensor([il.num_points for il in image_data_list])
-        cum_pts = torch.cumsum(torch.cat((torch.LongTensor([0]), n_pts)), dim=0)
+        cum_pts = torch.cumsum(torch.cat(
+            (torch.LongTensor([0]), n_pts)), dim=0)
 
-        # Recover the size of each input MultiSettingImageData
+        # Recover the size of each input ImageData
         il_sizes = [len(il) for il in image_data_list]
 
-        # MultiSettingImageData idx in input list
+        # ImageData idx in input list
         il_idx_dict = {h: [] for h in hashes}
 
-        # ImageData idx in MultiSettingImageData
+        # SameSettingImageData idx in ImageData
         im_idx_dict = {h: [] for h in hashes}
 
-        # Number of points in the ImageData mappings
+        # Number of points in the SameSettingImageData mappings
         n_pts_dict = {h: [] for h in hashes}
 
-        # Distribute the ImageData to its relevant hash
+        # Distribute the SameSettingImageData to its relevant hash
         batches = [[]] * len(hashes)
         for il_idx, il in enumerate(image_data_list):
             for im_idx, im in enumerate(il):
@@ -1120,8 +1138,8 @@ class MultiSettingImageBatch(MultiSettingImageData):
                 im_idx_dict[h].append(im_idx)
                 batches[hashes_idx[h]] = batches[hashes_idx[h]] + [im]
 
-        # Batch the ImageData for each hash
-        batches = [ImageBatch.from_data_list(x) for x in batches]
+        # Batch the SameSettingImageData for each hash
+        batches = [SameSettingImageBatch.from_data_list(x) for x in batches]
 
         # Update the ImageBatches' mappings pointers to account for
         # global points reindexing
@@ -1133,7 +1151,7 @@ class MultiSettingImageBatch(MultiSettingImageData):
                 im.mappings.insert_empty_groups(global_idx,
                                                 num_groups=cum_pts[-1])
 
-        msi_batch = MultiSettingImageBatch(batches)
+        msi_batch = ImageBatch(batches)
         msi_batch.__il_sizes__ = il_sizes
         msi_batch.__hashes__ = hashes
         msi_batch.__il_idx_dict__ = il_idx_dict
@@ -1149,14 +1167,15 @@ class MultiSettingImageBatch(MultiSettingImageData):
                 and self.__im_idx_dict__ is not None
                 and self.__cum_pts__ is not None), \
             "Cannot reconstruct the list of MultiSettingImages because " \
-            "the MultiSettingImageBatch was not created using " \
-            "'MultiSettingImageBatch.from_data_list'."
+            "the ImageBatch was not created using " \
+            "'ImageBatch.from_data_list'."
 
         # Initialize the MultiSettingImages
         msi_list = [[None] * s for s in self.__il_sizes__]
 
         for h, ib in zip(self.__hashes__, self):
-            # Restore the individual ImageData from the ImageBatch
+            # Restore the individual SameSettingImageData from the
+            # SameSettingImageBatch
             for il_idx, im_idx, im in zip(
                     self.__il_idx_dict__[h],
                     self.__im_idx_dict__[h],
@@ -1166,11 +1185,11 @@ class MultiSettingImageBatch(MultiSettingImageData):
                                           :self.__cum_pts__[il_idx+1]]
 
                 # Update the list of MultiSettingImages with each
-                # ImageData in its original position
+                # SameSettingImageData in its original position
                 msi_list[il_idx][im_idx] = im
 
         # Convert to MultiSettingImage
-        return [MultiSettingImageData(x) for x in msi_list]
+        return [ImageData(x) for x in msi_list]
 
 
 class ImageMapping(CSRData):
@@ -1411,7 +1430,8 @@ class ImageMapping(CSRData):
 
         For the mappings to preserve their meaning, this operation
         assumes the same indexation is also applied to the
-        corresponding ImageData and contains no duplicate indices.
+        corresponding SameSettingImageData and contains no duplicate
+        indices.
         """
         idx = tensor_idx(idx)
         assert torch.unique(idx).shape[0] == idx.shape[0], \
@@ -1537,7 +1557,7 @@ class ImageMapping(CSRData):
 
         For the mappings to preserve their meaning, this operation
         assumes the same cropping is also applied to the corresponding
-        ImageData.
+        SameSettingImageData.
         """
         # TODO: expand to handle projection features here too
         assert crop_offsets.shape == (torch.unique(self.images).shape[0], 2), \

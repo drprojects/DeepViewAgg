@@ -1,6 +1,6 @@
 from torch_points3d.datasets.multimodal.data import MMData
-from torch_points3d.datasets.multimodal.image import ImageData, \
-    MultiSettingImageData
+from torch_points3d.datasets.multimodal.image import SameSettingImageData, \
+    ImageData
 from torch_geometric.transforms import FixedPoints
 from torch_points3d.core.data_transform import GridSampling3D
 from torch_points3d.core.data_transform.multimodal.projection import \
@@ -41,9 +41,9 @@ def visualize_3d(
     data = mm_data.data.clone()
     images = mm_data.modalities['image'].clone()
 
-    # Convert images to MultiSettingImageData for convenience
-    if isinstance(images, ImageData):
-        images = MultiSettingImageData([images])
+    # Convert images to ImageData for convenience
+    if isinstance(images, SameSettingImageData):
+        images = ImageData([images])
 
     # Subsample to limit the drawing time
     data = GridSampling3D(voxel)(data)
@@ -282,9 +282,9 @@ def visualize_2d(
     data = mm_data.data.clone()
     images = mm_data.modalities['image'].clone()
 
-    # Convert images to MultiSettingImageData for convenience
-    if isinstance(images, ImageData):
-        images = MultiSettingImageData([images])
+    # Convert images to ImageData for convenience
+    if isinstance(images, SameSettingImageData):
+        images = ImageData([images])
 
     for im in images:
         # Load images if need be

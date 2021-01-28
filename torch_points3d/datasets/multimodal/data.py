@@ -6,7 +6,7 @@ from torch_points3d.core.data_transform.multimodal.image import \
     SelectMappingFromPointId, _MAPPING_KEY
 from torch_points3d.utils.multimodal import tensor_idx
 
-MODALITY_FORMATS = {"image": (ImageData, MultiSettingImageData)}
+MODALITY_FORMATS = {"image": ImageData}
 MODALITY_NAMES = list(MODALITY_FORMATS.keys())
 
 
