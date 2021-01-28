@@ -296,7 +296,7 @@ def visualize_2d(
         im.x = (im.x.float() / alpha).floor().type(torch.uint8)
 
         # Get the mapping of all points in the sample
-        idx_batch, idx_height, idx_width = im.mappings.feature_map_indexing
+        idx = im.mappings.feature_map_indexing
 
         color_mode = color_mode if color_mode in ['light', 'rgb', 'pos', 'y'] \
             else 'light'
@@ -306,7 +306,7 @@ def visualize_2d(
         if color_mode == 'light':
             # Set mapping mask back to original lighting
             color = torch.full((3,), alpha, dtype=torch.uint8)
-            color = im.x[idx_batch, :, idx_height, idx_width] * color
+            color = im.x[idx] * color
 
         elif color_mode == 'rgb':
             # Set mapping mask to point cloud RGB colors
@@ -351,7 +351,7 @@ def visualize_2d(
                 dim=0)
 
         # Apply the coloring to the mapping masks
-        im.x[idx_batch, :, idx_height, idx_width] = color
+        im.x[idx] = color
 
     # Prepare figure
     width = width if width and height else figsize

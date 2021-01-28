@@ -74,44 +74,64 @@ class MultimodalBlockDown(nn.Module):
         modality-specific data equipped with corresponding mappings.
         """
         # Unpack the multimodal data tuple
-        data_3d, data_mod = mm_data_tuple
+        x_3d, mod_dict = mm_data_tuple
 
         print("3D conv down...")
         # Conv on the main 3D modality - assumed to reduce 3D resolution
-        data_3d, idx, idx_mode = self.forward_3d_block_down(
-            self.down_block, data_3d)
+        x_3d, idx, idx_mode = self.forward_3d_block_down(self.down_block, x_3d)
 
         for m in self.modalities:
             print(f"{m} mapping 3D downsampling with '{idx_mode}' mode...")
-            # Update modality-specific data and mappings wrt point idx
-            data_mod[m] = data_mod[m].select_points(idx, mode=idx_mode)
+            # Update modality data and mappings wrt point idx
+            mod_dict[m] = mod_dict[m].select_points(idx, mode=idx_mode)
 
             print(f"{m} conv down...")
-            # Conv on the modality-specific data
+            # Conv on the modality data. The modality data holder
+            # carries a feature tensor per modality settings. Hence the
+            # modality features are provided as a list of tensors.
             # TODO: this is multisetting-oriented: list of feature
             #  tensors Need to make the multisetting the default, for
             #  all modalities
-            x = data_mod[m].x
-            a_idx = data_mod[m].mappings.atomic_csr_indexing()
-            if isinstance(x, list):
-                x = [self.modality_blocks[m]['conv'](f) for f in x]
-            else:
-                x = self.modality_blocks[m]['conv'](x)
+            x_mod = [self.modality_blocks[m]['conv'](x) for x in mod_dict[m].x]
 
             print(f"{m} mapping modality downsampling...")
-            # Update modality-specific data and mappings wrt modality
-            # scale
-            data_mod[m] = data_mod[m].update_features_and_scale(x)
+            # Update modality features and mappings wrt modality scale.
+            # Note that convolved features are preserved in the modality
+            # data holder, to be later used in potential downstream
+            # modules.
+            mod_dict[m] = mod_dict[m].update_features_and_scale(x_mod)
 
-            print(f"{m} features atomic pooling...")
-            # Merge the modality into the main 3D features
-            # TODO : create merge blocks class. Are they modality-specific ?
-            data_3d = self.modality_blocks[m]['merge'](data_3d, data_mod[m])
+            # Extract CSR-arranged atomic features from the feature maps
+            # of each input modality setting
+            x_mod = [x[idx]
+                     for x, idx
+                     in zip(x_mod, mod_dict[m].feature_map_indexing)]
+
+            # Atomic pooling of the modality features on each
+            # separate setting
+            x_mod = [self.modality_blocks[m]['atomic'](x, x_3d, a_idx)
+                     for x, a_idx
+                     in zip(x_mod, mod_dict[m].atomic_csr_indexing)]
+
+            # Concatenate view-level features from each input
+            # modality setting
+            x_mod = torch.cat(x_mod, dim=0)
+
+            # Sort the concatenated view-level features to a
+            # CSR-friendly order wrt 3D points features
+            x_mod = x_mod[mod_dict[m].view_cat_sorting]
+
+            # View pooling of the joint modality features
+            v_idx = mod_dict[m].view_cat_csr_indexing
+            x_mod = self.modality_blocks[m]['view'](x_mod, x_3d, v_idx)
+
+            # Fuse the modality features into the 3D points features
+            x_3d = self.modality_blocks[m]['fuse'](x_mod, x_3d)
 
         # Conv on the main 3D modality
-        data_3d = self.conv_block(data_3d)
+        x_3d = self.conv_block(x_3d)
 
-        return tuple(data_3d, data_mod)
+        return tuple((x_3d, mod_dict))
 
     @staticmethod
     def forward_3d_block_down(block, x):

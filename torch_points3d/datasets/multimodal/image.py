@@ -846,6 +846,40 @@ class SameSettingImageData(object):
         """Required by MMData.from_mm_data_list."""
         return SameSettingImageBatch
 
+    @property
+    def feature_map_indexing(self):
+        """
+        Return the indices for extracting mapped data from the
+        corresponding batch of image feature maps.
+
+        The batch of image feature maps X is expected to have the shape
+        `[B, C, H, W]`. The returned indexing object idx is intended to
+        be used for recovering the mapped features as: `X[idx]`.
+        """
+        if self.mappings is not None:
+            return self.mappings.feature_map_indexing
+        return None
+
+    @property
+    def atomic_csr_indexing(self):
+        """
+        Return the indices that will be used for atomic-level pooling on
+        CSR-formatted data.
+        """
+        if self.mappings is not None:
+            return self.mappings.atomic_csr_indexing
+        return None
+
+    @property
+    def view_csr_indexing(self):
+        """
+        Return the indices that will be used for view-level pooling on
+        CSR-formatted data.
+        """
+        if self.mappings is not None:
+            return self.mappings.view_csr_indexing
+        return None
+
 
 class SameSettingImageBatch(SameSettingImageData):
     """
@@ -1078,6 +1112,62 @@ class ImageData:
     def get_batch_type():
         """Required by MMData.from_mm_data_list."""
         return ImageBatch
+
+    @property
+    def feature_map_indexing(self):
+        """
+        Return the indices for extracting mapped data from the
+        corresponding batch of image feature maps.
+
+        The batch of image feature maps X is expected to have the shape
+        `[B, C, H, W]`. The returned indexing object idx is intended to
+        be used for recovering the mapped features as: `X[idx]`.
+        """
+        return [im.feature_map_indexing for im in self]
+
+    @property
+    def atomic_csr_indexing(self):
+        """
+        Return the indices that will be used for atomic-level pooling on
+        CSR-formatted data.
+        """
+        return [im.atomic_csr_indexing for im in self]
+
+    @property
+    def view_cat_sorting(self):
+        """
+        Return the sorting indices to arrange concatenated view-level
+        features to a CSR-friendly order wrt to points.
+        """
+        # Recover the expanded view idx for each SameSettingImageData
+        # in self
+        dense_idx_list = [
+            torch.repeat_interleave(
+                torch.arange(im.num_points),
+                im.view_csr_indexing[1:] - im.view_csr_indexing[:-1])
+            for im in self]
+
+        # Assuming the corresponding view features will be concatenated
+        # in the same order as in self, compute the sorting indices to
+        # arrange features wrt point indices, to facilitate CSR indexing
+        sorting = torch.cat([idx for idx in dense_idx_list]).argsort()
+
+        return sorting
+
+    @property
+    def view_cat_csr_indexing(self):
+        """
+        Return the indices that will be used for view-level pooling on
+        CSR-formatted data. To sort concatenated view-level features,
+        see 'view_cat_sorting'.
+        """
+        # Assuming the features have been concatenated and sorted as
+        # aforementioned in 'view_cat_sorting' compute the new CSR
+        # indices to be used for feature view-pooling
+        view_csr_idx = torch.cat([
+            im.view_csr_indexing.unsqueeze(dim=1)
+            for im in self]).sum(dim=1)
+        return view_csr_idx
 
 
 class ImageBatch(ImageData):
@@ -1315,23 +1405,16 @@ class ImageMapping(CSRData):
         corresponding batch of image feature maps.
 
         The batch of image feature maps X is expected to have the shape
-        `[B, C, H, W]`. The returned indices idx_1, idx_2, idx_3 are
-        intended to be used for recovering the mapped features as:
-        `X[idx_1, :, idx_2, idx_3]`.
+        `[B, C, H, W]`. The returned indexing object idx is intended to
+        be used for recovering the mapped features as: `X[idx]`.
         """
         idx_batch = torch.repeat_interleave(
             self.images,
             self.values[1].pointers[1:] - self.values[1].pointers[:-1])
         idx_height = self.pixels[:, 1]
         idx_width = self.pixels[:, 0]
-        return idx_batch.long(), idx_height.long(), idx_width.long()
-
-    @property
-    def atomic_indexing(self):
-        """
-        Return the indices that will be used for atomic-level pooling.
-        """
-        raise NotImplementedError
+        idx = (idx_batch.long(), ..., idx_height.long(), idx_width.long())
+        return idx
 
     @property
     def atomic_csr_indexing(self):
@@ -1340,13 +1423,6 @@ class ImageMapping(CSRData):
         CSR-formatted data.
         """
         return self.values[1].pointers
-
-    @property
-    def view_indexing(self):
-        """
-        Return the indices that will be used for view-level pooling.
-        """
-        raise NotImplementedError
 
     @property
     def view_csr_indexing(self):
