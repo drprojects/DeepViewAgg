@@ -32,17 +32,21 @@ class ResBlock(nn.Module):
         super().__init__()
         self.block = (
             Seq()
-            .append(convolution(input_nc, output_nc, kernel_size=3, stride=1))
+            .append(convolution(input_nc, output_nc, kernel_size=3, stride=1,
+                                padding=1, padding_mode='reflect'))
             .append(nn.BatchNorm2d(output_nc))
             .append(nn.ReLU())
-            .append(convolution(output_nc, output_nc, kernel_size=3, stride=1))
+            .append(convolution(output_nc, output_nc, kernel_size=3, stride=1,
+                                padding=1, padding_mode='reflect'))
             .append(nn.BatchNorm2d(output_nc))
             .append(nn.ReLU())
         )
 
         if input_nc != output_nc:
             self.downsample = (
-                Seq().append(nn.Conv2d(input_nc, output_nc, kernel_size=1, stride=1)).append(nn.BatchNorm2d(output_nc))
+                Seq().append(
+                    nn.Conv2d(input_nc, output_nc, kernel_size=1, stride=1)
+                ).append(nn.BatchNorm2d(output_nc))
             )
         else:
             self.downsample = None
@@ -66,20 +70,26 @@ class BottleneckBlock(nn.Module):
 
         self.block = (
             Seq()
-            .append(nn.Conv2d(input_nc, output_nc // reduction, kernel_size=1, stride=1))
+            .append(nn.Conv2d(input_nc, output_nc // reduction, kernel_size=1,
+                              stride=1))
             .append(nn.BatchNorm2d(output_nc // reduction))
             .append(nn.ReLU())
-            .append(convolution(output_nc // reduction, output_nc // reduction, kernel_size=3, stride=1,))
+            .append(convolution(output_nc // reduction, output_nc // reduction,
+                                kernel_size=3, stride=1, padding=1,
+                                padding_mode='reflect'))
             .append(nn.BatchNorm2d(output_nc // reduction))
             .append(nn.ReLU())
-            .append(nn.Conv2d(output_nc // reduction, output_nc, kernel_size=1,))
+            .append(nn.Conv2d(output_nc // reduction, output_nc,
+                              kernel_size=1,))
             .append(nn.BatchNorm2d(output_nc))
             .append(nn.ReLU())
         )
 
         if input_nc != output_nc:
             self.downsample = (
-                Seq().append(convolution(input_nc, output_nc, kernel_size=1, stride=1)).append(nn.BatchNorm2d(output_nc))
+                Seq().append(
+                    convolution(input_nc, output_nc, kernel_size=1, stride=1)
+                ).append(nn.BatchNorm2d(output_nc))
             )
         else:
             self.downsample = None
@@ -108,7 +118,8 @@ class ResNetDown(nn.Module):
     CONVOLUTION = "Conv2d"
 
     def __init__(
-        self, down_conv_nn=[], kernel_size=2, dilation=1, stride=2, N=1, block="ResBlock", **kwargs,
+        self, down_conv_nn=[], kernel_size=2, dilation=1, stride=2, N=1,
+            block="ResBlock", **kwargs,
     ):
         block = getattr(_res_blocks, block)
         super().__init__()
@@ -127,6 +138,8 @@ class ResNetDown(nn.Module):
                     kernel_size=kernel_size,
                     stride=stride,
                     dilation=dilation,
+                    padding=1,
+                    padding_mode='reflect',
                 )
             )
             .append(nn.BatchNorm2d(conv1_output))
@@ -155,9 +168,11 @@ class ResNetUp(ResNetDown):
 
     CONVOLUTION = "ConvTranspose2d"
 
-    def __init__(self, up_conv_nn=[], kernel_size=2, dilation=1, stride=2, N=1, **kwargs):
+    def __init__(self, up_conv_nn=[], kernel_size=2, dilation=1, stride=2, N=1,
+                 **kwargs):
         super().__init__(
-            down_conv_nn=up_conv_nn, kernel_size=kernel_size, dilation=dilation, stride=stride, N=N, **kwargs,
+            down_conv_nn=up_conv_nn, kernel_size=kernel_size,
+            dilation=dilation, stride=stride, N=N, **kwargs,
         )
 
     def forward(self, x, skip):
@@ -176,7 +191,8 @@ class UNet(nn.Module):
 
     Create the Unet from a dictionary of compact options.
 
-    For each part of the architecture, the blocks are implicitly pre-selected:
+    For each part of the architecture, the blocks are implicitly
+    pre-selected:
       - Down  : ResNetDown
       - Inner : BottleneckBlock
       - Up    : ResNetUp
@@ -217,7 +233,8 @@ class UNet(nn.Module):
             self.down_modules.append(down_module)
 
         # Innermost module
-        contains_global = hasattr(opt, "innermost") and opt.innermost is not None
+        contains_global = hasattr(opt, "innermost") \
+                          and opt.innermost is not None
         if contains_global:
             inners = self._build_module(opt.innermost, 0, "INNER")
             self.inner_modules.append(inners)
@@ -231,8 +248,8 @@ class UNet(nn.Module):
 
 
     def _fetch_arguments_from_list(self, opt, index):
-        """Fetch the arguments for a single convolution from multiple lists
-        of arguments - for models specified in the compact format.
+        """Fetch the arguments for a single convolution from multiple
+        lists of arguments - for models specified in the compact format.
         """
         args = {}
         for o, v in opt.items():
@@ -254,8 +271,10 @@ class UNet(nn.Module):
         """Builds a convolution (up, down or inner) block.
 
         Arguments:
-            conv_opt - model config subset describing the convolutional block
-            index - layer index in sequential order (as they come in the config)
+            conv_opt - model config subset describing the convolutional
+                block
+            index - layer index in sequential order (as they come in the
+                config)
             flow - UP, DOWN or INNER
         """
         if flow.lower() == 'DOWN'.lower():
@@ -270,7 +289,8 @@ class UNet(nn.Module):
         return module_cls(**args)
 
     def forward(self, x, **kwargs):
-        """ This method does a forward on the Unet assuming symmetrical skip connections
+        """This method does a forward on the Unet assuming symmetrical
+        skip connections.
 
         Parameters
         ----------
