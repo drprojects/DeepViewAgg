@@ -21,7 +21,8 @@ from torch_points3d.datasets.base_dataset import BaseDataset
 from torch_points3d.models.base_model import BaseModel
 from torch_points3d.core.common_modules.base_modules import Identity
 from torch_points3d.utils.config import is_list
-from torch_points3d.modules.multimodal.modules import MultimodalBlockDown
+from torch_points3d.modules.multimodal.modules import MultimodalBlockDown, \
+    UnimodalBranch
 from torch_points3d.datasets.multimodal.data import MMData, MODALITY_NAMES
 import importlib
 
@@ -51,20 +52,36 @@ class ModalityFactory:
      Modules are expected to be found in:
         torch_points3d.modules.multimodal.modalities.<modality>.module_name
      """
-    def __init__(self, modality, module_name, merge_name):
+    def __init__(self, modality, module_name, atomic_pooling_name,
+                 view_pooling_name, fusion_name):
         self.modality = modality
+
         self.module_name = module_name
-        self.merge_name = merge_name
         self.modality_lib = importlib.import_module(
             f"torch_points3d.modules.multimodal.modalities.{modality}")
-        self.merge_lib = importlib.import_module(
-            f"torch_points3d.modules.multimodal.merge")
+
+        self.atomic_pooling_name = atomic_pooling_name
+        self.view_pooling_name = view_pooling_name
+        self.pooling_lib = importlib.import_module(
+            f"torch_points3d.modules.multimodal.pooling")
+
+        self.fusion_name = fusion_name
+        self.fusion_lib = importlib.import_module(
+            f"torch_points3d.modules.multimodal.fusion")
 
     def get_module(self, flow):
-        if flow.upper() == "MERGE":
-            # Search for the modality merger in
-            # torch_points3d.modules.multimodal.merge
-            return getattr(self.merge_lib, self.merge_name, None)
+        if flow.upper() == "ATOMIC":
+            # Search for the modality pooling in
+            # torch_points3d.modules.multimodal.pooling
+            return getattr(self.pooling_lib, self.atomic_pooling_name, None)
+        elif flow.upper() == "VIEW":
+            # Search for the modality pooling in
+            # torch_points3d.modules.multimodal.pooling
+            return getattr(self.pooling_lib, self.view_pooling_name, None)
+        elif flow.upper() == 'FUSION':
+            #  Search for the modality fusion in
+            # torch_points3d.modules.multimodal.fusion
+            return getattr(self.fusion_lib, self.fusion_name, None)
         else:
             # Search for the modality conv in
             # torch_points3d.modules.multimodal.modalities.{modality}
@@ -417,9 +434,13 @@ class UnwrappedUnetBasedModel(BaseModel):
         # Factories for creating modules for additional modalities
         if self.is_multimodal:
             for m in self.modalities:
-                modality_opt = getattr(opt.down_conv, m)
-                self._module_factories[m] = ModalityFactory(m,
-                    modality_opt.module_name, modality_opt.merge.module_name)
+                mod_opt = getattr(opt.down_conv, m)
+                self._module_factories[m] = ModalityFactory(
+                    m,
+                    mod_opt.down_conv.module_name,
+                    mod_opt.atomic_pooling.module_name,
+                    mod_opt.view_pooling.module_name,
+                    mod_opt.fusion.module_name)
 
         # Innermost module
         contains_global = hasattr(opt, "innermost") \
@@ -453,18 +474,28 @@ class UnwrappedUnetBasedModel(BaseModel):
                     opt.down_conv, 2 * i + 1, flow="DOWN")
                 self._save_sampling_and_search(conv_3d)
 
-                # Build the conv and merge modules for each modality
-                # Prepare MMBlockDown expected input format
+                # Build the conv, pooling and fusion modules for each
+                # modality. Prepare MMBlockDown expected input format
                 modal_conv = {}
                 for m in self.modalities:
                     conv = self._build_module(
-                        getattr(opt.down_conv, m), i, modality=m)
-                    merge = self._build_module(
-                        getattr(opt.down_conv, m).merge, i, modality=m,
-                        flow='MERGE')
-                    modal_conv[m] = {'conv': conv, 'merge': merge}
+                        getattr(opt.down_conv, m).down_conv, i, modality=m)
+                    atomic_pool = self._build_module(
+                        getattr(opt.down_conv, m).atomic_pooling, i, modality=m,
+                        flow='ATOMIC')
+                    view_pool = self._build_module(
+                        getattr(opt.down_conv, m).view_pooling, i, modality=m,
+                        flow='VIEW')
+                    fusion = self._build_module(
+                        getattr(opt.down_conv, m).fusion, i, modality=m,
+                        flow='FUSION')
 
-                # Build the multimodal block
+                    # Group modules into a UnimodalBranch
+                    branch = UnimodalBranch(conv, atomic_pool, view_pool, fusion)
+                    modal_conv[m] = branch
+
+                # Combine the modality-specific modules into a
+                # MultimodalBlockDown
                 self.down_modules.append(
                     MultimodalBlockDown(down_conv_3d, conv_3d, **modal_conv))
 
@@ -540,11 +571,16 @@ class UnwrappedUnetBasedModel(BaseModel):
         modalities = []
         for o, v in opt.items():
             name = str(o).lower()
-            if name in MODALITY_NAMES:
-                if getattr(v, "down_conv_nn", None) is not None \
-                        and getattr(v, "merge", None) is not None:
-                    # Check the modality config has expected format
-                    modalities.append(name)
+            if name not in MODALITY_NAMES:
+                continue
+            assert hasattr(v, 'down_conv') \
+                   and hasattr(v, 'atomic_pooling') \
+                   and hasattr(v, 'view_pooling') \
+                   and hasattr(v, 'fusion'), \
+                f"Found '{name}' modality in the config but could not " \
+                f"recover all required attributes: ['down_conv' " \
+                f"'atomic_pooling', 'view_pooling', 'fusion']"
+            modalities.append(name)
         return modalities
 
     def _get_factory(self, model_name, modules_lib):

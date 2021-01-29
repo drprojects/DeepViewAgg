@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 import torch_scatter
 
@@ -42,18 +43,22 @@ class BimodalPool(nn.Module):
 
 
 class BimodalCSRPool(nn.Module):
-    def __init__(self, mode='max'):
+    def __init__(self, mode='max', **kwargs):
         super(BimodalCSRPool, self).__init__()
-        if mode in ['max', 'mean', 'min', 'sum']:
-            # TODO: beware of empty group index after torch scatter !
-            self.pool = lambda x_main, x_mod, csr_idx: torch_scatter.segment_csr(
-                x_mod, csr_idx, reduce=mode)
+        self.mode = mode
+
+    def forward(self, x_mod, csr_idx, x_main):
+        if self.mode in ['max', 'mean', 'min', 'sum']:
+            # Segment_CSR is "the fastest method to apply for grouped
+            # reductions."
+            x_pool = torch_scatter.segment_csr(x_mod, csr_idx, reduce=self.mode)
+
         else:
-            # TODO create the attention-based pooling (see notes below for softmax on CSR)
+            # TODO create the attention-based pooling (see notes below
+            #  for softmax on CSR)
             raise NotImplementedError
 
-    def forward(self, x_main, x_mod, csr_idx):
-        return self.pool(x_main, x_mod, csr_idx)
+        return x_pool
 
 
 """

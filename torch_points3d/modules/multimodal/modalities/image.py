@@ -119,7 +119,7 @@ class ResNetDown(nn.Module):
 
     def __init__(
         self, down_conv_nn=[], kernel_size=2, dilation=1, stride=2, N=1,
-            block="ResBlock", **kwargs,
+            padding=0, block="ResBlock", **kwargs,
     ):
         block = getattr(_res_blocks, block)
         super().__init__()
@@ -138,7 +138,7 @@ class ResNetDown(nn.Module):
                     kernel_size=kernel_size,
                     stride=stride,
                     dilation=dilation,
-                    padding=1,
+                    padding=padding,
                     padding_mode='reflect',
                 )
             )
@@ -169,10 +169,10 @@ class ResNetUp(ResNetDown):
     CONVOLUTION = "ConvTranspose2d"
 
     def __init__(self, up_conv_nn=[], kernel_size=2, dilation=1, stride=2, N=1,
-                 **kwargs):
+                 padding=0, **kwargs):
         super().__init__(
             down_conv_nn=up_conv_nn, kernel_size=kernel_size,
-            dilation=dilation, stride=stride, N=N, **kwargs,
+            dilation=dilation, stride=stride, N=N, padding=padding, **kwargs,
         )
 
     def forward(self, x, skip):
@@ -245,7 +245,6 @@ class UNet(nn.Module):
         for i in range(len(opt.up_conv.up_conv_nn)):
             up_module = self._build_module(opt.up_conv, i, "UP")
             self.up_modules.append(up_module)
-
 
     def _fetch_arguments_from_list(self, opt, index):
         """Fetch the arguments for a single convolution from multiple

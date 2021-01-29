@@ -1081,18 +1081,6 @@ class ImageData:
                       for im, x in zip(self, x_list)]
         return self
 
-    # TODO: necessary multi-imaagedata pooling helpers
-    def view_pooling_arangement_index(self):
-        # Index to apply to concatenated atomic-pooled features, so that
-        # the features are ordered by point ID. This way, we can use a
-        # CSR representation to view-pool them using scatter_csr.
-        pass
-
-    def view_pooling_csr_indices(self):
-        # CSR pointers of the concatenated and re-aranged (with
-        # view_pooling_arangement_index) atomic-pooled features.
-        pass
-
     def load(self):
         self._list = [im.load() for im in self]
         return self
@@ -1166,7 +1154,7 @@ class ImageData:
         # indices to be used for feature view-pooling
         view_csr_idx = torch.cat([
             im.view_csr_indexing.unsqueeze(dim=1)
-            for im in self]).sum(dim=1)
+            for im in self], dim=1).sum(dim=1)
         return view_csr_idx
 
 
