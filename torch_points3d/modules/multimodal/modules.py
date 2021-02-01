@@ -31,7 +31,7 @@ class MultimodalBlockDown(nn.Module):
 
         # Initialize the dict holding the conv and merge blocks for all
         # modalities
-        self.mod_branches = {}
+        self._modalities = []
         self._init_from_kwargs(**kwargs)
 
         # Expose the 3D down_conv .sampler attribute (for
@@ -54,11 +54,12 @@ class MultimodalBlockDown(nn.Module):
             assert isinstance(kwargs[m], UnimodalBranch), \
                 f"Expected a UnimodalBranch module for '{m}' modality " \
                 f"but got {type(kwargs[m])} instead."
-            self.mod_branches[m] = kwargs[m]
+            setattr(self, m, kwargs[m])
+            self._modalities.append(m)
 
     @property
     def modalities(self):
-        return list(self.mod_branches.keys())
+        return self._modalities
 
     @property
     def num_modalities(self):
@@ -83,7 +84,8 @@ class MultimodalBlockDown(nn.Module):
             x_3d, mod_dict, self.down_block)
 
         for m in self.modalities:
-            x_3d, mod_dict[m] = self.mod_branches[m](x_3d, mod_dict[m])
+            mod_branch = getattr(self, m)
+            x_3d, mod_dict[m] = mod_branch(x_3d, mod_dict[m])
 
         # Conv on the main 3D modality
         x_3d, mod_dict = self.forward_3d_block_down(
