@@ -29,12 +29,15 @@ class MultimodalBlockDown(nn.Module):
         self.down_block = down_block if down_block is not None else Identity()
         self.conv_block = conv_block if conv_block is not None else Identity()
 
-        # Initialize the dict holding the conv and merge blocks for all modalities
+        # Initialize the dict holding the conv and merge blocks for all
+        # modalities
         self.mod_branches = {}
         self._init_from_kwargs(**kwargs)
 
-        # Expose the 3D down_conv .sampler attribute (for UnwrappedUnetBasedModel)
-        # TODO this is for KPConv, is it doing the intended, is it needed at all ?
+        # Expose the 3D down_conv .sampler attribute (for
+        # UnwrappedUnetBasedModel)
+        # TODO this is for KPConv, is it doing the intended, is it
+        #  needed at all ?
         self.sampler = [getattr(self.down_block, "sampler", None),
                         getattr(self.conv_block, "sampler", None)]
 
@@ -158,10 +161,11 @@ class MultimodalBlockDown(nn.Module):
                 # assume here that coordinates to have shape (N x 4) and
                 # batch indices to lie in the last column.
                 assert x_3d.C.shape[1] == 4, \
-                    f"Sparse coordinates are expected to have shape (N x 4), " \
-                    f"with batch indices in the first column and 3D spatial " \
-                    f"coordinates in the following ones. Yet, received " \
-                    f"coordinates tensor with shape {x_3d.C.shape} instead."
+                    f"Sparse coordinates are expected to have shape " \
+                    f"(N x 4), with batch indices in the first column and " \
+                    f"3D spatial coordinates in the following ones. Yet, " \
+                    f"received coordinates tensor with shape {x_3d.C.shape} " \
+                    f"instead."
                 in_coords = x_3d.coord_maps[stride_in]
                 in_coords[:, :3] = ((in_coords[:, :3].float() / stride_out
                                      ).floor() * stride_out).int()

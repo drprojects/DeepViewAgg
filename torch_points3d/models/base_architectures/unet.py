@@ -406,10 +406,11 @@ class UnwrappedUnetBasedModel(BaseModel):
         self._modalities = self._fetch_modalities(opt.down_conv)
 
         # Check if the 3D convolutions are specified in the config
-        self.no_3d = "down_conv_nn" not in opt.down_conv
+        self.no_3d_down_conv = "down_conv_nn" not in opt.down_conv
 
         # Detect which options format has been used to define the model
-        if is_list(opt.down_conv) or self.no_3d and not self.is_multimodal:
+        if is_list(opt.down_conv) or self.no_3d_down_conv \
+                and not self.is_multimodal:
             raise NotImplementedError
         else:
             self._init_from_compact_format(opt, model_type, dataset, modules_lib)
@@ -464,14 +465,14 @@ class UnwrappedUnetBasedModel(BaseModel):
 
         else:
             # Build multimodal down modules
-            if self.no_3d:
+            if self.no_3d_down_conv:
                 n_modules_down = len(getattr(opt.down_conv, self.modalities[0]
                                              ).down_conv.down_conv_nn)
             else:
                 n_modules_down = len(opt.down_conv.down_conv_nn) // 2
             for i in range(n_modules_down):
 
-                if self.no_3d:
+                if self.no_3d_down_conv:
                     down_conv_3d = nn.Identity()
                     conv_3d = nn.Identity()
                 else:

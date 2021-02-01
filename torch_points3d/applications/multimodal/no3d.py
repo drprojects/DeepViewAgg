@@ -22,9 +22,10 @@ class No3DEncoder(UnwrappedUnetBasedModel):
         # Make sure the model is multimodal and has no 3D. Note that
         # the UnwrappedUnetBasedModel carries most of the required
         # initialization.
-        assert self.is_multimodal and self.no_3d, \
+        assert self.is_multimodal and self.no_3d_down_conv, \
             f"No3DUnet should carry at least one non-3D modality."
-        assert self.no_3d, f"No3DUnet should not have 3D-specific modules."
+        assert self.no_3d_down_conv, \
+            f"No3DUnet should not have 3D-specific modules."
 
         # BN and transpose conv weights init
         self.weight_initialization()
@@ -32,8 +33,8 @@ class No3DEncoder(UnwrappedUnetBasedModel):
         # Recover size of output features
         default_output_nc = kwargs.get("default_output_nc", None)
         if not default_output_nc:
-            mod_out_nc_list = [extract_output_nc(getattr(model_config, m))
-                               for m in self.modalities]
+            mod_out_nc_list = [extract_output_nc(getattr(
+                model_config.down_conv, m)) for m in self.modalities]
             assert all(o == mod_out_nc_list[0] for o in mod_out_nc_list), \
                 f"Expected all modality branches outputs to have the same " \
                 f"feature size but got {mod_out_nc_list} sizes instead."
