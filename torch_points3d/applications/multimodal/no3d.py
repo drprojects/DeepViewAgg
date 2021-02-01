@@ -29,7 +29,7 @@ class No3DEncoder(UnwrappedUnetBasedModel):
 
         # BN and transpose conv weights init
         self.weight_initialization()
-
+        
         # Recover size of output features
         default_output_nc = kwargs.get("default_output_nc", None)
         if not default_output_nc:
@@ -39,6 +39,7 @@ class No3DEncoder(UnwrappedUnetBasedModel):
                 f"Expected all modality branches outputs to have the same " \
                 f"feature size but got {mod_out_nc_list} sizes instead."
             default_output_nc = mod_out_nc_list[0]
+            
         self._output_nc = default_output_nc
 
         # Set the MLP head if any
