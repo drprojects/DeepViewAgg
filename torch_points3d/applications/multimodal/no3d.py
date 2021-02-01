@@ -55,7 +55,7 @@ class No3DEncoder(UnwrappedUnetBasedModel):
                 torch.nn.init.kaiming_normal_(m.kernel, mode="fan_out",
                                               nonlinearity="relu")
 
-            if isinstance(m, torch.nn.BatchNorm):
+            if isinstance(m, torch.nn.BatchNorm2d):
                 torch.nn.init.constant_(m.bn.weight, 1)
                 torch.nn.init.constant_(m.bn.bias, 0)
 
