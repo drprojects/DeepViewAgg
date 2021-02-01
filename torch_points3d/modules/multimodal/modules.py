@@ -75,16 +75,13 @@ class MultimodalBlockDown(nn.Module):
         # Unpack the multimodal data tuple
         x_3d, mod_dict = mm_data_tuple
 
-        print("\n3D conv down...")
         # Conv on the main 3D modality - assumed to reduce 3D resolution
         x_3d, mod_dict = self.forward_3d_block_down(
             x_3d, mod_dict, self.down_block)
 
         for m in self.modalities:
-            print(f"\n\n{m} modality branch...")
             mod_dict[m], x_3d = self.mod_branches[m](mod_dict[m], x_3d)
 
-        print("\n3D conv...")
         # Conv on the main 3D modality
         x_3d, mod_dict = self.forward_3d_block_down(
             x_3d, mod_dict, self.conv_block)
@@ -127,12 +124,11 @@ class MultimodalBlockDown(nn.Module):
             x_3d = block(x_3d)
             stride_out = x_3d.tensor_stride[0]
 
-            print('\nSTRIDES: ', stride_in, stride_out, '\n')
             if stride_in == stride_out:
                 idx = None
             else:
-                src, target = x_3d.coords_man.get_coords_map(stride_in,
-                                                             stride_out)
+                src, target = x_3d.coords_man.get_coords_map(
+                    stride_in, stride_out)
                 idx = target[src.argsort()]
 
         # TorchSparse forward and reindexing
@@ -143,17 +139,28 @@ class MultimodalBlockDown(nn.Module):
             x_3d = block(x_3d)
             stride_out = x_3d.s
 
-            print('\nSTRIDES: ', stride_in, stride_out, '\n')
             if stride_in == stride_out:
                 idx = None
             else:
-                if stride_out % stride_in == 0:
-                    ratio = int(stride_out / stride_in)
-                else:
-                    raise ValueError(
-                        f"Output stride {stride_out} should be a multiple of "
-                        f"input stride {stride_in}.")
-                in_coords = x_3d.coord_maps[stride_in] // ratio * ratio
+                # To compute the reindexing of the sparse voxels with
+                # torchsparse, we need to make use of the torchsparse
+                # sphashquery function to compare sets of coordinates at
+                # the same resolution. However, when changing resolution
+                # we must be careful to voxelize spatial points but
+                # leave the batch indices untouched. For torchsparse,
+                # the batch indices are stored in the last column of
+                # the coords tensor (unlike MinkowskiEngine which
+                # stores batch indices in the first column). Hence we
+                # assume here that coordinates to have shape (N x 4) and
+                # batch indices to lie in the last column.
+                assert x_3d.C.shape[1] == 4, \
+                    f"Sparse coordinates are expected to have shape (N x 4), " \
+                    f"with batch indices in the first column and 3D spatial " \
+                    f"coordinates in the following ones. Yet, received " \
+                    f"coordinates tensor with shape {x_3d.C.shape} instead."
+                in_coords = x_3d.coord_maps[stride_in]
+                in_coords[:, :3] = ((in_coords[:, :3].float() / stride_out
+                                     ).floor() * stride_out).int()
                 out_coords = x_3d.coord_maps[stride_out]
                 idx = sphashquery(sphash(in_coords), sphash(out_coords))
             mode = 'merge'
@@ -174,7 +181,6 @@ class MultimodalBlockDown(nn.Module):
 
         # Update modality data and mappings wrt new point indexing
         for m in mod_dict.keys():
-            print(f"{m} mapping 3D downsampling with '{mode}' mode...")
             mod_dict[m] = mod_dict[m].select_points(idx, mode=mode)
 
         return x_3d, mod_dict
@@ -205,7 +211,6 @@ class UnimodalBranch(nn.Module):
         # Check whether the modality carries multi-setting data
         is_multi = isinstance(mod_data.x, list)
 
-        print(f"conv down...")
         # Conv on the modality data. The modality data holder
         # carries a feature tensor per modality settings. Hence the
         # modality features are provided as a list of tensors.
@@ -214,7 +219,6 @@ class UnimodalBranch(nn.Module):
         else:
             x_mod = self.conv(mod_data.x)
 
-        print(f"modality data update and mapping downsampling...")
         # Update modality features and mappings wrt modality scale.
         # Note that convolved features are preserved in the modality
         # data holder, to be later used in potential downstream
@@ -223,7 +227,6 @@ class UnimodalBranch(nn.Module):
 
         # Extract CSR-arranged atomic features from the feature maps
         # of each input modality setting
-        print(f"feature map indexing...")
         if is_multi:
             x_mod = [x[idx]
                      for x, idx
@@ -233,9 +236,7 @@ class UnimodalBranch(nn.Module):
 
         # Atomic pooling of the modality features on each
         # separate setting
-        print(f"\natomic pool...")
         if is_multi:
-            print(f'multi shapes: \n{[x.shape for x in mod_data.x]}')
             x_mod = [self.atomic_pool(x, a_idx, x_3d)
                      for x, a_idx
                      in zip(x_mod, mod_data.atomic_csr_indexing)]
@@ -245,20 +246,17 @@ class UnimodalBranch(nn.Module):
         # For multi-setting data, concatenate view-level features from
         # each input modality setting and sort them to a CSR-friendly
         # order wrt 3D points features
-        print(f"\nmulti-setting views concatenation and sorting...")
         if is_multi:
             x_mod = torch.cat(x_mod, dim=0)
             x_mod = x_mod[mod_data.view_cat_sorting]
 
         # View pooling of the joint modality features
-        print(f"\nview pool...")
         if is_multi:
             x_mod = self.view_pool(x_mod, mod_data.view_cat_csr_indexing, x_3d)
         else:
             x_mod = self.view_pool(x_mod, mod_data.view_csr_indexing, x_3d)
 
         # Fuse the modality features into the 3D points features
-        print(f"\nfusion...")
         x_3d = self.fusion(x_3d, x_mod)
 
         return mod_data, x_3d
