@@ -27,9 +27,6 @@ class No3DEncoder(UnwrappedUnetBasedModel):
         assert self.no_3d_down_conv, \
             f"No3DUnet should not have 3D-specific modules."
 
-        # BN and transpose conv weights init
-        self.weight_initialization()
-        
         # Recover size of output features
         default_output_nc = kwargs.get("default_output_nc", None)
         if not default_output_nc:
@@ -49,17 +46,6 @@ class No3DEncoder(UnwrappedUnetBasedModel):
             self._output_nc = kwargs["output_nc"]
             self.mlp = MLP([default_output_nc, self.output_nc],
                            activation=torch.nn.ReLU(), bias=False)
-
-    def weight_initialization(self):
-        for m in self.modules():
-            if isinstance(m, torch.nn.Conv2d) \
-                    or isinstance(m, torch.nn.ConvTranspose2d):
-                torch.nn.init.kaiming_normal_(m.kernel, mode="fan_out",
-                                              nonlinearity="relu")
-
-            if isinstance(m, torch.nn.BatchNorm2d):
-                torch.nn.init.constant_(m.bn.weight, 1)
-                torch.nn.init.constant_(m.bn.bias, 0)
 
     @property
     def has_mlp_head(self):
