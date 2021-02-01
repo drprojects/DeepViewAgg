@@ -200,9 +200,6 @@ class SparseConv3dUnet(BaseSparseConv3d):
             - x [N, output_nc]
             - batch [N]
         """
-        # TODO:
-        #  set data input for basic 3D conv
-        #  set and pass multimodal input for multimodal module
         self._set_input(data)
         data = self.input
         stack_down = []

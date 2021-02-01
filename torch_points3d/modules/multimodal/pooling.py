@@ -3,46 +3,29 @@ import torch.nn as nn
 import torch_scatter
 
 
-class BimodalPool(nn.Module):
+class BimodalCSRPool(nn.Module):
     """Bimodal pooling modules select and combine information from a
     modality to prepare its fusion into the main modality.
 
-    The modality pooling may encompass two steps: an atomic-level aggregation
-    and a view-level aggregation. To illustrate, in the case of image modality,
-    where each 3D point may be mapped to multiple pixels, in multiple images.
-    The atomic-level corresponds to pixel-level information, while view-level
-    accounts for multi-image views.
+    The modality pooling may typically be used for atomic-level
+    aggregation or view-level aggregation. To illustrate, in the case of
+    image modality, where each 3D point may be mapped to multiple
+    pixels, in multiple images. The atomic-level corresponds to pixel-
+    level information, while view-level accounts for multi-image views.
 
-    Various types of pooling are supported at each step: max, min, mean,
+    Various types of pooling are supported: max, min, mean,
     attention-based...
 
-    IMPORTANT: the order of 3D points in the main modality is expected to
-    match that of the indices in the mappings. Any update of the mappings
-    following a reindexing, reordering or sampling of the 3D points must be
-    performed prior to the multimodal pooling.
+    For computation speed reasons, the data and pooling indices are
+    expected to be provided in a CSR format, where same-index rows are
+    consecutive and indices hold index-change pointers.
+
+    IMPORTANT: the order of 3D points in the main modality is expected
+    to match that of the indices in the mappings. Any update of the
+    mappings following a reindexing, reordering or sampling of the 3D
+    points must be performed prior to the multimodal pooling.
     """
 
-    def __init__(self, atomic_pool='max', view_pool='max', **kwargs):
-        super(BimodalPool, self).__init__()
-        self.atomic_pool = BimodalCSRPool(atomic_pool)
-        self.view_pool = BimodalCSRPool(view_pool)
-
-    def forward(self, x_main, x_mod, mappings):
-        # atomic-level aggregation
-        # TODO mappings provide atomic-level idx. Must not have gradients
-        csr_idx = mappings.get_csr_idx(level='atomic')
-        x_agg = self.atomic_pool(x_main, x_mod, csr_idx)
-
-        # View-level aggregation
-        # TODO mappings provide view-level idx.
-        #  WARNING: will the idx order still be OK after the atomic-pooling ?
-        csr_idx = mappings.get_csr_idx(level='view')
-        x_agg = self.view_pool(x_main, x_agg, csr_idx)
-
-        return x_agg
-
-
-class BimodalCSRPool(nn.Module):
     def __init__(self, mode='max', **kwargs):
         super(BimodalCSRPool, self).__init__()
         self.mode = mode

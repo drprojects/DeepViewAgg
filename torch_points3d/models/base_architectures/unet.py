@@ -402,8 +402,14 @@ class UnwrappedUnetBasedModel(BaseModel):
         super(UnwrappedUnetBasedModel, self).__init__(opt)
         self._spatial_ops_dict = {"neighbour_finder": [], "sampler": [], "upsample_op": []}
 
+        # Check if one of the supported modalities is present in the config
+        self._modalities = self._fetch_modalities(opt.down_conv)
+
+        # Check if the 3D convolutions are specified in the config
+        self.no_3d = "down_conv_nn" not in opt.down_conv
+
         # Detect which options format has been used to define the model
-        if is_list(opt.down_conv) or "down_conv_nn" not in opt.down_conv:
+        if is_list(opt.down_conv) or self.no_3d and not self.is_multimodal:
             raise NotImplementedError
         else:
             self._init_from_compact_format(opt, model_type, dataset, modules_lib)
@@ -413,10 +419,6 @@ class UnwrappedUnetBasedModel(BaseModel):
         same convolution is given for each layer, and arguments are given
         in lists
         """
-
-        # Check if one of the supported modalities is present in the config
-        self._modalities = self._fetch_modalities(opt.down_conv)
-
         self.save_sampling_id = opt.down_conv.save_sampling_id
 
         self.down_modules = nn.ModuleList()
@@ -454,7 +456,7 @@ class UnwrappedUnetBasedModel(BaseModel):
 
         # Down modules
         if not self.is_multimodal:
-            # Build down modules for the uni-modal case
+            # Build down modules for the pure-3D case
             for i in range(len(opt.down_conv.down_conv_nn)):
                 down_module = self._build_module(opt.down_conv, i, flow="DOWN")
                 self._save_sampling_and_search(down_module)
@@ -462,17 +464,26 @@ class UnwrappedUnetBasedModel(BaseModel):
 
         else:
             # Build multimodal down modules
-            for i in range(len(opt.down_conv.down_conv_nn) // 2):
+            if self.no_3d:
+                n_modules_down = len(getattr(opt.down_conv, self.modalities[0]
+                                             ).down_conv.down_conv_nn)
+            else:
+                n_modules_down = len(opt.down_conv.down_conv_nn) // 2
+            for i in range(n_modules_down):
 
-                # Build first 3D down conv module - affects sampling
-                down_conv_3d = self._build_module(
-                    opt.down_conv, 2 * i, flow="DOWN")
-                self._save_sampling_and_search(down_conv_3d)
+                if self.no_3d:
+                    down_conv_3d = nn.Identity
+                    conv_3d = nn.Identity
+                else:
+                    # Build first 3D down conv module
+                    down_conv_3d = self._build_module(
+                        opt.down_conv, 2 * i, flow="DOWN")
+                    self._save_sampling_and_search(down_conv_3d)
 
-                # Build the second 3D conv module - should not affect sampling
-                conv_3d = self._build_module(
-                    opt.down_conv, 2 * i + 1, flow="DOWN")
-                self._save_sampling_and_search(conv_3d)
+                    # Build the second 3D conv module
+                    conv_3d = self._build_module(
+                        opt.down_conv, 2 * i + 1, flow="DOWN")
+                    self._save_sampling_and_search(conv_3d)
 
                 # Build the conv, pooling and fusion modules for each
                 # modality. Prepare MMBlockDown expected input format
