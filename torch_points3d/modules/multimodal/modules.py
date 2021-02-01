@@ -65,9 +65,6 @@ class MultimodalBlockDown(nn.Module):
     def num_modalities(self):
         return len(self.modalities) + 1
 
-    def extra_repr(self):
-        return f"(modalities): {tuple(self.modalities)}"
-
     def forward(self, mm_data_tuple):
         """
         Forward pass of the MultiModalBlockDown.
