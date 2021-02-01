@@ -30,7 +30,7 @@ class BimodalCSRPool(nn.Module):
         super(BimodalCSRPool, self).__init__()
         self.mode = mode
 
-    def forward(self, x_mod, csr_idx, x_main):
+    def forward(self, x_main, x_mod, csr_idx):
         if self.mode in ['max', 'mean', 'min', 'sum']:
             # Segment_CSR is "the fastest method to apply for grouped
             # reductions."

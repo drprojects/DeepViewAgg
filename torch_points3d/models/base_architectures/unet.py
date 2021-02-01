@@ -472,8 +472,8 @@ class UnwrappedUnetBasedModel(BaseModel):
             for i in range(n_modules_down):
 
                 if self.no_3d:
-                    down_conv_3d = nn.Identity
-                    conv_3d = nn.Identity
+                    down_conv_3d = nn.Identity()
+                    conv_3d = nn.Identity()
                 else:
                     # Build first 3D down conv module
                     down_conv_3d = self._build_module(

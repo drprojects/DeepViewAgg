@@ -75,12 +75,18 @@ class No3DEncoder(UnwrappedUnetBasedModel):
         -----------
         data: MMData object
         """
-        self.input = (data.x.to(self.device), data.to(self.device).modalities)
+        self.input = (None, data.to(self.device).modalities)
         if data.pos is not None:
             self.xyz = data.pos
 
     def forward(self, data, *args, **kwargs):
-        """Run forward pass.
+        """Run forward pass. Expects a MMData object for input, with
+        3D Data and multimodal data and mappings. Although the
+        No3DEncoder model does not apply any convolution modules
+        directly on the 3D points, it still requires a 3D points Data
+        object with a 'pos' attribute as input, to be able to output
+        these very same points populated with modality-generated
+        features.
 
         Parameters
         -----------

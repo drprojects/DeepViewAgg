@@ -80,7 +80,7 @@ class MultimodalBlockDown(nn.Module):
             x_3d, mod_dict, self.down_block)
 
         for m in self.modalities:
-            mod_dict[m], x_3d = self.mod_branches[m](mod_dict[m], x_3d)
+            x_3d, mod_dict[m] = self.mod_branches[m](x_3d, mod_dict[m])
 
         # Conv on the main 3D modality
         x_3d, mod_dict = self.forward_3d_block_down(
@@ -110,6 +110,10 @@ class MultimodalBlockDown(nn.Module):
         Otherwise, the returned index carries the indices of the
         selected points with respect to their input order.
         """
+        # Leave the input untouched if the 3D conv block is Identity
+        if isinstance(block, nn.Identity):
+            return x_3d, mod_dict
+
         # Initialize index and indexation mode
         idx = None
         mode = 'pick'
@@ -207,7 +211,7 @@ class UnimodalBranch(nn.Module):
         self.view_pool = view_pool
         self.fusion = fusion
 
-    def forward(self, mod_data, x_3d):
+    def forward(self, x_3d, mod_data):
         # Check whether the modality carries multi-setting data
         is_multi = isinstance(mod_data.x, list)
 
@@ -237,11 +241,11 @@ class UnimodalBranch(nn.Module):
         # Atomic pooling of the modality features on each
         # separate setting
         if is_multi:
-            x_mod = [self.atomic_pool(x, a_idx, x_3d)
+            x_mod = [self.atomic_pool(x_3d, x, a_idx)
                      for x, a_idx
                      in zip(x_mod, mod_data.atomic_csr_indexing)]
         else:
-            x_mod = self.atomic_pool(x_mod, mod_data.atomic_csr_indexing, x_3d)
+            x_mod = self.atomic_pool(x_3d, x_mod, mod_data.atomic_csr_indexing)
 
         # For multi-setting data, concatenate view-level features from
         # each input modality setting and sort them to a CSR-friendly
@@ -252,11 +256,11 @@ class UnimodalBranch(nn.Module):
 
         # View pooling of the joint modality features
         if is_multi:
-            x_mod = self.view_pool(x_mod, mod_data.view_cat_csr_indexing, x_3d)
+            x_mod = self.view_pool(x_3d, x_mod, mod_data.view_cat_csr_indexing)
         else:
-            x_mod = self.view_pool(x_mod, mod_data.view_csr_indexing, x_3d)
+            x_mod = self.view_pool(x_3d, x_mod, mod_data.view_csr_indexing)
 
         # Fuse the modality features into the 3D points features
         x_3d = self.fusion(x_3d, x_mod)
 
-        return mod_data, x_3d
+        return x_3d, mod_data
