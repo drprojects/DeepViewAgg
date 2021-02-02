@@ -3,6 +3,7 @@ from abc import ABC
 
 import torch
 from torch_points3d.models.base_architectures.unet import UnwrappedUnetBasedModel
+from torch_points3d.models.base_architectures.backbone import BackboneBasedModel
 from torch_points3d.applications.utils import extract_output_nc
 from torch_points3d.core.common_modules.base_modules import MLP
 from torch_points3d.datasets.multimodal.data import MMData
@@ -11,7 +12,7 @@ from torch_geometric.data import Data, Batch
 log = logging.getLogger(__name__)
 
 
-class No3DEncoder(UnwrappedUnetBasedModel, ABC):
+class No3DEncoder(BackboneBasedModel, ABC):
     """Encoder structure for multimodal models without 3D data.
 
     Inspired from torchpoints_3d.applications.sparseconv3d.
@@ -24,9 +25,9 @@ class No3DEncoder(UnwrappedUnetBasedModel, ABC):
         # Make sure the model is multimodal and has no 3D. Note that
         # the UnwrappedUnetBasedModel carries most of the required
         # initialization.
-        assert self.is_multimodal and self.no_3d_down_conv, \
+        assert self.is_multimodal, \
             f"No3DUnet should carry at least one non-3D modality."
-        assert self.no_3d_down_conv, \
+        assert self.no_3d_conv, \
             f"No3DUnet should not have 3D-specific modules."
 
         # Recover size of output features

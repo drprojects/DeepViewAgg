@@ -73,3 +73,61 @@ def create_symlink_from_eval_to_train(eval_checkpoint_dir):
         os.makedirs(root)
     num_files = len(os.listdir(root)) + 1
     os.symlink(eval_checkpoint_dir, os.path.join(root, "eval_{}".format(num_files)))
+
+
+def get_from_kwargs(kwargs, name):
+    module = kwargs[name]
+    kwargs.pop(name)
+    return module
+
+
+def fetch_arguments_from_list(opt, index, special_names):
+    """Fetch the arguments for a single convolution from multiple lists
+    of arguments - for models specified in the compact format.
+    """
+    args = {}
+    for o, v in opt.items():
+        name = str(o)
+        if is_list(v) and len(getattr(opt, o)) > 0:
+            if name[-1] == "s" and name not in special_names:
+                name = name[:-1]
+            v_index = v[index]
+            if is_list(v_index):
+                v_index = list(v_index)
+            args[name] = v_index
+        else:
+            if is_list(v):
+                v = list(v)
+            args[name] = v
+    return args
+
+
+def flatten_compact_options(opt):
+    """Converts from a dict of lists, to a list of dicts"""
+    flattenedOpts = []
+    for index in range(int(1e6)):
+        try:
+            flattenedOpts.append(
+                DictConfig(fetch_arguments_from_list(opt, index)))
+        except IndexError:
+            break
+    return flattenedOpts
+
+
+def fetch_modalities(opt, modality_names):
+    """Search for supported modalities in the compact format config."""
+    modalities = []
+    for o, v in opt.items():
+        name = str(o).lower()
+        if name not in modality_names:
+            continue
+        assert hasattr(v, 'down_conv') \
+               and hasattr(v, 'atomic_pooling') \
+               and hasattr(v, 'view_pooling') \
+               and hasattr(v, 'fusion') \
+               and hasattr(v, 'branching_index'), \
+            f"Found '{name}' modality in the config but could not " \
+            f"recover all required attributes: ['down_conv' " \
+            f"'atomic_pooling', 'view_pooling', 'fusion', 'branching_index]"
+        modalities.append(name)
+    return modalities

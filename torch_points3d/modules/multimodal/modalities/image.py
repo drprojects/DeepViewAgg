@@ -2,7 +2,7 @@ from abc import ABC
 
 import torch.nn as nn
 import sys
-from torch_points3d.utils.config import is_list
+from torch_points3d.utils.config import *
 from torch_points3d.core.common_modules import Seq, Identity
 
 
@@ -23,15 +23,19 @@ class ResBlock(nn.Module, ABC):
     # TODO: extend to EquiConv https://github.com/palver7/EquiConvPytorch
 
     def __init__(self, input_nc, output_nc, convolution):
+        if convolution is nn.ConvTranspose2d:
+            padding_mode = 'zeros'
+        else:
+            padding_mode = 'reflect'
         super().__init__()
         self.block = (
             Seq()
             .append(convolution(input_nc, output_nc, kernel_size=3, stride=1,
-                                padding=1, padding_mode='reflect'))
+                                padding=1, padding_mode=padding_mode))
             .append(nn.BatchNorm2d(output_nc))
             .append(nn.ReLU())
             .append(convolution(output_nc, output_nc, kernel_size=3, stride=1,
-                                padding=1, padding_mode='reflect'))
+                                padding=1, padding_mode=padding_mode))
             .append(nn.BatchNorm2d(output_nc))
             .append(nn.ReLU())
         )
@@ -62,6 +66,11 @@ class BottleneckBlock(nn.Module, ABC):
     def __init__(self, input_nc, output_nc, convolution, reduction=4, **kwargs):
         super().__init__()
 
+        if convolution is nn.ConvTranspose2d:
+            padding_mode = 'zeros'
+        else:
+            padding_mode = 'reflect'
+
         self.block = (
             Seq()
             .append(nn.Conv2d(input_nc, output_nc // reduction, kernel_size=1,
@@ -70,7 +79,7 @@ class BottleneckBlock(nn.Module, ABC):
             .append(nn.ReLU())
             .append(convolution(output_nc // reduction, output_nc // reduction,
                                 kernel_size=3, stride=1, padding=1,
-                                padding_mode='reflect'))
+                                padding_mode=padding_mode))
             .append(nn.BatchNorm2d(output_nc // reduction))
             .append(nn.ReLU())
             .append(nn.Conv2d(output_nc // reduction, output_nc,
@@ -113,7 +122,7 @@ class ResNetDown(nn.Module, ABC):
 
     def __init__(
         self, down_conv_nn=[], kernel_size=2, dilation=1, stride=2, N=1,
-            padding=0, block="ResBlock", **kwargs,
+            padding=0, block="ResBlock", padding_mode='reflect', **kwargs,
     ):
         block = getattr(_res_blocks, block)
         super().__init__()
@@ -133,7 +142,7 @@ class ResNetDown(nn.Module, ABC):
                     stride=stride,
                     dilation=dilation,
                     padding=padding,
-                    padding_mode='reflect',
+                    padding_mode=padding_mode,
                 )
             )
             .append(nn.BatchNorm2d(conv1_output))
@@ -163,15 +172,16 @@ class ResNetUp(ResNetDown, ABC):
     CONVOLUTION = "ConvTranspose2d"
 
     def __init__(self, up_conv_nn=[], kernel_size=2, dilation=1, stride=2, N=1,
-                 padding=0, **kwargs):
+                 padding=0, padding_mode='zeros', **kwargs):
         super().__init__(
             down_conv_nn=up_conv_nn, kernel_size=kernel_size,
-            dilation=dilation, stride=stride, N=N, padding=padding, **kwargs,
+            dilation=dilation, stride=stride, N=N, padding=padding,
+            padding_mode=padding_mode, **kwargs,
         )
 
     def forward(self, x, skip):
         if skip is not None:
-            inp = nn.cat(x, skip)
+            inp = torch.cat((x, skip), dim=1)
         else:
             inp = x
         return super().forward(inp)
@@ -240,26 +250,6 @@ class UNet(nn.Module, ABC):
             up_module = self._build_module(opt.up_conv, i, "UP")
             self.up_modules.append(up_module)
 
-    def _fetch_arguments_from_list(self, opt, index):
-        """Fetch the arguments for a single convolution from multiple
-        lists of arguments - for models specified in the compact format.
-        """
-        args = {}
-        for o, v in opt.items():
-            name = str(o)
-            if is_list(v) and len(getattr(opt, o)) > 0:
-                if name[-1] == "s" and name not in SPECIAL_NAMES:
-                    name = name[:-1]
-                v_index = v[index]
-                if is_list(v_index):
-                    v_index = list(v_index)
-                args[name] = v_index
-            else:
-                if is_list(v):
-                    v = list(v)
-                args[name] = v
-        return args
-
     def _build_module(self, opt, index, flow):
         """Builds a convolution (up, down or inner) block.
 
@@ -278,7 +268,7 @@ class UNet(nn.Module, ABC):
             module_cls = ResNetUp
         else:
             raise NotImplementedError
-        args = self._fetch_arguments_from_list(opt, index)
+        args = fetch_arguments_from_list(opt, index, SPECIAL_NAMES)
         return module_cls(**args)
 
     def forward(self, x, **kwargs):
@@ -294,12 +284,15 @@ class UNet(nn.Module, ABC):
             x = self.down_modules[i](x)
             stack_down.append(x)
         x = self.down_modules[-1](x)
+        stack_down.append(None)
 
         if not isinstance(self.inner_modules[0], Identity):
+            raise NotImplementedError
+            # TODO: debug innermost, stacks and upconv
             stack_down.append(x)
             x = self.inner_modules[0](x)
 
         for i in range(len(self.up_modules)):
-            x = self.up_modules[i]((x, stack_down.pop()))
+            x = self.up_modules[i](x, stack_down.pop())
 
         return x

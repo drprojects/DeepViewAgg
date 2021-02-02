@@ -53,7 +53,7 @@ class MultimodalBlockDown(nn.Module, ABC):
             assert (m in MODALITY_NAMES), \
                 f"Invalid kwarg modality '{m}', expected one of " \
                 f"{MODALITY_NAMES}."
-            assert isinstance(kwargs[m], UnimodalBranch), \
+            assert isinstance(kwargs[m], (UnimodalBranch, nn.Identity)), \
                 f"Expected a UnimodalBranch module for '{m}' modality " \
                 f"but got {type(kwargs[m])} instead."
             setattr(self, m, kwargs[m])
@@ -84,7 +84,7 @@ class MultimodalBlockDown(nn.Module, ABC):
 
         for m in self.modalities:
             mod_branch = getattr(self, m)
-            x_3d, mod_dict[m] = mod_branch(x_3d, mod_dict[m])
+            x_3d, mod_dict[m] = mod_branch((x_3d, mod_dict[m]))
 
         # Conv on the main 3D modality
         x_3d, mod_dict = self.forward_3d_block_down(
@@ -216,14 +216,17 @@ class UnimodalBranch(nn.Module, ABC):
         self.view_pool = view_pool
         self.fusion = fusion
 
-    def forward(self, x_3d, mod_data):
+    def forward(self, mm_data_tuple):
+        # Unpack the multimodal data tuple
+        x_3d, mod_data = mm_data_tuple
+
         # Check whether the modality carries multi-setting data
-        is_multi = isinstance(mod_data.x, list)
+        has_multi_setting = isinstance(mod_data.x, list)
 
         # Conv on the modality data. The modality data holder
         # carries a feature tensor per modality settings. Hence the
         # modality features are provided as a list of tensors.
-        if is_multi:
+        if has_multi_setting:
             x_mod = [self.conv(x) for x in mod_data.x]
         else:
             x_mod = self.conv(mod_data.x)
@@ -236,7 +239,7 @@ class UnimodalBranch(nn.Module, ABC):
 
         # Extract CSR-arranged atomic features from the feature maps
         # of each input modality setting
-        if is_multi:
+        if has_multi_setting:
             x_mod = [x[idx]
                      for x, idx
                      in zip(x_mod, mod_data.feature_map_indexing)]
@@ -245,7 +248,7 @@ class UnimodalBranch(nn.Module, ABC):
 
         # Atomic pooling of the modality features on each
         # separate setting
-        if is_multi:
+        if has_multi_setting:
             x_mod = [self.atomic_pool(x_3d, x, a_idx)
                      for x, a_idx
                      in zip(x_mod, mod_data.atomic_csr_indexing)]
@@ -255,12 +258,12 @@ class UnimodalBranch(nn.Module, ABC):
         # For multi-setting data, concatenate view-level features from
         # each input modality setting and sort them to a CSR-friendly
         # order wrt 3D points features
-        if is_multi:
+        if has_multi_setting:
             x_mod = torch.cat(x_mod, dim=0)
             x_mod = x_mod[mod_data.view_cat_sorting]
 
         # View pooling of the joint modality features
-        if is_multi:
+        if has_multi_setting:
             x_mod = self.view_pool(x_3d, x_mod, mod_data.view_cat_csr_indexing)
         else:
             x_mod = self.view_pool(x_3d, x_mod, mod_data.view_csr_indexing)
