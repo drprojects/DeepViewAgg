@@ -1,3 +1,5 @@
+from abc import ABC
+
 from torch import nn
 from torch_geometric.nn import (
     global_max_pool,
@@ -26,9 +28,7 @@ from torch_points3d.modules.multimodal.modules import MultimodalBlockDown, \
 from torch_points3d.datasets.multimodal.data import MMData, MODALITY_NAMES
 import importlib
 
-
 log = logging.getLogger(__name__)
-
 
 SPECIAL_NAMES = ["radius", "max_num_neighbors", "block_names"]
 
@@ -45,6 +45,7 @@ class BaseFactory:
         else:
             return getattr(self.modules_lib, self.module_name_down, None)
 
+
 class ModalityFactory:
     """Factory for building modality-specific convolutional modules and merge
      modules.
@@ -52,6 +53,7 @@ class ModalityFactory:
      Modules are expected to be found in:
         torch_points3d.modules.multimodal.modalities.<modality>.module_name
      """
+
     def __init__(self, modality, module_name, atomic_pooling_name,
                  view_pooling_name, fusion_name):
         self.modality = modality
@@ -88,10 +90,10 @@ class ModalityFactory:
             return getattr(self.modality_lib, self.module_name, None)
 
 
-############################# UNET BASE ###################################
+# ----------------------------- UNET BASE ---------------------------- #
 
 
-class UnetBasedModel(BaseModel):
+class UnetBasedModel(BaseModel, ABC):
     """Create a Unet-based generator"""
 
     def _save_sampling_and_search(self, submodule):
@@ -241,8 +243,8 @@ class UnetBasedModel(BaseModel):
         return factory_module_cls
 
     def _fetch_arguments_from_list(self, opt, index):
-        """Fetch the arguments for a single convolution from multiple lists
-        of arguments - for models specified in the compact format.
+        """Fetch the arguments for a single convolution from multiple
+        lists of arguments - for models specified in the compact format.
         """
         args = {}
         for o, v in opt.items():
@@ -286,7 +288,7 @@ class UnetBasedModel(BaseModel):
         return flattenedOpts
 
 
-class UnetSkipConnectionBlock(nn.Module):
+class UnetSkipConnectionBlock(nn.Module, ABC):
     """Defines the Unet submodule with skip connection.
     X -------------------identity----------------------
     |-- downsampling -- |submodule| -- upsampling --|
@@ -299,14 +301,14 @@ class UnetSkipConnectionBlock(nn.Module):
         return module
 
     def __init__(
-        self,
-        args_up=None,
-        args_down=None,
-        args_innermost=None,
-        modules_lib=None,
-        submodule=None,
-        outermost=False,
-        innermost=False,
+            self,
+            args_up=None,
+            args_down=None,
+            args_innermost=None,
+            modules_lib=None,
+            submodule=None,
+            outermost=False,
+            innermost=False,
     ):
         """Construct a Unet submodule with skip connections.
         Parameters:
@@ -351,10 +353,10 @@ class UnetSkipConnectionBlock(nn.Module):
             return self.up(data, **kwargs)
 
 
-############################# UNWRAPPED UNET BASE ###################################
+# ------------------------ UNWRAPPED UNET BASE ----------------------- #
 
 
-class UnwrappedUnetBasedModel(BaseModel):
+class UnwrappedUnetBasedModel(BaseModel, ABC):
     """Create a Unet unwrapped generator. Supports multimodal encoding."""
 
     def __init__(self, opt, model_type, dataset: BaseDataset, modules_lib):
@@ -432,7 +434,7 @@ class UnwrappedUnetBasedModel(BaseModel):
         up_conv_cls_name = opt.up_conv.module_name if opt.up_conv is not None \
             else None
         self._module_factories = {'main': factory_module_cls(
-                down_conv_cls_name, up_conv_cls_name, modules_lib)}
+            down_conv_cls_name, up_conv_cls_name, modules_lib)}
 
         # Factories for creating modules for additional modalities
         if self.is_multimodal:

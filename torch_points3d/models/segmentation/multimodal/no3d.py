@@ -1,4 +1,6 @@
 import logging
+from abc import ABC
+
 import torch.nn.functional as F
 import torch.nn as nn
 
@@ -9,7 +11,7 @@ from torch_points3d.applications.multimodal.no3d import No3DEncoder
 log = logging.getLogger(__name__)
 
 
-class No3DSeg(BaseModel):
+class No3DSeg(BaseModel, ABC):
     def __init__(self, option, model_type, dataset, modules):
         # BaseModel init
         super().__init__(option)

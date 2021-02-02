@@ -1,10 +1,12 @@
+from abc import ABC
+
 import torch.nn as nn
 import sys
 from torch_points3d.utils.config import is_list
 from torch_points3d.core.common_modules import Seq, Identity
 
 
-class ResBlock(nn.Module):
+class ResBlock(nn.Module, ABC):
     """
     Basic ResNet type block
 
@@ -52,7 +54,7 @@ class ResBlock(nn.Module):
         return out
 
 
-class BottleneckBlock(nn.Module):
+class BottleneckBlock(nn.Module, ABC):
     """
     Bottleneck block with residual
     """
@@ -98,7 +100,7 @@ class BottleneckBlock(nn.Module):
 _res_blocks = sys.modules[__name__]
 
 
-class ResNetDown(nn.Module):
+class ResNetDown(nn.Module, ABC):
     """
     Resnet block that looks like
 
@@ -153,7 +155,7 @@ class ResNetDown(nn.Module):
         return out
 
 
-class ResNetUp(ResNetDown):
+class ResNetUp(ResNetDown, ABC):
     """
     Same as Down conv but for the Decoder
     """
@@ -178,7 +180,7 @@ class ResNetUp(ResNetDown):
 SPECIAL_NAMES = ["block_names"]
 
 
-class UNet(nn.Module):
+class UNet(nn.Module, ABC):
     """Generic UNet module for images.
 
     Create the Unet from a dictionary of compact options.

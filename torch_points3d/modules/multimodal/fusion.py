@@ -1,10 +1,12 @@
+from abc import ABC
+
 import torch
 import torch.nn as nn
 import MinkowskiEngine as me
 import torchsparse as ts
 
 
-class BimodalFusion(nn.Module):
+class BimodalFusion(nn.Module, ABC):
     """Bimodal fusion combines features from different modalities into
     a single tensor.
 

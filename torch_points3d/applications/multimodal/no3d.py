@@ -1,4 +1,6 @@
 import logging
+from abc import ABC
+
 import torch
 from torch_points3d.models.base_architectures.unet import UnwrappedUnetBasedModel
 from torch_points3d.applications.utils import extract_output_nc
@@ -9,7 +11,7 @@ from torch_geometric.data import Data, Batch
 log = logging.getLogger(__name__)
 
 
-class No3DEncoder(UnwrappedUnetBasedModel):
+class No3DEncoder(UnwrappedUnetBasedModel, ABC):
     """Encoder structure for multimodal models without 3D data.
 
     Inspired from torchpoints_3d.applications.sparseconv3d.

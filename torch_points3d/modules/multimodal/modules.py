@@ -1,3 +1,5 @@
+from abc import ABC
+
 import torch
 import torch.nn as nn
 from torch_points3d.datasets.multimodal.data import MODALITY_NAMES
@@ -7,7 +9,7 @@ import torchsparse as ts
 from torchsparse.nn.functional import sphash, sphashquery
 
 
-class MultimodalBlockDown(nn.Module):
+class MultimodalBlockDown(nn.Module, ABC):
     """Multimodal block with downsampling that looks like:
 
     IN MMData    -- 3D Down Conv -- Merge 1 -- Merge i -- 3D Conv --    OUT MMData
@@ -193,7 +195,7 @@ class MultimodalBlockDown(nn.Module):
         return x_3d, mod_dict
 
 
-class UnimodalBranch(nn.Module):
+class UnimodalBranch(nn.Module, ABC):
     """Unimodal block with downsampling that looks like:
 
     IN 3D    ------------------------------------

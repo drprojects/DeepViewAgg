@@ -1,9 +1,11 @@
+from abc import ABC
+
 import torch
 import torch.nn as nn
 import torch_scatter
 
 
-class BimodalCSRPool(nn.Module):
+class BimodalCSRPool(nn.Module, ABC):
     """Bimodal pooling modules select and combine information from a
     modality to prepare its fusion into the main modality.
 
