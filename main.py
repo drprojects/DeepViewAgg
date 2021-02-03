@@ -1,11 +1,6 @@
 
 import os
 import sys
-import panel as pn
-import numpy as np
-import pyvista as pv
-import glob
-from matplotlib.colors import ListedColormap
 from omegaconf import OmegaConf
 
 
@@ -15,12 +10,12 @@ if __name__ == "__main__":
     ROOT = os.path.join(DIR, "..")
     sys.path.insert(0, ROOT)
     sys.path.insert(0, DIR)
-    from torch_points3d.datasets.multimodal.segmentation.s3dis import S3DISFusedDataset
+    from torch_points3d.datasets.segmentation.multimodal import S3DISFusedDataset
 
     from time import time
     start = time()
 
-    dataset_options = OmegaConf.load(os.path.join('conf/data/segmentation_multimodal/s3disfused.yaml'))
+    dataset_options = OmegaConf.load(os.path.join('conf/data/segmentation/multimodal/s3disfused.yaml'))
     # Set root to the DATA drive, where the data was downloaded
     # dataset_options.data.dataroot = "/mnt/fa444ffd-fdb4-4701-88e7-f00297a8e29b/projects/datasets/s3dis_multimodal"
     dataset_options.data.dataroot = "/media/drobert-admin/DATA/datasets/s3dis_tp3d_multimodal"

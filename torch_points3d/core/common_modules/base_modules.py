@@ -64,7 +64,7 @@ class UnaryConv(BaseModule):
 
 
 class MultiHeadClassifier(BaseModule):
-    """ Allows segregated segmentation in case the category of an object is known. This is the case in ShapeNet
+    """ Allows segregated multimodal in case the category of an object is known. This is the case in ShapeNet
     for example.
 
         Arguments:

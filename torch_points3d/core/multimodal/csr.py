@@ -26,7 +26,7 @@ re-indexing and ordering.
 Example
 -------
 import torch
-from torch_points3d.datasets.multimodal.csr import CSRData, CSRBatch
+from torch_points3d.core.multimodal.csr import CSRData, CSRBatch
 
 n_groups = 3
 n_items = 12
@@ -156,12 +156,14 @@ class CSRData(object):
         """
         Convert pre-sorted dense indices to CSR format.
         """
+        device = indices.device
         assert len(indices.shape) == 1, "Only 1D indices are accepted."
         assert indices.shape[0] >= 1, "At least one group index is required."
-        assert CSRData._is_sorted_numba(np.asarray(indices)), \
+        assert CSRData._is_sorted_numba(np.asarray(indices.cpu())), \
             "Indices must be sorted in increasing order."
-        return torch.from_numpy(
-            CSRData._sorted_indices_to_pointers_numba(np.asarray(indices)))
+        sorted_indices = CSRData._sorted_indices_to_pointers_numba(np.asarray(
+            indices.cpu()))
+        return torch.from_numpy(sorted_indices).to(device)
 
     @staticmethod
     @njit(cache=True, nogil=True)
@@ -218,7 +220,7 @@ class CSRData(object):
         """
         assert self.num_groups == group_indices.shape[0], \
             "New group indices must correspond to the existing number of groups"
-        assert CSRData._is_sorted_numba(np.asarray(group_indices)), \
+        assert CSRData._is_sorted_numba(np.asarray(group_indices.cpu())), \
             "New group indices must be sorted."
 
         if num_groups is not None:
@@ -227,8 +229,8 @@ class CSRData(object):
             num_groups = group_indices.max() + 1
 
         self.pointers = torch.from_numpy(CSRData._insert_empty_groups_numba(
-            np.asarray(self.pointers), np.asarray(group_indices),
-            int(num_groups)))
+            np.asarray(self.pointers.cpu()), np.asarray(group_indices.cpu()),
+            int(num_groups))).to(self.device)
 
         return self
 
@@ -264,10 +266,11 @@ class CSRData(object):
         the input pointers.
         """
         assert indices.max() <= pointers.shape[0] - 2
+        device = pointers.device
         pointers_updated, val_indices = CSRData._index_select_pointers_numba(
-            np.asarray(pointers), np.asarray(indices))
+            np.asarray(pointers.cpu()), np.asarray(indices.cpu()))
         return torch.from_numpy(pointers_updated), torch.from_numpy(
-            np.concatenate(val_indices))
+            np.concatenate(val_indices)).to(device)
 
     @staticmethod
     @njit(cache=True, nogil=True)

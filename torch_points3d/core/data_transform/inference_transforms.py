@@ -44,7 +44,7 @@ class ModelInference(object):
 
 class PointNetForward(ModelInference):
     """ Transform for running a PointNet inference on a Data object. It assumes that the
-    model has been trained for segmentation.
+    model has been trained for multimodal.
     
     Parameters
     ----------

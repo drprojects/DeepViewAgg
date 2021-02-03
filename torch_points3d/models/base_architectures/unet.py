@@ -4,7 +4,7 @@ from abc import ABC
 from torch import nn
 from torch_points3d.core.common_modules.base_modules import Identity
 from torch_points3d.datasets.base_dataset import BaseDataset
-from torch_points3d.datasets.multimodal.data import MMData, MODALITY_NAMES
+from torch_points3d.core.multimodal.data import MMData, MODALITY_NAMES
 from torch_points3d.models.base_model import BaseModel
 from torch_points3d.modules.multimodal.modules import MultimodalBlockDown, \
     UnimodalBranch

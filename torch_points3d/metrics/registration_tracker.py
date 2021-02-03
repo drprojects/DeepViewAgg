@@ -64,7 +64,7 @@ class FragmentRegistrationTracker(BaseTracker):
     ):
 
         """
-        tracker for registration tasks (we learn feature for each fragments like segmentation network)
+        tracker for registration tasks (we learn feature for each fragments like multimodal network)
 it measures loss, feature match recall, hit ratio, rotation error, translation error.
         """
         super(FragmentRegistrationTracker, self).__init__(stage, wandb_log, use_tensorboard)

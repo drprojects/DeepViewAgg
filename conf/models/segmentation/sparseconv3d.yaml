@@ -73,7 +73,7 @@ models:
                 kernel_size: 3
                 stride: [2, 2, 2, 2, 1]
     
-    Res_0_2_2_2_2_UNet34:
+    ResUNet34_0_2_2_2_2:
         class: sparseconv3d.APIModel
         conv_type: "SPARSE"
         backend: "torchsparse"
@@ -110,7 +110,7 @@ models:
                 kernel_size: 3
                 stride: [2, 2, 2, 2, 1]
 
-    Res_0_1_1_1_1_UNet34:
+    ResUNet34_0_1_1_1_1:
         class: sparseconv3d.APIModel
         conv_type: "SPARSE"
         backend: "torchsparse"

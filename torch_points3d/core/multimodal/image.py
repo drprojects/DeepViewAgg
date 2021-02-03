@@ -4,7 +4,7 @@ from PIL import Image
 import torch
 import torch_scatter
 from typing import List
-from torch_points3d.datasets.multimodal.csr import CSRData, CSRBatch
+from torch_points3d.core.multimodal import CSRData, CSRBatch
 from torch_points3d.utils.multimodal import lexargsort, lexunique, \
     lexargunique, CompositeTensor
 from torch_points3d.utils.multimodal import tensor_idx
@@ -152,8 +152,9 @@ class SameSettingImageData(object):
             self.mappings.debug()
 
         if self.mask is not None:
-            assert isinstance(self.mask, torch.BoolTensor), \
-                f"Expected a BoolTensor but got {type(self.mask)} instead."
+            assert self.mask.dtype == torch.bool, \
+                f"Expected a dtype=torch.bool but got dtype=" \
+                f"{self.mask.dtype} instead."
             assert self.mask.shape == self.proj_size, \
                 f"Expected mask of size {self.proj_size} but got " \
                 f"{self.mask.shape} instead."
@@ -274,8 +275,9 @@ class SameSettingImageData(object):
                or (self.rollings == rollings).all(), \
             "Can't directly edit 'rollings' if 'x' or 'mappings' are " \
             "not both None. Consider using 'update_rollings'."
-        assert isinstance(rollings, torch.LongTensor), \
-            f"Expected LongTensor but got {type(rollings)} instead."
+        assert rollings.dtype == torch.int64, \
+            f"Expected dtype=torch.int64 but got dtype={rollings.dtype} " \
+            f"instead."
         assert rollings.shape[0] == self.num_views, \
             f"Expected tensor of size {self.num_views} but got " \
             f"{rollings.shape[0]} instead."
@@ -378,8 +380,9 @@ class SameSettingImageData(object):
                or (self.crop_offsets == crop_offsets).all(), \
             "Can't directly edit 'crop_offsets' if 'x' or 'mappings' " \
             "are not both None. Consider using 'update_cropping'."
-        assert isinstance(crop_offsets, torch.LongTensor), \
-            f"Expected LongTensor but got {type(crop_offsets)} instead."
+        assert crop_offsets.dtype == torch.int64, \
+            f"Expected dtype=torch.int64 but got dtype={crop_offsets.dtype} " \
+            f"instead."
         assert crop_offsets.shape == (self.num_views, 2), \
             f"Expected tensor of shape {(self.num_views, 2)} but got " \
             f"{crop_offsets.shape} instead."
@@ -609,8 +612,9 @@ class SameSettingImageData(object):
         if mask is None:
             self._mask = None
         else:
-            assert isinstance(mask, torch.BoolTensor), \
-                f"Expected a BoolTensor but got {type(mask)} instead."
+            assert mask.dtype == torch.bool, \
+                f"Expected a dtype=torch.bool but got dtype={mask.dtype} " \
+                f"instead."
             assert mask.shape == self.proj_size, \
                 f"Expected mask of size {self.proj_size} but got " \
                 f"{mask.shape} instead."
@@ -653,7 +657,7 @@ class SameSettingImageData(object):
         elif isinstance(idx, int):
             idx = np.array([idx])
         elif isinstance(idx, torch.Tensor):
-            idx = np.asarray(idx)
+            idx = np.asarray(idx.cpu())
         elif isinstance(idx, slice):
             idx = np.arange(self.num_views)[idx]
         if len(idx.shape) < 1:
@@ -665,8 +669,9 @@ class SameSettingImageData(object):
 
         # Rollings of the images
         if rollings is not None:
-            assert isinstance(rollings, torch.LongTensor), \
-                f"Expected LongTensor but got {type(rollings)} instead."
+            assert rollings.dtype == torch.int64, \
+                f"Expected dtype=torch.int64 but got dtype={rollings.dtype} " \
+                f"instead."
             assert rollings.shape[0] == idx.shape[0], \
                 f"Expected tensor of shape {idx.shape[0]} but got " \
                 f"{rollings.shape[0]} instead."
@@ -685,8 +690,9 @@ class SameSettingImageData(object):
             assert all(a <= b for a, b in zip(crop_size, size)), \
                 f"Expected crop_size to be smaller than size but got " \
                 f"size={size} and crop_size={crop_size} instead."
-            assert isinstance(crop_offsets, torch.LongTensor), \
-                f"Expected LongTensor but got {type(crop_offsets)} instead."
+            assert crop_offsets.dtype == torch.int64, \
+                f"Expected dtype=torch.int64 but got dtype=" \
+                f"{crop_offsets.dtype} instead."
             assert crop_offsets.shape == (idx.shape[0], 2), \
                 f"Expected tensor of shape {(idx.shape[0], 2)} but got " \
                 f"{crop_offsets.shape} instead."
@@ -721,20 +727,21 @@ class SameSettingImageData(object):
             return image
 
         # Roll the images
-        images = [pil_roll(im, r.item()) for im, r in zip(images, rollings)]
+        images = [pil_roll(im, r.item())
+                  for im, r in zip(images, rollings.cpu())]
 
         # Crop and resize
         if downscale is None:
             w, h = crop_size
             images = [im.crop((left, top, left + w, top + h))
                       for im, (left, top)
-                      in zip(images, np.asarray(crop_offsets))]
+                      in zip(images, np.asarray(crop_offsets.cpu()))]
         else:
             end_size = tuple(int(x / downscale) for x in crop_size)
             w, h = crop_size
             images = [im.resize(end_size, box=(left, top, left + w, top + h))
                       for im, (left, top)
-                      in zip(images, np.asarray(crop_offsets))]
+                      in zip(images, np.asarray(crop_offsets.cpu()))]
 
         # Convert to torch batch
         images = torch.from_numpy(np.stack([np.asarray(im) for im in images]))
@@ -762,7 +769,7 @@ class SameSettingImageData(object):
         assert torch.unique(idx).shape[0] == idx.shape[0], \
             f"Index must not contain duplicates."
         idx = idx.to(self.device)
-        idx_numpy = np.asarray(idx)
+        idx_numpy = np.asarray(idx.cpu())
 
         return self.__class__(
             path=self.path[idx_numpy],
@@ -814,12 +821,12 @@ class SameSettingImageData(object):
         """Set torch.Tensor attributes device."""
         self.pos = self.pos.to(device)
         self.opk = self.opk.to(device)
-        self.crop_offsets = self.crop_offsets.to(device)
-        self.x = self.x.to(device) if self.x is not None \
+        self._crop_offsets = self.crop_offsets.to(device)
+        self._x = self.x.to(device) if self.x is not None \
             else None
-        self.mappings = self.mappings.to(device) if self.mappings is not None \
+        self._mappings = self.mappings.to(device) if self.mappings is not None \
             else None
-        self.mask = self.mask.to(device) if self.mask is not None \
+        self._mask = self.mask.to(device) if self.mask is not None \
             else None
         return self
 
@@ -1358,7 +1365,7 @@ class ImageMapping(CSRData):
 
     @images.setter
     def images(self, images):
-        self.values[0] = images
+        self.values[0] = images.to(self.device)
 
     @property
     def pixels(self):
@@ -1366,7 +1373,7 @@ class ImageMapping(CSRData):
 
     @pixels.setter
     def pixels(self, pixels):
-        self.values[1].values[0] = pixels
+        self.values[1].values[0] = pixels.to(self.device)
 
     @staticmethod
     def get_batch_type():
@@ -1561,7 +1568,6 @@ class ImageMapping(CSRData):
         MODES = ['pick', 'merge']
         assert mode in MODES, \
             f"Unknown mode '{mode}'. Supported modes are {MODES}."
-        assert isinstance(idx, torch.LongTensor)
 
         # Mappings are not affected if idx is None
         if idx is None:
@@ -1680,8 +1686,8 @@ class ImageMappingBatch(ImageMapping, CSRBatch):
 """
 
 import torch
-from torch_points3d.datasets.multimodal.csr import *
-from torch_points3d.datasets.multimodal.image import *
+from torch_points3d.core.multimodal.csr import *
+from torch_points3d.core.multimodal.image import *
 from torch_points3d.utils.multimodal import lexsort
 
 n_groups = 10**5

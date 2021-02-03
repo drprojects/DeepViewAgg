@@ -1,7 +1,7 @@
 data:
   class: semantickitti.SemanticKittiDataset
   dataset_name: "kitti"
-  task: segmentation
+  task: multimodal
   dataroot: data
   grid_size: 0.1
   process_workers: 8

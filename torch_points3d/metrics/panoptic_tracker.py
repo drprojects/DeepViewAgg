@@ -105,8 +105,8 @@ class InstanceAPMeter:
 
 
 class PanopticTracker(SegmentationTracker):
-    """ Class that provides tracking of semantic segmentation as well as
-    instance segmentation """
+    """ Class that provides tracking of semantic multimodal as well as
+    instance multimodal """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -132,7 +132,7 @@ class PanopticTracker(SegmentationTracker):
         min_cluster_points=10,
         **kwargs
     ):
-        """ Track metrics for panoptic segmentation
+        """ Track metrics for panoptic multimodal
         """
         self._iou_threshold = iou_threshold
         BaseTracker.track(self, model)

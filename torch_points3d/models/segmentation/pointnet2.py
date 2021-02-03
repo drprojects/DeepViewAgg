@@ -18,7 +18,7 @@ log = logging.getLogger(__name__)
 class PointNet2_D(UnetBasedModel):
     r"""
         PointNet2 with multi-scale grouping
-        Semantic segmentation network that uses feature propogation layers
+        Semantic multimodal network that uses feature propogation layers
 
         Parameters
         ----------
@@ -40,7 +40,7 @@ class PointNet2_D(UnetBasedModel):
         if self._use_category:
             if not dataset.class_to_segments:
                 raise ValueError(
-                    "The dataset needs to specify a class_to_segments property when using category information for segmentation"
+                    "The dataset needs to specify a class_to_segments property when using category information for multimodal"
                 )
             self._num_categories = len(dataset.class_to_segments.keys())
             log.info("Using category information for the predictions with %i categories", self._num_categories)

@@ -2,12 +2,11 @@ import logging
 from abc import ABC
 
 import torch
-from torch_points3d.models.base_architectures.unet import UnwrappedUnetBasedModel
 from torch_points3d.models.base_architectures.backbone import BackboneBasedModel
 from torch_points3d.applications.utils import extract_output_nc
 from torch_points3d.core.common_modules.base_modules import MLP
-from torch_points3d.datasets.multimodal.data import MMData
-from torch_geometric.data import Data, Batch
+from torch_points3d.core.multimodal.data import MMData
+from torch_geometric.data import Batch
 
 log = logging.getLogger(__name__)
 

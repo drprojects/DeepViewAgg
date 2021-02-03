@@ -2,7 +2,7 @@ from abc import ABC
 
 import torch
 import torch.nn as nn
-from torch_points3d.datasets.multimodal.data import MODALITY_NAMES
+from torch_points3d.core.multimodal.data import MODALITY_NAMES
 from torch_points3d.core.common_modules.base_modules import Identity
 import MinkowskiEngine as me
 import torchsparse as ts

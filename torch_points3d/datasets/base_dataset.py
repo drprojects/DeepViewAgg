@@ -1,12 +1,12 @@
 import os
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 import logging
 import functools
 from functools import partial
 import numpy as np
 import torch
 import torch_geometric
-from torch_geometric.transforms import Compose, FixedPoints
+from torch_geometric.transforms import Compose
 import copy
 
 from torch_points3d.models import model_interface
@@ -15,10 +15,9 @@ from torch_points3d.core.data_transform import instantiate_transforms, \
 from torch_points3d.core.data_transform import instantiate_filters
 from torch_points3d.datasets.batch import SimpleBatch
 from torch_points3d.datasets.multiscale_data import MultiScaleBatch
-from torch_points3d.datasets.multimodal.data import MMBatch
 from torch_points3d.utils.enums import ConvolutionFormat
 from torch_points3d.utils.config import ConvolutionFormatFactory
-from torch_points3d.utils.colors import COLORS, colored_print
+from torch_points3d.utils.colors import COLORS
 
 # A logger for this file
 log = logging.getLogger(__name__)
@@ -173,14 +172,10 @@ class BaseDataset:
         return collate_fn(batch)
 
     @staticmethod
-    def _get_collate_function(conv_type, is_multiscale, is_multimodal,
+    def _get_collate_function(conv_type, is_multiscale,
                               pre_collate_transform=None):
         is_dense = ConvolutionFormatFactory.check_is_dense_format(conv_type)
         if is_multiscale:
-            if is_multimodal:
-                raise NotImplementedError(
-                    "MultiscaleTransform is not supported for multimodal data "
-                    "yet.")
             if conv_type.lower() \
                     == ConvolutionFormat.PARTIAL_DENSE.value.lower():
                 fn = MultiScaleBatch.from_data_list
@@ -190,16 +185,9 @@ class BaseDataset:
                     "partial_dense format")
         else:
             if is_dense:
-                if is_multimodal:
-                    raise NotImplementedError(
-                        "Dense is not supported for multimodal data yet.")
-                else:
-                    fn = SimpleBatch.from_data_list
+                fn = SimpleBatch.from_data_list
             else:
-                if is_multimodal:
-                    fn = MMBatch.from_mm_data_list
-                else:
-                    fn = torch_geometric.data.batch.Batch.from_data_list
+                fn = torch_geometric.data.batch.Batch.from_data_list
         return partial(BaseDataset._collate_fn, collate_fn=fn,
                        pre_collate_transform=pre_collate_transform)
 
@@ -232,7 +220,6 @@ class BaseDataset:
         complete the setup of the Dataset.
         """
         conv_type = model.conv_type
-        is_multimodal = model.is_multimodal
         self._batch_size = batch_size
 
         if self.train_sampler:
@@ -244,7 +231,6 @@ class BaseDataset:
                 self.train_pre_batch_collate_transform,
                 conv_type,
                 precompute_multi_scale,
-                is_multimodal,
                 batch_size=batch_size,
                 shuffle=shuffle and not self.train_sampler,
                 num_workers=num_workers,
@@ -258,7 +244,6 @@ class BaseDataset:
                     self.test_pre_batch_collate_transform,
                     conv_type,
                     precompute_multi_scale,
-                    is_multimodal,
                     batch_size=batch_size,
                     shuffle=False,
                     num_workers=num_workers,
@@ -273,7 +258,6 @@ class BaseDataset:
                 self.val_pre_batch_collate_transform,
                 conv_type,
                 precompute_multi_scale,
-                is_multimodal,
                 batch_size=batch_size,
                 shuffle=False,
                 num_workers=num_workers,
@@ -284,19 +268,23 @@ class BaseDataset:
             self.set_strategies(model)
 
     def _dataloader(self, dataset, pre_batch_collate_transform, conv_type,
-                    is_multiscale, is_multimodal, **kwargs):
-        batch_collate_function = self.__class__._get_collate_function(
+                    is_multiscale, **kwargs):
+        batch_collate_function = self._get_collate_function(
             conv_type,
             is_multiscale,
-            is_multimodal,
-            pre_batch_collate_transform)
+            pre_collate_transform=pre_batch_collate_transform)
         num_workers = kwargs.get("num_workers", 0)
-        persistent_workers = (num_workers > 0)
         dataloader = partial(
             torch.utils.data.DataLoader,
             collate_fn=batch_collate_function,
-            worker_init_fn=np.random.seed,
-            persistent_workers=persistent_workers)
+            num_workers=num_workers,
+            worker_init_fn=np.random.seed)
+        # persistent_workers = (num_workers > 0)
+        # dataloader = partial(
+        #     torch.utils.data.DataLoader,
+        #     collate_fn=batch_collate_function,
+        #     worker_init_fn=np.random.seed,
+        #     persistent_workers=persistent_workers)
         return dataloader(dataset, **kwargs)
 
     @property

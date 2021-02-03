@@ -186,7 +186,7 @@ class RSConvUnet(RSConvBase):
         data = self.down_modules[-1](data)
         queue_up.put(data)
 
-        assert len(self.inner_modules) == 2, "For this segmentation model, we except 2 distinct inner"
+        assert len(self.inner_modules) == 2, "For this multimodal model, we except 2 distinct inner"
         data_inner = self.inner_modules[0](data)
         data_inner_2 = self.inner_modules[1](stack_down[3])
 

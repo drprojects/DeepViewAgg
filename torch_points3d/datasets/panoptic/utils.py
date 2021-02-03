@@ -2,7 +2,7 @@ import numpy as np
 import torch
 
 def set_extra_labels(data, instance_classes, num_max_objects):
-    """ Adds extra labels for the instance and object segmentation tasks
+    """ Adds extra labels for the instance and object multimodal tasks
     - num_instances: number of instances
     - center_label: [64, 3] on centre per instance
     - instance_labels: [num_points]

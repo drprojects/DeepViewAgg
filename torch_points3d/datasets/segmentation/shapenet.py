@@ -18,7 +18,7 @@ from torch_points3d.utils.download import download_url
 
 
 class ShapeNet(InMemoryDataset):
-    r"""The ShapeNet part level segmentation dataset from the `"A Scalable
+    r"""The ShapeNet part level multimodal dataset from the `"A Scalable
     Active Framework for Region Annotation in 3D Shape Collections"
     <http://web.stanford.edu/~ericyi/papers/part_annotation_16_small.pdf>`_
     paper, containing about 17,000 3D shape point clouds from 16 shape

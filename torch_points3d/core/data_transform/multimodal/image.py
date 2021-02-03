@@ -4,7 +4,7 @@ import torch_scatter
 from torch_geometric.data import Data
 from torch_points3d.core.data_transform import SphereSampling
 from torch_points3d.core.data_transform.grid_transform import _MAPPING_KEY
-from torch_points3d.datasets.multimodal.image import SameSettingImageData, \
+from torch_points3d.core.multimodal.image import SameSettingImageData, \
     ImageMapping, ImageData
 from torch_points3d.utils.multimodal import lexunique
 import torchvision.transforms as T
@@ -269,7 +269,8 @@ class MapImages(ImageTransform):
             # Remove duplicate id-xy in low resolution
             # Sort by point id
             start = time()
-            point_ids_, pix_x_, pix_y_ = lexunique(point_ids_, pix_x_, pix_y_)
+            point_ids_, pix_x_, pix_y_ = lexunique(point_ids_, pix_x_, pix_y_,
+                                                   use_cuda=True)
             t_unique_pixels += time() - start
 
             # Cast pixel coordinates to a dtype minimizing memory use
@@ -318,7 +319,7 @@ class MapImages(ImageTransform):
         # NB: The reindexing here relies on the fact that `unique`
         #  values are expected to be returned sorted.
         start = time()
-        seen_image_ids = lexunique(image_ids)
+        seen_image_ids = lexunique(image_ids, use_cuda=True)
         images = images[seen_image_ids]
         image_ids = torch.bucketize(image_ids, seen_image_ids)
         print(f"        t_index_image_data: {time() - start:0.3f}")
@@ -371,7 +372,7 @@ class SelectMappingFromPointId(ImageTransform):
         # Update point indices to the new mappings length. This is
         # important to preserve the mappings and for multimodal data
         # batching mechanisms.
-        data[self.key] = torch.arange(data.num_nodes)
+        data[self.key] = torch.arange(data.num_nodes, device=images.device)
 
         return data, images
 

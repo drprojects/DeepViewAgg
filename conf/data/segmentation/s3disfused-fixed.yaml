@@ -1,5 +1,5 @@
 data:
-  task: segmentation
+  task: multimodal
   class: s3dis.S3DISFusedDataset
   dataroot: data
   fold: 5

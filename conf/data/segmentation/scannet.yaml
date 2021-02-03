@@ -1,7 +1,7 @@
 data:
   class: scannet.ScannetDataset
   dataset_name: "scannet-sparse"
-  task: segmentation
+  task: multimodal
   dataroot: data
   version: v2
   use_instance_labels: False

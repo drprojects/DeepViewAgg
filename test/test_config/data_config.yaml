@@ -1,6 +1,6 @@
 data:
     name: shapenet
-    task: segmentation
+    task: multimodal
     dataroot: data
     normal: True
     first_subsampling: 0.02

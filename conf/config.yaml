@@ -1,5 +1,5 @@
 defaults: # for loading the default config
-  - task: ??? # Task performed (segmentation, classification etc...)
+  - task: ??? # Task performed (multimodal, classification etc...)
     optional: True
   - model_type: ??? # Type of model to use, e.g. pointnet2, rsconv etc...
     optional: True

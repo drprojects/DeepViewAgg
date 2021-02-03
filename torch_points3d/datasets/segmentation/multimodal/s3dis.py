@@ -1,10 +1,10 @@
 import torch
 import json
-from torch_points3d.datasets.multimodal.base_dataset import BaseDatasetMM
+from torch_points3d.datasets.base_dataset_multimodal import BaseDatasetMM
 from torch_points3d.datasets.segmentation.s3dis import *
 from torch_geometric.data import Data
-from torch_points3d.datasets.multimodal.data import MMData
-from torch_points3d.datasets.multimodal.image import SameSettingImageData
+from torch_points3d.core.multimodal.data import MMData
+from torch_points3d.core.multimodal.image import SameSettingImageData
 from torch_points3d.core.data_transform.multimodal.image import \
     SelectMappingFromPointId
 
@@ -651,7 +651,7 @@ class S3DISSphereMM(S3DISOriginalFusedMM):
         """
         assert isinstance(idx, int), \
             f"Indexing with {type(idx)} is not supported, only " \
-            f"{type(int)} are accepted."
+            f"{int} are accepted."
 
         # Get the 3D point sample and apply transforms
         i_area, data = self.get(self.indices()[idx])
@@ -817,16 +817,16 @@ class S3DISFusedDataset(BaseDatasetMM):
             pre_transform_image=self.pre_transform_image,
             transform_image=self.val_transform_image)
 
-        self.trainval_dataset = S3DISSphereMM(
-            self._data_path,
-            sample_per_epoch=3000,
-            test_area=self.dataset_opt.fold,
-            split="trainval",
-            pre_collate_transform=self.pre_collate_transform,
-            transform=self.train_transform,
-            pre_transform_image=self.pre_transform_image,
-            transform_image=self.train_transform_image,
-        )
+        # self.trainval_dataset = S3DISSphereMM(
+        #     self._data_path,
+        #     sample_per_epoch=3000,
+        #     test_area=self.dataset_opt.fold,
+        #     split="trainval",
+        #     pre_collate_transform=self.pre_collate_transform,
+        #     transform=self.train_transform,
+        #     pre_transform_image=self.pre_transform_image,
+        #     transform_image=self.train_transform_image,
+        # )
 
         self.test_dataset = S3DISSphereMM(
             self._data_path,

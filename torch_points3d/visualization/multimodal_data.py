@@ -1,5 +1,5 @@
-from torch_points3d.datasets.multimodal.data import MMData
-from torch_points3d.datasets.multimodal.image import SameSettingImageData, \
+from torch_points3d.core.multimodal.data import MMData
+from torch_points3d.core.multimodal.image import SameSettingImageData, \
     ImageData
 from torch_geometric.transforms import FixedPoints
 from torch_points3d.core.data_transform import GridSampling3D

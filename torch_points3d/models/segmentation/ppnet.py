@@ -28,7 +28,7 @@ class PPNet(UnwrappedUnetBasedModel):
         if self._use_category:
             if not dataset.class_to_segments:
                 raise ValueError(
-                    "The dataset needs to specify a class_to_segments property when using category information for segmentation"
+                    "The dataset needs to specify a class_to_segments property when using category information for multimodal"
                 )
             self._class_to_seg = dataset.class_to_segments
             self._num_categories = len(self._class_to_seg)

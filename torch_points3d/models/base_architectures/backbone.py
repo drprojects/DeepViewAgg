@@ -2,14 +2,12 @@ import copy
 from abc import ABC
 from torch import nn
 from torch_points3d.datasets.base_dataset import BaseDataset
-from torch_points3d.models.base_architectures import BaseFactory, \
-    ModalityFactory, get_factory
+from torch_points3d.models.base_architectures import ModalityFactory, get_factory
 from torch_points3d.models.base_model import BaseModel
 from torch_points3d.modules.multimodal.modules import MultimodalBlockDown, \
     UnimodalBranch
-from torch_points3d.utils.config import is_list, get_from_kwargs, \
-    fetch_arguments_from_list, flatten_compact_options, fetch_modalities
-from torch_points3d.datasets.multimodal.data import MODALITY_NAMES
+from torch_points3d.utils.config import is_list, fetch_arguments_from_list, fetch_modalities
+from torch_points3d.core.multimodal.data import MODALITY_NAMES
 import logging
 
 log = logging.getLogger(__name__)

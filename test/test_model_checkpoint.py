@@ -20,7 +20,7 @@ def load_config(task, model_type) -> DictConfig:
     models_conf = os.path.join(ROOT, "conf/models/{}/{}.yaml".format(task, model_type))
     config = OmegaConf.load(models_conf)
     config.update("model_name", "pointnet2")
-    config.update("data.task", "segmentation")
+    config.update("data.task", "multimodal")
     return config
 
 
@@ -50,7 +50,7 @@ class TestModelCheckpoint(unittest.TestCase):
         self.data_config = OmegaConf.load(os.path.join(DIR, "test_config/data_config.yaml"))
         training_config = OmegaConf.load(os.path.join(DIR, "test_config/training_config.yaml"))
         scheduler_config = OmegaConf.load(os.path.join(DIR, "test_config/scheduler_config.yaml"))
-        params = load_config("segmentation", "pointnet2")
+        params = load_config("multimodal", "pointnet2")
         self.config = OmegaConf.merge(training_config, scheduler_config, params)
         self.model_name = "model"
 

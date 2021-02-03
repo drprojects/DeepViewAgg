@@ -174,7 +174,6 @@ class SparseConv3dEncoder(BaseSparseConv3d):
         --------
         data:
             - x [1, output_nc]
-
         """
         # TODO:
         #  set data input for basic 3D conv

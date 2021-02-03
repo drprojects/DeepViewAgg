@@ -1,7 +1,5 @@
-import numpy as np
-import torch
 from torch_geometric.data import Data, Batch
-from torch_points3d.datasets.multimodal.image import *
+from torch_points3d.core.multimodal.image import *
 from torch_points3d.core.data_transform.multimodal.image import \
     SelectMappingFromPointId, _MAPPING_KEY
 from torch_points3d.utils.multimodal import tensor_idx

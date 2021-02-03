@@ -1,7 +1,8 @@
 from torch_points3d.core.data_transform.multimodal import instantiate_multimodal_transforms, ComposeMultiModal
 from torch_points3d.datasets.base_dataset import BaseDataset
+from torch_points3d.core.multimodal.data import MMBatch
 from torch_points3d.utils.config import ConvolutionFormatFactory
-import torch_geometric
+from functools import partial
 import copy
 
 
@@ -27,8 +28,7 @@ def explode_multimodal_transform(transforms):
 
 
 class BaseDatasetMM(BaseDataset):
-    """
-    BaseDataset with multimodal support.
+    """BaseDataset with multimodal support.
     """
 
     def __init__(self, dataset_opt):
@@ -37,32 +37,35 @@ class BaseDatasetMM(BaseDataset):
         BaseDatasetMM.set_multimodal_transform(self, dataset_opt)
 
     def process(self):
-        """
-        Instantiate this in child classes because multimodal transforms are 
-        very dataset-dependent.
+        """Instantiate this in child classes because multimodal
+        transforms are very dataset-dependent.
         """
         raise NotImplementedError
 
     @staticmethod
-    def _get_collate_function(conv_type, is_multiscale):
-        """
-        Make use of torch_geometric Batch mechanisms on '*index*' attributes to
-        collate multimodal mapping indices.
+    def _get_collate_function(conv_type, is_multiscale,
+                              pre_collate_transform=None):
+        """Collate mechanism for MMData.
+
+        Relies on MMBatch.from_mm_data_list to preserve multimodal
+        mappings and features when.
         """
         if is_multiscale:
-            raise NotImplementedError("Multiscale not supported for multimodal "
-                                      "data.")
+            raise NotImplementedError(
+                "Multiscale not supported for multimodal data.")
 
         is_dense = ConvolutionFormatFactory.check_is_dense_format(conv_type)
         if is_dense:
-            raise NotImplementedError("Dense conv_type not supported for "
-                                      "multimodal data.")
+            raise NotImplementedError(
+                "Dense conv_type not supported for multimodal data.")
 
         # We ake use of the core torch_geometric Batch mechanisms. In
         # particular, '*index*' attributes will be treated carefully
         # when batching. The values are reindexed, which is what we
         # need for our forward star indexing structure.
-        return torch_geometric.data.batch.Batch.from_data_list
+        fn = MMBatch.from_mm_data_list
+        return partial(BaseDataset._collate_fn, collate_fn=fn,
+                       pre_collate_transform=pre_collate_transform)
 
     @staticmethod
     def remove_multimodal_transform(transform_in, list_transform_class):

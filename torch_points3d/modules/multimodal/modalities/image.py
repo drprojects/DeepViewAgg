@@ -237,9 +237,7 @@ class UNet(nn.Module, ABC):
             self.down_modules.append(down_module)
 
         # Innermost module
-        contains_global = hasattr(opt, "innermost") \
-                          and opt.innermost is not None
-        if contains_global:
+        if hasattr(opt, "innermost") and opt.innermost is not None:
             inners = self._build_module(opt.innermost, 0, "INNER")
             self.inner_modules.append(inners)
         else:

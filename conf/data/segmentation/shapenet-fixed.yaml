@@ -1,6 +1,6 @@
 data:
   class: shapenet.ShapeNetDataset
-  task: segmentation
+  task: multimodal
   dataroot: data
   normal: True
   train_size: 14016 # Number of shapes in the whole training set

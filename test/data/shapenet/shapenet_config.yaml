@@ -9,7 +9,7 @@ data:
   - params:
       size: ${data.first_subsampling}
     transform: GridSampling3D
-  task: segmentation
+  task: multimodal
   test_transforms:
   - lparams:
     - 1024

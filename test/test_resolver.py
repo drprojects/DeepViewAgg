@@ -36,7 +36,7 @@ class TestModelDefinitionResolver(unittest.TestCase):
         model_conf = os.path.join(ROOT, "test/test_config/test_resolver_in.yaml")
         config = OmegaConf.load(model_conf)
         dataset = MockDataset(6)
-        tested_task = "segmentation"
+        tested_task = "multimodal"
 
         resolve_model(config, dataset, tested_task)
 

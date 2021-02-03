@@ -1,6 +1,6 @@
 data:
   class: shapenet.ShapeNetDataset
-  task: segmentation
+  task: multimodal
   dataroot: data
   normal: True # Use normal vectors as features
   first_subsampling: 0.02 # Grid size of the input data

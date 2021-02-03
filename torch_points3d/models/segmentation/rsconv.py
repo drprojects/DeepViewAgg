@@ -24,7 +24,7 @@ class RSConvLogicModel(UnwrappedUnetBasedModel):
         if self._use_category:
             if not dataset.class_to_segments:
                 raise ValueError(
-                    "The dataset needs to specify a class_to_segments property when using category information for segmentation"
+                    "The dataset needs to specify a class_to_segments property when using category information for multimodal"
                 )
             self._num_categories = len(dataset.class_to_segments.keys())
             log.info("Using category information for the predictions with %i categories", self._num_categories)
@@ -87,7 +87,7 @@ class RSConvLogicModel(UnwrappedUnetBasedModel):
         data = self.down_modules[-1](data)
         queue_up.put(data)
 
-        assert len(self.inner_modules) == 2, "For this segmentation model, we except 2 distinct inner"
+        assert len(self.inner_modules) == 2, "For this multimodal model, we except 2 distinct inner"
         data_inner = self.inner_modules[0](data)
         data_inner_2 = self.inner_modules[1](stack_down[3])
 

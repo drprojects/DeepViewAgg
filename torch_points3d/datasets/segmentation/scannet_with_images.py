@@ -876,7 +876,7 @@ if __name__ == '__main__':
 
     # Recover dataset options
     DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.getcwd())))
-    dataset_options = OmegaConf.load(os.path.join(DIR,'conf/data/segmentation/scannet.yaml'))
+    dataset_options = OmegaConf.load(os.path.join(DIR,'conf/data/multimodal/scannet.yaml'))
 
     # Choose download root directory
     dataset_options.data.dataroot = os.path.join(DIR,"data")

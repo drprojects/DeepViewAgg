@@ -67,7 +67,7 @@ class ScannetObjectDetection(Scannet):
         return data
 
     def _set_extra_labels(self, data):
-        """ Adds extra labels for the instance and object segmentation tasks
+        """ Adds extra labels for the instance and object multimodal tasks
         instance_box_corners: (MAX_NUM_OBJ, 8, 3) corners of the bounding boxes in this room
         center_label: (MAX_NUM_OBJ,3) for GT box center XYZ
         sem_cls_label: (MAX_NUM_OBJ,) semantic class index

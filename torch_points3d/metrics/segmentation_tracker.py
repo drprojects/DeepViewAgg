@@ -13,7 +13,7 @@ class SegmentationTracker(BaseTracker):
     def __init__(
         self, dataset, stage="train", wandb_log=False, use_tensorboard: bool = False, ignore_label: int = IGNORE_LABEL
     ):
-        """ This is a generic tracker for segmentation tasks.
+        """ This is a generic tracker for multimodal tasks.
         It uses a confusion matrix in the back-end to track results.
         Use the tracker to track an epoch.
         You can use the reset function before you start a new epoch

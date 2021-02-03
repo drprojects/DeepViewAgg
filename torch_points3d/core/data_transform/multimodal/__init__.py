@@ -1,6 +1,5 @@
 import sys
 
-from .image import *
 from .compose import ComposeMultiModal
 
 _custom_multimodal_transforms = sys.modules[__name__]

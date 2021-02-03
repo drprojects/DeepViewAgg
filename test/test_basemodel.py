@@ -102,7 +102,7 @@ class TestBaseModel(unittest.TestCase):
                 torch.testing.assert_allclose(w1[k], p)
 
     def test_accumulated_gradient(self):
-        params = load_model_config("segmentation", "pointnet2", "pointnet2ms")
+        params = load_model_config("multimodal", "pointnet2", "pointnet2ms")
         config_training = OmegaConf.load(os.path.join(DIR, "test_config/training_config.yaml"))
         dataset = MockDatasetGeometric(5)
         model = instantiate_model(params, dataset)

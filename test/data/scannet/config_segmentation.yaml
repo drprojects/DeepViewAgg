@@ -10,7 +10,7 @@ data:
         - 0.02
       transform: GridSampling3D
   process_workers: 4
-  task: segmentation
+  task: multimodal
   test_transform: ${data.val_transform}
   train_transform:
     - transform: RandomDropout

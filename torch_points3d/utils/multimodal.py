@@ -24,11 +24,14 @@ def tensor_idx(idx):
     return idx
 
 
-def lexsort(*args, device='cpu', compute_device='cuda'):
+def lexsort(*args, use_cuda=False):
     """Return input tensors sorted in lexicographic order."""
-    if not torch.cuda.is_available():
-        compute_device = 'cpu'
-    if compute_device == 'cuda':
+    device = 'cuda' if args[0].device.type == 'cuda' else 'cpu'
+    if device == 'cuda':
+        use_cuda = True
+    elif not torch.cuda.is_available():
+        use_cuda = False
+    if use_cuda:
         out = cuda_lex_op(*args, op='sort')
     else:
         out = cpu_lex_op(*args, op='sort', torch_out=True)
@@ -36,23 +39,29 @@ def lexsort(*args, device='cpu', compute_device='cuda'):
     return out if len(out) > 1 else out[0]
 
 
-def lexargsort(*args, device='cpu', compute_device='cuda'):
+def lexargsort(*args, use_cuda=False):
     """Return indices to sort input tensors in lexicographic order."""
-    if not torch.cuda.is_available():
-        compute_device = 'cpu'
-    if compute_device == 'cuda':
+    device = 'cuda' if args[0].device.type == 'cuda' else 'cpu'
+    if device == 'cuda':
+        use_cuda = True
+    elif not torch.cuda.is_available():
+        use_cuda = False
+    if use_cuda:
         out = cuda_lex_op(*args, op='argsort')
     else:
         out = cpu_lex_op(*args, op='argsort', torch_out=True)
     return out.to(device)
 
 
-def lexunique(*args, device='cpu', compute_device='cuda'):
+def lexunique(*args, use_cuda=False):
     """Return unique values in the input tensors sorted in lexicographic
      order."""
-    if not torch.cuda.is_available():
-        compute_device = 'cpu'
-    if compute_device == 'cuda':
+    device = 'cuda' if args[0].device.type == 'cuda' else 'cpu'
+    if device == 'cuda':
+        use_cuda = True
+    elif not torch.cuda.is_available():
+        use_cuda = False
+    if use_cuda:
         out = cuda_lex_op(*args, op='unique')
     else:
         out = cpu_lex_op(*args, op='unique', torch_out=True)
@@ -60,13 +69,16 @@ def lexunique(*args, device='cpu', compute_device='cuda'):
     return out if len(out) > 1 else out[0]
 
 
-def lexargunique(*args, device='cpu', compute_device='cuda'):
+def lexargunique(*args, use_cuda=False):
     """Return indices to mapping input tensors to their unique values
     sorted sorted in lexicographic order.
     """
-    if not torch.cuda.is_available():
-        compute_device = 'cpu'
-    if compute_device == 'cuda':
+    device = 'cuda' if args[0].device.type == 'cuda' else 'cpu'
+    if device == 'cuda':
+        use_cuda = True
+    elif not torch.cuda.is_available():
+        use_cuda = False
+    if use_cuda:
         out = cuda_lex_op(*args, op='argunique')
     else:
         out = cpu_lex_op(*args, op='argunique', torch_out=True)
@@ -172,7 +184,7 @@ class CompositeNDArray:
 
         # Compute the bases to build the composite array
         dtype_list = [a.dtype for a in array_list]
-        max_list = [torch.iinfo(dt).max for dt in dtype_list]
+        max_list = [np.iinfo(dt).max for dt in dtype_list]
         dtype_max = max(max_list)
         dtype = dtype_list[max_list.index(dtype_max)]
         max_list = [a.max() + 1 for a in array_list]

@@ -1,0 +1,49 @@
+models:
+    Pure2D_ResUNet34_0_2_2_2_2:
+        class: no3d.No3DSeg
+        define_constants:
+            in_feat: 32
+            image_in_feat: 4
+        down_conv:
+            image:
+                down_conv:
+                    module_name: ResNetDown
+                    block: ResBlock
+                    N: [ 0, 2, 2, 2, 2 ]
+                    stride: [ 1, 2, 2, 2, 2 ]
+                    kernel_size: [ 3, 2, 2, 2, 2 ]
+                    padding: [ 1, 0, 0, 0, 0 ]
+                    down_conv_nn:
+                        [
+                            [ image_in_feat, in_feat ],
+                            [ in_feat, in_feat ],
+                            [ in_feat, 2*in_feat ],
+                            [ 2*in_feat, 4*in_feat ],
+                            [ 4*in_feat, 8*in_feat ],
+                        ]
+                up_conv:
+                    module_name: ResNetUp
+                    block: ResBlock
+                    N: [1, 1, 1, 1, 1]
+                    stride: [ 2, 2, 2, 2, 1 ]
+                    kernel_size: [ 2, 2, 2, 2, 3 ]
+                    padding: [ 0, 0, 0, 0, 1 ]
+                    up_conv_nn:
+                        [
+                            [8*in_feat, 4*in_feat],
+                            [4*in_feat + 4*in_feat, 4*in_feat],
+                            [4*in_feat + 2*in_feat, 3*in_feat],
+                            [3*in_feat + in_feat, 3*in_feat],
+                            [3*in_feat + in_feat, 3*in_feat],
+                        ]
+                atomic_pooling:
+                    module_name: BimodalCSRPool
+                    mode: max
+                view_pooling:
+                    module_name: BimodalCSRPool
+                    mode: mean
+                fusion:
+                    module_name: BimodalFusion
+                    mode: residual
+                branching_index: 0
+
