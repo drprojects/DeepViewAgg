@@ -23,7 +23,8 @@ class BackboneBasedModel(BaseModel, ABC):
     """
     create a backbone-based generator:
     This is simply an encoder
-    (can be used in classification, regression, metric learning and so one)
+    (can be used in classification, regression, metric learning and so
+    one)
     """
 
     def __init__(self, opt, model_type, dataset: BaseDataset, modules_lib):
@@ -52,7 +53,8 @@ class BackboneBasedModel(BaseModel, ABC):
         if is_list(opt.down_conv) or self.no_3d_conv and not self.is_multimodal:
             raise NotImplementedError
         else:
-            self._init_from_compact_format(opt, model_type, dataset, modules_lib)
+            self._init_from_compact_format(opt, model_type, dataset,
+                                           modules_lib)
 
     def _init_from_compact_format(self, opt, model_type, dataset, modules_lib):
         """Create a backbonebasedmodel from the compact options format
@@ -141,7 +143,8 @@ class BackboneBasedModel(BaseModel, ABC):
                         flow='FUSION')
 
                     # Group modules into a UnimodalBranch
-                    branch = UnimodalBranch(conv, atomic_pool, view_pool, fusion)
+                    branch = UnimodalBranch(conv, atomic_pool, view_pool,
+                                            fusion)
 
                     # Update the branches at the proper branching point
                     branches[idx][m] = branch
@@ -155,31 +158,38 @@ class BackboneBasedModel(BaseModel, ABC):
         # Down modules - combined
         self.down_modules = nn.ModuleList(down_modules)
 
-        self.metric_loss_module, self.miner_module = BaseModel.get_metric_loss_and_miner(
+        self.metric_loss_module, self.miner_module \
+            = BaseModel.get_metric_loss_and_miner(
             getattr(opt, "metric_loss", None), getattr(opt, "miner", None)
         )
 
     def _save_sampling_and_search(self, down_conv):
         sampler = getattr(down_conv, "sampler", None)
         if is_list(sampler):
-            self._spatial_ops_dict["sampler"] = sampler + self._spatial_ops_dict["sampler"]
+            self._spatial_ops_dict["sampler"] \
+                = sampler + self._spatial_ops_dict["sampler"]
         else:
-            self._spatial_ops_dict["sampler"] = [sampler] + self._spatial_ops_dict["sampler"]
+            self._spatial_ops_dict["sampler"] \
+                = [sampler] + self._spatial_ops_dict["sampler"]
 
         neighbour_finder = getattr(down_conv, "neighbour_finder", None)
         if is_list(neighbour_finder):
-            self._spatial_ops_dict["neighbour_finder"] = neighbour_finder + self._spatial_ops_dict["neighbour_finder"]
+            self._spatial_ops_dict["neighbour_finder"] \
+                = neighbour_finder + self._spatial_ops_dict["neighbour_finder"]
         else:
-            self._spatial_ops_dict["neighbour_finder"] = [neighbour_finder] + self._spatial_ops_dict["neighbour_finder"]
+            self._spatial_ops_dict["neighbour_finder"] \
+                = [neighbour_finder] + self._spatial_ops_dict["neighbour_finder"]
 
 
     def _build_module(self, conv_opt, index, flow='DOWN', modality='main'):
-        """Builds a convolution (up or down) or a merge block in the case of
-        multimodal models.
+        """Builds a convolution (up or down) or a merge block in the
+        case of multimodal models.
 
         Arguments:
-            conv_opt - model config subset describing the convolutional block
-            index - layer index in sequential order (as they come in the config)
+            conv_opt - model config subset describing the convolutional
+                block
+            index - layer index in sequential order (as they come in
+                the config)
             flow - "UP", "DOWN", "ATOMIC, "VIEW" or "FUSION"
             modality - string among supported modalities
         """

@@ -10,7 +10,8 @@ import torch_points3d.modules.SparseConv3d as sp3d
 # from torch_points3d.core.base_conv.message_passing import *
 from torch_points3d.modules.SparseConv3d.modules import *
 # from torch_points3d.core.base_conv.partial_dense import *
-from torch_points3d.models.base_architectures.unet import UnwrappedUnetBasedModel
+from torch_points3d.models.base_architectures.unet import \
+    UnwrappedUnetBasedModel
 from torch_points3d.core.common_modules.base_modules import MLP
 
 from .utils import extract_output_nc
@@ -32,7 +33,8 @@ def SparseConv3d(
     *args,
     **kwargs
 ):
-    """Create a Sparse Conv backbone model based on architecture proposed in
+    """Create a Sparse Conv backbone model based on architecture
+    proposed in
      https://arxiv.org/abs/1904.08755
 
      Two backends are available at the moment:
@@ -42,23 +44,28 @@ def SparseConv3d(
      Parameters
      ----------
      architecture : str, optional
-         Architecture of the model, choose from unet, encoder and decoder
+         Architecture of the model, choose from unet, encoder and
+         decoder
      input_nc : int, optional
          Number of channels for the input
     output_nc : int, optional
-         If specified, then we add a fully connected head at the end of the network to provide the requested dimension
+         If specified, then we add a fully connected head at the end of
+         the network to provide the requested dimension
      num_layers : int, optional
          Depth of the network
      config : DictConfig, optional
-         Custom config, overrides the num_layers and architecture parameters
+         Custom config, overrides the num_layers and architecture
+         parameters
      block:
-         Type of resnet block, ResBlock by default but can be any of the blocks in modules/SparseConv3d/modules.py
+         Type of resnet block, ResBlock by default but can be any of
+         the blocks in modules/SparseConv3d/modules.py
      backend:
          torchsparse or minkowski
     """
     sp3d.nn.set_backend(backend)
     factory = SparseConv3dFactory(
-        architecture=architecture, num_layers=num_layers, input_nc=input_nc, config=config, **kwargs
+        architecture=architecture, num_layers=num_layers, input_nc=input_nc,
+        config=config, **kwargs
     )
     return factory.build()
 
@@ -68,11 +75,14 @@ class SparseConv3dFactory(ModelFactory):
         if self._config:
             model_config = self._config
         else:
-            path_to_model = os.path.join(PATH_TO_CONFIG, "unet_{}.yaml".format(self.num_layers))
+            path_to_model = os.path.join(PATH_TO_CONFIG, "unet_{}.yaml".format(
+                self.num_layers))
             model_config = OmegaConf.load(path_to_model)
-        ModelFactory.resolve_model(model_config, self.num_features, self._kwargs)
+        ModelFactory.resolve_model(model_config, self.num_features,
+                                   self._kwargs)
         modules_lib = sys.modules[__name__]
-        return SparseConv3dUnet(model_config, None, None, modules_lib, **self.kwargs)
+        return SparseConv3dUnet(model_config, None, None, modules_lib,
+                                **self.kwargs)
 
     def _build_encoder(self):
         if self._config:
@@ -83,15 +93,18 @@ class SparseConv3dFactory(ModelFactory):
                 "encoder_{}.yaml".format(self.num_layers),
             )
             model_config = OmegaConf.load(path_to_model)
-        ModelFactory.resolve_model(model_config, self.num_features, self._kwargs)
+        ModelFactory.resolve_model(model_config, self.num_features,
+                                   self._kwargs)
         modules_lib = sys.modules[__name__]
-        return SparseConv3dEncoder(model_config, None, None, modules_lib, **self.kwargs)
+        return SparseConv3dEncoder(model_config, None, None, modules_lib,
+                                   **self.kwargs)
 
 
 class BaseSparseConv3d(UnwrappedUnetBasedModel):
     CONV_TYPE = "sparse"
 
-    def __init__(self, model_config, model_type, dataset, modules, *args, **kwargs):
+    def __init__(self, model_config, model_type, dataset, modules, *args,
+                 **kwargs):
         super().__init__(model_config, model_type, dataset, modules)
         self.weight_initialization()
         default_output_nc = kwargs.get("default_output_nc", None)
@@ -103,7 +116,8 @@ class BaseSparseConv3d(UnwrappedUnetBasedModel):
         if "output_nc" in kwargs:
             self._has_mlp_head = True
             self._output_nc = kwargs["output_nc"]
-            self.mlp = MLP([default_output_nc, self.output_nc], activation=torch.nn.ReLU(), bias=False)
+            self.mlp = MLP([default_output_nc, self.output_nc],
+                           activation=torch.nn.ReLU(), bias=False)
 
     @property
     def has_mlp_head(self):
@@ -115,20 +129,24 @@ class BaseSparseConv3d(UnwrappedUnetBasedModel):
 
     def weight_initialization(self):
         for m in self.modules():
-            if isinstance(m, sp3d.nn.Conv3d) or isinstance(m, sp3d.nn.Conv3dTranspose):
-                torch.nn.init.kaiming_normal_(m.kernel, mode="fan_out", nonlinearity="relu")
+            if isinstance(m, sp3d.nn.Conv3d) \
+                    or isinstance(m, sp3d.nn.Conv3dTranspose):
+                torch.nn.init.kaiming_normal_(m.kernel, mode="fan_out",
+                                              nonlinearity="relu")
 
             if isinstance(m, sp3d.nn.BatchNorm):
                 torch.nn.init.constant_(m.bn.weight, 1)
                 torch.nn.init.constant_(m.bn.bias, 0)
 
     def _set_input(self, data):
-        """Unpack input data from the dataloader and perform necessary pre-processing steps.
+        """Unpack input data from the dataloader and perform necessary
+        pre-processing steps.
 
         Parameters
         -----------
         data:
-            a dictionary that contains the data itself and its metadata information.
+            a dictionary that contains the data itself and its metadata
+            information.
         """
         if self.is_multimodal:
             self.input = (
@@ -147,7 +165,8 @@ class SparseConv3dEncoder(BaseSparseConv3d):
         Parameters:
         -----------
         data
-            A SparseTensor that contains the data itself and its metadata information. Should contain
+            A SparseTensor that contains the data itself and its
+            metadata information. Should contain
                 F -- Features [N, C]
                 coords -- Coords [N, 4]
 
@@ -189,7 +208,8 @@ class SparseConv3dUnet(BaseSparseConv3d):
         Parameters
         -----------
         data
-            A SparseTensor that contains the data itself and its metadata information. Should contain
+            A SparseTensor that contains the data itself and its
+            metadata information. Should contain
                 F -- Features [N, C]
                 coords -- Coords [N, 4]
 

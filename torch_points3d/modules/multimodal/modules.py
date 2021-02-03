@@ -12,17 +12,15 @@ from torchsparse.nn.functional import sphash, sphashquery
 class MultimodalBlockDown(nn.Module, ABC):
     """Multimodal block with downsampling that looks like:
 
-    IN MMData    -- 3D Down Conv -- Merge 1 -- Merge i -- 3D Conv --    OUT MMData
-                                      |          |
-                 -- Mod 1 Down Conv --          |
-                          ...                  |
-                 -- Mod i Down Conv -----------
-                          ...
+                 -- 3D Conv ---- Merge i -- 3D Conv --
+    MMData IN          ...        |                       MMData OUT
+                 -- Mod i Conv --|--------------------
+                       ...
     """
     def __init__(self, down_block, conv_block, **kwargs):
-        """Build the Multimodal module from already-instantiated modules.
-        Modality-specific modules are expected to be passed in dictionaries
-        holding the conv and merge modules under 'conv' and 'merge' keys.
+        """Build the Multimodal module from already-instantiated
+        modules. Modality-specific modules are expected to be passed in
+        dictionaries holding fully-fledged UnimodalBranch modules.
         """
         # BaseModule initialization
         super(MultimodalBlockDown, self).__init__()
