@@ -21,6 +21,9 @@ _INTEGER_LABEL_KEYS = ["y", "instance_labels"]
 
 
 # Key expected to be used for multimodal mappings
+# NB: it is IMPORTANT that the key contains 'index' to be treated as
+# such by torch_geometric's Batch .from_data_list . This way the point
+# indices will be properly updated when stacking multimodal data.
 _MAPPING_KEY = 'mapping_index'
 
 

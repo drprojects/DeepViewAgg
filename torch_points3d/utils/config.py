@@ -22,7 +22,8 @@ class ConvolutionFormatFactory:
     @staticmethod
     def check_is_dense_format(conv_type):
         if (
-            conv_type.lower() == ConvolutionFormat.PARTIAL_DENSE.value.lower()
+            conv_type is None
+            or conv_type.lower() == ConvolutionFormat.PARTIAL_DENSE.value.lower()
             or conv_type.lower() == ConvolutionFormat.MESSAGE_PASSING.value.lower()
             or conv_type.lower() == ConvolutionFormat.SPARSE.value.lower()
         ):
