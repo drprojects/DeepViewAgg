@@ -6,6 +6,7 @@ data_multimodal:
     r_min: 0.05
     growth_k: 0.5
     growth_r: 100  # growth_k and growth_r set so that correction factor is ~1.1 at r_max=8
+    n_img_per_sphere: 5
 data:
     task: segmentation.multimodal
     class: s3dis.S3DISFusedDataset
@@ -48,14 +49,18 @@ data:
         train_transforms:
             - transform: SelectMappingFromPointId  # Select mappings after 3D points sampling
               params:
-            - transform: DropUninformativeImages  # Remove images with not enough mappings
+            - transform: PruneImages  # Remove images with not enough mappings
               params:
-                    ratio: 0.02
+                    area_ratio: 0.02
+                    n_max: ${data_multimodal.n_img_per_sphere}
             - transform: ColorJitter  # Radiometric augmentation
               params:
                     brightness: 0.3
                     contrast: 0.3
                     saturation: 0.6
+            - transform: RandomHorizontalFlip
+              params:
+                    p: 0.5
             - transform: ToFloatImage  # Convert uint8 image to float
             - transform: AddPixelHeightFeature  # Pixel height as image channel
             - transform: CenterRoll  # Roll images to center mappings
@@ -65,7 +70,22 @@ data:
               params:
                     padding: 10
                     min_size: 64
-        test_transforms: ${data.multimodal.train_transforms}
+        test_transforms:
+            - transform: SelectMappingFromPointId  # Select mappings after 3D points sampling
+              params:
+            - transform: PruneImages  # Remove images with not enough mappings
+              params:
+                    area_ratio: 0.02
+                    n_max: ${data_multimodal.n_img_per_sphere}
+            - transform: ToFloatImage  # Convert uint8 image to float
+            - transform: AddPixelHeightFeature  # Pixel height as image channel
+            - transform: CenterRoll  # Roll images to center mappings
+              params:
+                    angular_res: 16
+            - transform: CropImageGroups  # Compute cropping groups to minimize embedding cost
+              params:
+                    padding: 10
+                    min_size: 64
         val_transforms: ${data.multimodal.test_transforms}
     train_transforms:
         - transform: RandomNoise

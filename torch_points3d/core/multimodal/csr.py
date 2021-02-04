@@ -312,7 +312,7 @@ class CSRData(object):
 
     def __repr__(self):
         info = [f"{key}={getattr(self, key)}"
-                for key in ['num_groups', 'num_items']]
+                for key in ['num_groups', 'num_items', 'device']]
         return f"{self.__class__.__name__}({', '.join(info)})"
 
 
@@ -536,5 +536,6 @@ class CSRBatch(CSRData):
 
     def __repr__(self):
         info = [f"{key}={getattr(self, key)}"
-                for key in ['num_batch_items', 'num_groups', 'num_items']]
+                for key in ['num_batch_items', 'num_groups', 'num_items',
+                            'device']]
         return f"{self.__class__.__name__}({', '.join(info)})"

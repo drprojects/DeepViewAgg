@@ -377,32 +377,43 @@ class SelectMappingFromPointId(ImageTransform):
         return data, images
 
 
-class DropUninformativeImages(ImageTransform):
+class PruneImages(ImageTransform):
     """
-    Transform to drop images and corresponding mappings when mappings
-    account for less than a given ratio of the image area.
+    Transform to drop images and corresponding mappings based on a
+    minimum area ratio mappings should account for and a maximum number
+    of images to keep.
     """
 
-    def __init__(self, ratio=0.02):
-        self.ratio = ratio
+    def __init__(self, area_ratio=0.02, n_max=None):
+        self.area_ratio = area_ratio
+        self.n_max = n_max if n_max is not None and n_max >= 1 else 1
 
     def _process(self, data: Data, images: SameSettingImageData):
         assert images.mappings is not None, "No mappings found in images."
 
         # Threshold below which the number of pixels in the mappings
         # is deemed insufficient
-        threshold = images.img_size[0] * images.img_size[1] * self.ratio
+        threshold = images.img_size[0] * images.img_size[1] * self.area_ratio
 
         # Count the number of pixel mappings for each image
-        image_ids = torch.repeat_interleave(
+        pixel_idx = torch.repeat_interleave(
             images.mappings.images,
             images.mappings.values[1].pointers[1:]
             - images.mappings.values[1].pointers[:-1])
-        image_counts = torch_scatter.scatter_add(
-            torch.ones(image_ids.shape[0]), image_ids, dim=0)
+        pixel_counts = torch_scatter.scatter_add(
+            torch.ones(pixel_idx.shape[0]), pixel_idx, dim=0)
+
+        # Compute the indices of image to keep
+        idx = pixel_counts.argsort().flip(0)
+        idx = idx[pixel_counts[idx] > threshold][:self.n_max]
+
+        # In case no images meet the requirements, pick the one with
+        # the largest mapping to avoid having an empty idx
+        if idx.shape == 0:
+            idx = pixel_counts.argmax().item()
 
         # Select the images and mappings meeting the threshold
-        return data, images[image_counts > threshold]
+        return data, images[idx]
 
 
 class CenterRoll(ImageTransform):
@@ -635,7 +646,7 @@ class RandomHorizontalFlip(ImageTransform):
 
         if torch.rand(1) <= self.p:
             images.x = torch.flip(images.x, [3])
-            _, _, _, width = images.shape
+            _, _, _, width = images.x.shape
             images.mappings.pixels[:, 0] = \
                 width - 1 - images.mappings.pixels[:, 0]
 

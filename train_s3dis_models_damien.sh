@@ -24,7 +24,8 @@ done
 
 ########################################################################
 # Pure2D baseline on S3DIS
-MODEL_NAME=Pure2D_ResUNet34_0_2_2_2_2
+#MODEL_NAME=Pure2D_ResUNet34_0_2_2_2_2
+MODEL_NAME=Pure2D_ResUNet34_0_1_1_1_1
 
 for FOLD in 5
 do

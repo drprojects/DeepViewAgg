@@ -2,10 +2,10 @@
 training:
     epochs: 200
     num_workers: 4
-    batch_size: 1
+    batch_size: 1   # CHANGE THIS TO ALLOW MORE BATCHES
     shuffle: True
     cuda: 0
-    precompute_multi_scale: False # Compute multiscate features on cpu for faster training / inference
+    precompute_multi_scale: False # Compute multiscaLe features on cpu for faster training / inference
     optim:
         base_lr: 0.1
         # accumulated_gradient: -1 # Accumulate gradient accumulated_gradient * batch_size
