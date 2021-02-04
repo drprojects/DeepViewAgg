@@ -5,7 +5,7 @@ from torch_geometric.transforms import FixedPoints
 from torch_points3d.core.data_transform import GridSampling3D
 from torch_points3d.core.data_transform.multimodal.projection import \
     pose_to_rotation_matrix_numba
-from torch_points3d.core.data_transform.multimodal import \
+from torch_points3d.core.data_transform.multimodal.image import \
     SelectMappingFromPointId
 import os.path as osp
 import plotly.graph_objects as go

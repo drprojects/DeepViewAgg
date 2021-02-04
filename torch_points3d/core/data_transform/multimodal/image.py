@@ -3,7 +3,7 @@ import torch
 import torch_scatter
 from torch_geometric.data import Data
 from torch_points3d.core.data_transform import SphereSampling
-from torch_points3d.core.data_transform.grid_transform import _MAPPING_KEY
+from torch_points3d.core.multimodal.data import MAPPING_KEY
 from torch_points3d.core.multimodal.image import SameSettingImageData, \
     ImageMapping, ImageData
 from torch_points3d.utils.multimodal import lexunique
@@ -151,7 +151,7 @@ class MapImages(ImageTransform):
 
     def __init__(self, ref_size=None, proj_upscale=None, voxel=None, r_max=None,
                  r_min=None, growth_k=None, growth_r=None, empty=0, no_id=-1):
-        self.key = _MAPPING_KEY
+        self.key = MAPPING_KEY
         self.empty = empty
         self.no_id = no_id
 
@@ -358,7 +358,7 @@ class SelectMappingFromPointId(ImageTransform):
     """
 
     def __init__(self):
-        self.key = _MAPPING_KEY
+        self.key = MAPPING_KEY
 
     def _process(self, data, images):
         assert isinstance(data, Data)

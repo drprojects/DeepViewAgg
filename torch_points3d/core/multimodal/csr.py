@@ -269,7 +269,7 @@ class CSRData(object):
         device = pointers.device
         pointers_updated, val_indices = CSRData._index_select_pointers_numba(
             np.asarray(pointers.cpu()), np.asarray(indices.cpu()))
-        return torch.from_numpy(pointers_updated), torch.from_numpy(
+        return torch.from_numpy(pointers_updated).to(device), torch.from_numpy(
             np.concatenate(val_indices)).to(device)
 
     @staticmethod
@@ -293,8 +293,7 @@ class CSRData(object):
 
         Return a copy of self with updated pointers and values.
         """
-        idx = tensor_idx(idx)
-        idx = idx.to(self.device)
+        idx = tensor_idx(idx).to(self.device)
 
         # Select the pointers and prepare the values indexing
         pointers, val_idx = CSRData._index_select_pointers(self.pointers, idx)

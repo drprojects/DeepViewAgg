@@ -137,7 +137,7 @@ class SameSettingImageData(object):
                 f"Expected an ImageMapping but got {type(self.mappings)} " \
                 f"instead."
             unique_idx = torch.unique(self.mappings.images)
-            img_idx = torch.arange(self.num_views)
+            img_idx = torch.arange(self.num_views, device=self.device)
             assert (unique_idx == img_idx).all(), \
                 f"Image indices in the mappings do not match the " \
                 f"SameSettingImageData image indices."
@@ -515,7 +515,7 @@ class SameSettingImageData(object):
             assert isinstance(mappings, ImageMapping), \
                 f"Expected an ImageMapping but got {type(mappings)} instead."
             unique_idx = torch.unique(mappings.images)
-            img_idx = torch.arange(self.num_views)
+            img_idx = torch.arange(self.num_views, device=self.device)
             assert (unique_idx == img_idx).all(), \
                 f"Image indices in the mappings do not match the " \
                 f"SameSettingImageData image indices."
@@ -559,7 +559,7 @@ class SameSettingImageData(object):
             return self.clone()
 
         # Work on a clone of self, to avoid in-place modifications.
-        idx = tensor_idx(idx)
+        idx = tensor_idx(idx).to(self.device)
         images = self.clone()
 
         # Picking mode by default
@@ -584,7 +584,8 @@ class SameSettingImageData(object):
             assert idx.shape[0] == self.num_points, \
                 f"Merge correspondences has size {idx.shape[0]} but size " \
                 f"{self.num_points} was expected."
-            assert (torch.arange(idx.max() + 1) == torch.unique(idx)).all(), \
+            assert (torch.arange(idx.max() + 1, device=self.device)
+                    == torch.unique(idx)).all(), \
                 "Merge correspondences must map to a compact set of " \
                 "indices."
 
@@ -765,10 +766,9 @@ class SameSettingImageData(object):
         so indexing with duplicates
         will raise an error.
         """
-        idx = tensor_idx(idx)
+        idx = tensor_idx(idx).to(self.device)
         assert torch.unique(idx).shape[0] == idx.shape[0], \
             f"Index must not contain duplicates."
-        idx = idx.to(self.device)
         idx_numpy = np.asarray(idx.cpu())
 
         return self.__class__(
@@ -1138,7 +1138,7 @@ class ImageData:
         # in self
         dense_idx_list = [
             torch.repeat_interleave(
-                torch.arange(im.num_points),
+                torch.arange(im.num_points, device=self.device),
                 im.view_csr_indexing[1:] - im.view_csr_indexing[:-1])
             for im in self]
 
@@ -1357,7 +1357,7 @@ class ImageMapping(CSRData):
 
     @property
     def points(self):
-        return torch.arange(self.num_groups)
+        return torch.arange(self.num_groups, device=self.device)
 
     @property
     def images(self):
@@ -1450,7 +1450,7 @@ class ImageMapping(CSRData):
 
         # Expand atomic-level mappings to 'dense' format
         ids = torch.repeat_interleave(
-            torch.arange(out.values[1].num_groups),
+            torch.arange(out.values[1].num_groups, device=self.device),
             out.values[1].pointers[1:] - out.values[1].pointers[:-1])
         pix_x = out.values[1].values[0][:, 0]
         pix_y = out.values[1].values[0][:, 1]
@@ -1504,10 +1504,9 @@ class ImageMapping(CSRData):
         corresponding SameSettingImageData and contains no duplicate
         indices.
         """
-        idx = tensor_idx(idx)
+        idx = tensor_idx(idx).to(self.device)
         assert torch.unique(idx).shape[0] == idx.shape[0], \
             f"Index must not contain duplicates."
-        idx = idx.to(self.device)
 
         # Get view-level indices for images to keep
         view_idx = torch.where((self.images[..., None] == idx).any(-1))[0]
@@ -1520,13 +1519,16 @@ class ImageMapping(CSRData):
         # idx_gen so that the desired output can be computed with simple
         # indexation idx_gen[images]. This avoids using map() or
         # numpy.vectorize alternatives
-        idx_gen = torch.full((idx.max() + 1,), -1, dtype=torch.int64)
-        idx_gen = idx_gen.scatter_(0, idx, torch.arange(idx.shape[0]))
+        idx_gen = torch.full((idx.max() + 1,), -1, dtype=torch.int64,
+                             device=self.device)
+        idx_gen = idx_gen.scatter_(
+            0, idx, torch.arange(idx.shape[0], device=self.device))
         out.images = idx_gen[out.images]
 
         # Update the pointers
         point_ids = torch.repeat_interleave(
-            torch.arange(out.num_groups), out.pointers[1:] - out.pointers[:-1])
+            torch.arange(out.num_groups, device=self.device),
+            out.pointers[1:] - out.pointers[:-1])
         point_ids = point_ids[view_idx]
         out.pointers = CSRData._sorted_indices_to_pointers(point_ids)
 
@@ -1572,8 +1574,7 @@ class ImageMapping(CSRData):
         # Mappings are not affected if idx is None
         if idx is None:
             return self.clone()
-
-        idx = tensor_idx(idx)
+        idx = tensor_idx(idx).to(self.device)
 
         # Picking mode by default
         if mode == 'pick':
@@ -1584,7 +1585,8 @@ class ImageMapping(CSRData):
             assert idx.shape[0] == self.num_groups, \
                 f"Merge correspondences has size {idx.shape[0]} but size " \
                 f"{self.num_groups} was expected."
-            assert (torch.arange(idx.max()+1) == torch.unique(idx)).all(), \
+            assert (torch.arange(idx.max()+1, device=self.device)
+                    == torch.unique(idx)).all(), \
                 "Merge correspondences must map to a compact set of " \
                 "indices."
 
@@ -1659,7 +1661,7 @@ class ImageMapping(CSRData):
 
         # Expand to dense format
         point_ids = torch.repeat_interleave(
-            torch.arange(self.num_groups),
+            torch.arange(self.num_groups, device=self.device),
             self.pointers[1:] - self.pointers[:-1])
         point_ids = torch.repeat_interleave(
             point_ids,

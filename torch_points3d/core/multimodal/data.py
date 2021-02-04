@@ -1,9 +1,14 @@
 from torch_geometric.data import Data, Batch
 from torch_points3d.core.multimodal.image import *
-from torch_points3d.core.data_transform.multimodal.image import \
-    SelectMappingFromPointId, _MAPPING_KEY
 from torch_points3d.utils.multimodal import tensor_idx
 
+# Key expected to be used for multimodal mappings. Note it is IMPORTANT
+# that the key should contain '*index*' to be treated as such by
+# torch_geometric's Batch.from_data_list(). This way the point
+# indices will be properly updated when stacking multimodal data.
+MAPPING_KEY = 'mapping_index'
+
+# Supported modalities
 MODALITY_FORMATS = {"image": ImageData}
 MODALITY_NAMES = list(MODALITY_FORMATS.keys())
 
@@ -25,7 +30,7 @@ class MMData(object):
     def __init__(self, data: Data, **kwargs):
         self.data = data
         self.modalities = kwargs
-        self.mapping_key = _MAPPING_KEY
+        self.mapping_key = MAPPING_KEY
         for k in self.data.keys:
             setattr(self, k, getattr(self.data, k))
         self.debug()
@@ -42,7 +47,7 @@ class MMData(object):
         assert 'index' in self.mapping_key, \
             f"Key {self.mapping_key} must contain 'index' to benefit from " \
             f"Batch mechanisms."
-        idx = np.unique(self.data[self.mapping_key])
+        idx = torch.unique(self.data[self.mapping_key])
         assert idx.max() + 1 == idx.shape[0] == self.num_points, \
             f"Discrepancy between the Data point indices and the mappings " \
             f"indices. Data {self.mapping_key} counts {idx.shape[0]} unique " \
@@ -106,8 +111,7 @@ class MMData(object):
         Returns a new copy of the indexed MMData, with updated modality data
          and mappings. Supports torch and numpy indexing.
         """
-        idx = tensor_idx(idx)
-        idx = idx.to(self.device)
+        idx = tensor_idx(idx).to(self.device)
 
         # Index the Data first
         data = self.data.clone()
@@ -115,14 +119,19 @@ class MMData(object):
             if torch.is_tensor(item) and item.size(0) == self.data.num_nodes:
                 data[key] = data[key][idx]
 
-        # Update the modality data and mappings accordingly
-        # TODO: modality-specific data and mapping update ?
-        transform = SelectMappingFromPointId()
+        # Update the modality data and mappings wrt data key indices
         modalities = {mod: None for mod in self.modalities.keys()}
         for mod, data_mod in self.modalities.items():
-            data_out, modalities[mod] = transform(data, data_mod)
+            modalities[mod] = data_mod.select_points(data[self.mapping_key],
+                                                     mode='pick')
 
-        return MMData(data_out, **modalities)
+        # Update point indices to the new mappings length. This is
+        # important to preserve the mappings and for multimodal data
+        # batching mechanisms.
+        data[self.mapping_key] = torch.arange(data.num_nodes,
+                                              device=self.device)
+
+        return MMData(data, **modalities)
 
     def __repr__(self):
         info = [f"    data = {self.data}"]
