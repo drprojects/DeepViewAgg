@@ -366,13 +366,12 @@ class CSRBatch(CSRData):
         csr_type = type(csr_list[0])
         assert all([isinstance(csr, csr_type) for csr in csr_list]), \
             "All provided items must have the same class."
-        for csr in csr_list:
-            csr.debug()
-
+        device = csr_list[0].device
+        assert all([csr.device == device for csr in csr_list]), \
+            "All provided items must be on the same device."
         num_values = csr_list[0].num_values
         assert all([csr.num_values == num_values for csr in csr_list]), \
             "All provided items must have the same number of values."
-
         is_index_value = csr_list[0].is_index_value
         if is_index_value is not None:
             assert all([np.array_equal(csr.is_index_value, is_index_value)
@@ -381,16 +380,18 @@ class CSRBatch(CSRData):
         else:
             assert all([csr.is_index_value is None for csr in csr_list]), \
                 "All provided items must have the same is_index_value."
+        for csr in csr_list:
+            csr.debug()
 
         # Offsets are used to stack pointer indices and values identified as
         # "index" value by `is_index_value` without losing the indexing
         # information they carry.
         offsets = torch.cumsum(torch.LongTensor(
-            [0] + [csr.num_items for csr in csr_list[:-1]]), dim=0)
+            [0] + [csr.num_items for csr in csr_list[:-1]]), dim=0).to(device)
 
         # Stack pointers
         pointers = torch.cat((
-            torch.LongTensor([0]),
+            torch.LongTensor([0]).to(device),
             *[csr.pointers[1:] + offset
               for csr, offset in zip(csr_list, offsets)],
         ), dim=0)
@@ -407,9 +408,10 @@ class CSRBatch(CSRData):
                 # index_values must be used in. There can be no element outside
                 # of the range of index_values  
                 idx_offsets = torch.cumsum(torch.LongTensor(
-                    [0] + [v.max() + 1 for v in val_list[:-1]]), dim=0)
-                val = torch.cat(
-                    [v + o for v, o in zip(val_list, idx_offsets)], dim=0)
+                    [0] + [v.max() + 1 for v in val_list[:-1]]),
+                    dim=0).to(device)
+                val = torch.cat([v + o for v, o in zip(val_list, idx_offsets)],
+                    dim=0)
             else:
                 val = torch.cat(val_list, dim=0)
             values.append(val)

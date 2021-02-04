@@ -1,5 +1,5 @@
 models:
-    MMRes_0_2_2_2_2_UNet34:
+    MM_ResUNet34_0_2_2_2_2:
         class: sparseconv3d.APIModel
         conv_type: "SPARSE"
         backend: "torchsparse"

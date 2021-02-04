@@ -17,9 +17,11 @@ class No3DEncoder(BackboneBasedModel, ABC):
     Inspired from torchpoints_3d.applications.sparseconv3d.
     """
 
-    def __init__(self, model_config, model_type, dataset, modules, *args, **kwargs):
+    def __init__(self, model_config, model_type, dataset, modules, *args,
+                 **kwargs):
         # UnwrappedUnetBasedModel init
-        super(No3DEncoder, self).__init__(model_config, model_type, dataset, modules)
+        super(No3DEncoder, self).__init__(model_config, model_type, dataset,
+                                          modules)
 
         # Make sure the model is multimodal and has no 3D. Note that
         # the UnwrappedUnetBasedModel carries most of the required
