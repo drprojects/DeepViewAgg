@@ -22,6 +22,7 @@ docs_old
 *.egg-info*
 *.prof
 notebooks/*.ipynb
+notebooks/*.yaml
 
 # Python egg metadata, regenerated from source files by setuptools.
 /*.egg
@@ -40,3 +41,5 @@ torch_points3d/applications/weights/*
 .python-version
 .idea
 python_for_remote_pycharm_conda
+
+*.sh
