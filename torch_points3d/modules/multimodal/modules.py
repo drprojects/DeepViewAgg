@@ -224,25 +224,25 @@ class UnimodalBranch(nn.Module, ABC):
         # Conv on the modality data. The modality data holder
         # carries a feature tensor per modality settings. Hence the
         # modality features are provided as a list of tensors.
-        if has_multi_setting:
-            x_mod = [self.conv(x) for x in mod_data.x]
-        else:
-            x_mod = self.conv(mod_data.x)
-
         # Update modality features and mappings wrt modality scale.
         # Note that convolved features are preserved in the modality
         # data holder, to be later used in potential downstream
         # modules.
-        mod_data = mod_data.update_features_and_scale(x_mod)
+        if has_multi_setting:
+            for i in range(len(mod_data)):                
+                mod_data[i].update_features_and_scale(self.conv(mod_data[i].x))
+        else:
+            mod_data = mod_data.update_features_and_scale(
+                self.conv(mod_data.x))
 
         # Extract CSR-arranged atomic features from the feature maps
         # of each input modality setting
         if has_multi_setting:
             x_mod = [x[idx]
                      for x, idx
-                     in zip(x_mod, mod_data.feature_map_indexing)]
+                     in zip(mod_data.x, mod_data.feature_map_indexing)]
         else:
-            x_mod = x_mod[mod_data.feature_map_indexing]
+            x_mod = mod_data.x[mod_data.feature_map_indexing]
 
         # Atomic pooling of the modality features on each
         # separate setting
