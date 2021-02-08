@@ -10,6 +10,7 @@ from torch_points3d.utils.multimodal import lexunique
 import torchvision.transforms as T
 from .projection import compute_index_map
 from tqdm.auto import tqdm as tq
+from typing import TypeVar, Union
 
 """
 Image-based transforms for multimodal data processing. Inspired by 
@@ -25,7 +26,10 @@ class ImageTransform:
     ImageMapping.
     """
 
-    def _process(self, data: Data, images: SameSettingImageData):
+    _PROCESS_IMAGE_DATA = False
+
+    def _process(self, data: Data,
+                 images: Union[ImageData, SameSettingImageData]):
         raise NotImplementedError
 
     def __call__(self, data, images):
@@ -35,11 +39,15 @@ class ImageTransform:
                 f"have the same lengths."
             out = [self.__call__(da, im) for da, im in zip(data, images)]
             data_out, images_out = [list(x) for x in zip(*out)]
-        elif isinstance(images, ImageData):
+        elif isinstance(images, ImageData) and not self._PROCESS_IMAGE_DATA:
             out = [self.__call__(data, im) for im in images]
             images_out = ImageData([im for _, im in out])
             data_out = out[0][0]
         else:
+            assert (isinstance(images, SameSettingImageData)
+                    and not self._PROCESS_IMAGE_DATA
+                    or isinstance(images, ImageData)
+                    and self._PROCESS_IMAGE_DATA)
             data_out, images_out = self._process(data.clone(), images.clone())
         return data_out, images_out
 
@@ -377,7 +385,7 @@ class SelectMappingFromPointId(ImageTransform):
         return data, images
 
 
-class PruneImages(ImageTransform):
+class PickImagesFromMappingArea(ImageTransform):
     """
     Transform to drop images and corresponding mappings based on a
     minimum area ratio mappings should account for and a maximum number
@@ -386,7 +394,7 @@ class PruneImages(ImageTransform):
 
     def __init__(self, area_ratio=0.02, n_max=None):
         self.area_ratio = area_ratio
-        self.n_max = n_max if n_max is not None and n_max >= 1 else 1
+        self.n_max = n_max if n_max is not None and n_max >= 1 else -1
 
     def _process(self, data: Data, images: SameSettingImageData):
         assert images.mappings is not None, "No mappings found in images."
@@ -409,11 +417,59 @@ class PruneImages(ImageTransform):
 
         # In case no images meet the requirements, pick the one with
         # the largest mapping to avoid having an empty idx
-        if idx.shape == 0:
+        if idx.shape[0] == 0:
             idx = pixel_counts.argmax().item()
 
         # Select the images and mappings meeting the threshold
         return data, images[idx]
+
+
+
+class PickImagesFromMemoryCredit(ImageTransform):
+    """
+    Transform to cherry-pick SameSettingImageData from an ImageData
+    object based on an allocated memory credit.
+    """
+
+    _PROCESS_IMAGE_DATA = True
+
+    def __init__(self, credit=256*256*8):
+        self.credit = credit
+
+    def _process(self, data: Data, images: ImageData):
+        picked = [[] for _ in range(images.num_settings)]
+        setting_indices = [np.arange(im.num_views).tolist() for im in images]
+        setting_sizes = [im.img_size[0] * im.img_size[1] for im in images]
+        credit = self.credit
+
+        assert credit > 0 and credit >= min(setting_sizes), \
+            f"Insufficient credit={credit} to pick any of the provided " \
+            f"images with min_size={min(setting_sizes)}."
+
+        while credit > 0 and np.concatenate(setting_indices).size > 0 \
+                and credit >= min([size if len(idx) > 0 else credit + 1
+                                   for size, idx
+                                   in zip(setting_sizes, setting_indices)]):
+            setting_weights = [size * len(indices) if size <= credit else 0
+                               for size, indices in
+                               zip(setting_sizes, setting_indices)]
+            setting_probas = np.array(setting_weights) / sum(setting_weights)
+
+            idx_set = np.random.choice(np.arange(images.num_settings),
+                                       p=setting_probas)
+            idx_set_left_img = np.random.randint(
+                low=0, high=len(setting_indices[idx_set]))
+            idx_img = setting_indices[idx_set].pop(idx_set_left_img)
+
+            picked[idx_set].append(idx_img)
+            credit -= setting_sizes[idx_set]
+
+        # Select the images, remove image data if need be
+        images = ImageData([im[torch.LongTensor(idx)]
+                            for im, idx in zip(images, picked)
+                            if len(idx) > 0])
+
+        return data, images
 
 
 class CenterRoll(ImageTransform):
