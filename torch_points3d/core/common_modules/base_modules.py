@@ -2,16 +2,19 @@
 import torch
 from torch import nn
 from torch.nn.parameter import Parameter
+import numpy as np
 
 
 class BaseModule(nn.Module):
-    """ Base module class with some basic additions to the pytorch Module class
+    """ Base module class with some basic additions to the pytorch
+    Module class.
     """
 
     @property
     def nb_params(self):
-        """This property is used to return the number of trainable parameters for a given layer
-        It is useful for debugging and reproducibility.
+        """This property is used to return the number of trainable
+        parameters for a given layer. It is useful for debugging and
+        reproducibility.
         """
         model_parameters = filter(lambda p: p.requires_grad, self.parameters())
         self._nb_params = sum([np.prod(p.size()) for p in model_parameters])
