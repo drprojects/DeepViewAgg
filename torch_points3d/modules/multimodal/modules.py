@@ -74,7 +74,7 @@ class MultimodalBlockDown(nn.Module, ABC):
         modality-specific data equipped with corresponding mappings.
         """
         # Unpack the multimodal data tuple
-        x_3d, mod_dict = mm_data_tuple
+        x_3d, x_seen, mod_dict = mm_data_tuple
 
         # Conv on the main 3D modality - assumed to reduce 3D resolution
         x_3d, mod_dict = self.forward_3d_block_down(
@@ -82,13 +82,17 @@ class MultimodalBlockDown(nn.Module, ABC):
 
         for m in self.modalities:
             mod_branch = getattr(self, m)
-            x_3d, mod_dict[m] = mod_branch((x_3d, mod_dict[m]))
+            x_3d, x_seen_mod, mod_dict[m] = mod_branch((x_3d, mod_dict[m]))
+            if x_seen is None:
+                x_seen = x_seen_mod
+            else:
+                x_seen = torch.logical_or(x_seen, x_seen_mod)
 
         # Conv on the main 3D modality
         x_3d, mod_dict = self.forward_3d_block_down(
             x_3d, mod_dict, self.conv_block)
 
-        return tuple((x_3d, mod_dict))
+        return tuple((x_3d, x_seen, mod_dict))
 
     @staticmethod
     def forward_3d_block_down(x_3d, mod_dict, block):
@@ -247,11 +251,12 @@ class UnimodalBranch(nn.Module, ABC):
         # Atomic pooling of the modality features on each
         # separate setting
         if has_multi_setting:
-            x_mod = [self.atomic_pool(x_3d, x, a_idx)
+            x_mod = [self.atomic_pool(x_3d, x, a_idx)[0]
                      for x, a_idx
                      in zip(x_mod, mod_data.atomic_csr_indexing)]
         else:
-            x_mod = self.atomic_pool(x_3d, x_mod, mod_data.atomic_csr_indexing)
+            x_mod = self.atomic_pool(x_3d, x_mod,
+                                     mod_data.atomic_csr_indexing)[0]
 
         # For multi-setting data, concatenate view-level features from
         # each input modality setting and sort them to a CSR-friendly
@@ -260,13 +265,15 @@ class UnimodalBranch(nn.Module, ABC):
             x_mod = torch.cat(x_mod, dim=0)
             x_mod = x_mod[mod_data.view_cat_sorting]
 
-        # View pooling of the joint modality features
+        # View pooling of the atomic-pooled modality features
         if has_multi_setting:
-            x_mod = self.view_pool(x_3d, x_mod, mod_data.view_cat_csr_indexing)
+            x_mod, x_seen = self.view_pool(
+                x_3d, x_mod, mod_data.view_cat_csr_indexing)
         else:
-            x_mod = self.view_pool(x_3d, x_mod, mod_data.view_csr_indexing)
+            x_mod, x_seen = self.view_pool(
+                x_3d, x_mod, mod_data.view_csr_indexing)
 
         # Fuse the modality features into the 3D points features
         x_3d = self.fusion(x_3d, x_mod)
 
-        return x_3d, mod_data
+        return x_3d, x_seen, mod_data

@@ -144,7 +144,8 @@ def s3dis_image_pose_pairs(
                 print(4 * ' ' + '/'.join(x.split('/')[-4:]))
 
     # Only return the recovered pairs
-    correspondences = sorted(list(set(image_names).intersection(set(pose_names))))
+    correspondences = sorted(list(set(image_names).intersection(
+        set(pose_names))))
     pairs = [(
         osp.join(image_dir, x + image_suffix),
         osp.join(pose_dir, x + pose_suffix))
@@ -206,6 +207,7 @@ class S3DISOriginalFusedMM(InMemoryDataset):
             pre_filter=None,
             pre_transform_image=None,
             transform_image=None,
+            img_ref_size=(512, 256),
             keep_instance=False,
             verbose=False,
             debug=False, ):
@@ -215,6 +217,7 @@ class S3DISOriginalFusedMM(InMemoryDataset):
         self.pre_collate_transform = pre_collate_transform
         self.pre_transform_image = pre_transform_image
         self.transform_image = transform_image
+        self.img_ref_size = img_ref_size
         self.test_area = test_area
         self.keep_instance = keep_instance
         self.verbose = verbose
@@ -480,9 +483,9 @@ class S3DISOriginalFusedMM(InMemoryDataset):
             image_data_list = []
             for i in range(6):
 
-                # S3DIS Area 5 images are split into two folders 'area_5a'
-                # and 'area_5b' and one of them requires specific treatment
-                # for pose reading
+                # S3DIS Area 5 images are split into two folders
+                # 'area_5a' and 'area_5b' and one of them requires
+                # specific treatment for pose reading
                 folders = [f"area_{i + 1}"] if i != 4 \
                     else ["area_5a", "area_5b"]
 
@@ -494,8 +497,8 @@ class S3DISOriginalFusedMM(InMemoryDataset):
                         osp.join(self.image_dir, folder, 'pano', 'pose'),
                         skip_names=S3DIS_OUTSIDE_IMAGES)]
 
-                # Dropping image info for images outside of rooms found during
-                # preprocessing
+                # Dropping image info for images outside of rooms found
+                # during preprocessing
                 image_info_list = [
                     x for x in image_info_list
                     if s3dis_image_room(x[0]) in rooms[i]]
@@ -503,16 +506,17 @@ class S3DISOriginalFusedMM(InMemoryDataset):
                 print(f"    Area {i + 1} - {len(rooms[i])} rooms - "
                       f"{len(image_info_list)} images")
 
-                # Local helper function to combine image info lists into a more
-                # convenient SameSettingImageData object.
+                # Local helper function to combine image info lists into
+                # a more convenient SameSettingImageData object.
                 def info_list_to_image_data(info_list):
                     if len(info_list) > 0:
                         path, pos, opk = [list(x) for x in zip(*info_list)]
                         image_data = SameSettingImageData(
                             path=np.array(path), pos=torch.Tensor(pos),
-                            opk=torch.Tensor(opk))
+                            opk=torch.Tensor(opk), ref_size=self.img_ref_size)
                     else:
-                        image_data = SameSettingImageData()
+                        image_data = SameSettingImageData(
+                            ref_size=self.img_ref_size)
                     return image_data
 
                 # Keep all images for the test area
@@ -576,14 +580,14 @@ class S3DISOriginalFusedMM(InMemoryDataset):
 
         # Extract and save train preprocessed multimodal data
         transform = SelectMappingFromPointId()
-        data = [indexer(d, ~is_val)
-                for d, is_val in zip(mm_data_list[0], is_val_list)]
+        data = [indexer(d, ~is_val) for d, is_val
+                in zip(mm_data_list[0], is_val_list)]
         images = [im for im in mm_data_list[1]]
         torch.save(transform(data, images), self.processed_paths[0])
 
         # Extract and save val preprocessed multimodal data
-        data = [indexer(d, is_val)
-                for d, is_val in zip(mm_data_list[0], is_val_list)]
+        data = [indexer(d, is_val) for d, is_val
+                in zip(mm_data_list[0], is_val_list)]
         torch.save(transform(data, mm_data_list[1]), self.processed_paths[1])
         del mm_data_list
 
@@ -643,11 +647,12 @@ class S3DISSphereMM(S3DISOriginalFusedMM):
         """
         Indexing mechanism for the Dataset. Only supports int indexing.
 
-        Overwrites the torch_geometric.InMemoryDataset.__getitem__() used for
-        indexing Dataset. Extends its mechanisms to multimodal data.
+        Overwrites the torch_geometric.InMemoryDataset.__getitem__()
+        used for indexing Dataset. Extends its mechanisms to multimodal
+        data.
 
-        Get a 3D points Data sphere sample with image mapping attributes, along
-        with the list idx.
+        Get a 3D points Data sphere sample with image mapping
+        attributes, along with the list idx.
         """
         assert isinstance(idx, int), \
             f"Indexing with {type(idx)} is not supported, only " \
@@ -720,8 +725,8 @@ class S3DISSphereMM(S3DISOriginalFusedMM):
     def _load_data(self, path):
         """
         Initializes the self._datas, self._images which hold all the
-        preprocessed multimodal data in memory. Also initializes the sphere
-        sampling centers and per-area KDTrees.
+        preprocessed multimodal data in memory. Also initializes the
+        sphere sampling centers and per-area KDTrees.
         
         Overwrites the S3DISOriginalFusedMM._load_data()
         """
@@ -735,7 +740,8 @@ class S3DISSphereMM(S3DISOriginalFusedMM):
         if self._sample_per_epoch > 0:
             self._centres_for_sampling = []
             for i, data in enumerate(self._datas):
-                # Just to make we don't have some out-of-date data in there
+                # Just to make we don't have some out-of-date data in
+                # there
                 assert not hasattr(data, cT.SphereSampling.KDTREE_KEY)
                 low_res = self._grid_sphere_sampling(data.clone())
                 centres = torch.empty((low_res.pos.shape[0], 5),
@@ -805,7 +811,8 @@ class S3DISFusedDataset(BaseDatasetMM):
             pre_collate_transform=self.pre_collate_transform,
             transform=self.train_transform,
             pre_transform_image=self.pre_transform_image,
-            transform_image=self.train_transform_image)
+            transform_image=self.train_transform_image,
+            img_ref_size=self.dataset_opt.multimodal.settings.ref_size)
 
         self.val_dataset = S3DISSphereMM(
             self._data_path,
@@ -815,7 +822,8 @@ class S3DISFusedDataset(BaseDatasetMM):
             pre_collate_transform=self.pre_collate_transform,
             transform=self.val_transform,
             pre_transform_image=self.pre_transform_image,
-            transform_image=self.val_transform_image)
+            transform_image=self.val_transform_image,
+            img_ref_size=self.dataset_opt.multimodal.settings.ref_size)
 
         # self.trainval_dataset = S3DISSphereMM(
         #     self._data_path,
@@ -826,7 +834,7 @@ class S3DISFusedDataset(BaseDatasetMM):
         #     transform=self.train_transform,
         #     pre_transform_image=self.pre_transform_image,
         #     transform_image=self.train_transform_image,
-        # )
+        #     img_ref_size = self.dataset_opt.multimodal.settings.ref_size)
 
         self.test_dataset = S3DISSphereMM(
             self._data_path,
@@ -836,7 +844,8 @@ class S3DISFusedDataset(BaseDatasetMM):
             pre_collate_transform=self.pre_collate_transform,
             transform=self.test_transform,
             pre_transform_image=self.pre_transform_image,
-            transform_image=self.test_transform_image)
+            transform_image=self.test_transform_image,
+            img_ref_size=self.dataset_opt.multimodal.settings.ref_size)
 
         if dataset_opt.class_weight_method:
             self.add_weights(

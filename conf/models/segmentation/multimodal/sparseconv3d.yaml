@@ -1,5 +1,5 @@
 models:
-    MM_ResUNet34_0_2_2_2_2:
+    RENAME_THIS______AND_CHANGE_IMAGE_BLOCKS______MM_ResUNet34_0_2_2_2_2:
         class: sparseconv3d.APIModel
         conv_type: "SPARSE"
         backend: "torchsparse"

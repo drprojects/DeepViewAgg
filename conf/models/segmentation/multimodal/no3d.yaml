@@ -1,6 +1,6 @@
 models:
-    Pure2D_ResUNet34_0_2_2_2_2:
-        class: no3d.No3DSeg
+    Pure2D_Res16UNet36:  # 7.1 M params - 27.5 Mo on the GPU - ~6.5 ko/pixel at training time
+        class: no3d.no3dWithViewLogitFusion
         define_constants:
             in_feat: 32
             image_in_feat: 4
@@ -11,8 +11,8 @@ models:
                     block: ResBlock
                     N: [ 0, 2, 2, 2, 2 ]
                     stride: [ 1, 2, 2, 2, 2 ]
-                    kernel_size: [ 3, 2, 2, 2, 2 ]
-                    padding: [ 1, 0, 0, 0, 0 ]
+                    kernel_size: [ 3, 4, 4, 4, 4 ]
+                    padding: 1
                     down_conv_nn:
                         [
                             [ image_in_feat, in_feat ],
@@ -26,16 +26,19 @@ models:
                     block: ResBlock
                     N: [1, 1, 1, 1, 1]
                     stride: [ 2, 2, 2, 2, 1 ]
-                    kernel_size: [ 2, 2, 2, 2, 3 ]
-                    padding: [ 0, 0, 0, 0, 1 ]
+                    kernel_size: [ 4, 4, 4, 4, 3 ]
+                    padding: 1
                     up_conv_nn:
                         [
                             [8*in_feat, 4*in_feat],
                             [4*in_feat + 4*in_feat, 4*in_feat],
-                            [4*in_feat + 2*in_feat, 3*in_feat],
-                            [3*in_feat + in_feat, 3*in_feat],
-                            [3*in_feat + in_feat, 3*in_feat],
+                            [4*in_feat + 2*in_feat, 2*in_feat],
+                            [2*in_feat + in_feat, in_feat],
+                            [in_feat + in_feat, in_feat],
                         ]
+                last_conv:
+                    input_nc: in_feat
+                    output_nc: N_CLS
                 atomic_pooling:
                     module_name: BimodalCSRPool
                     mode: max
@@ -47,8 +50,8 @@ models:
                     mode: residual
                 branching_index: 0
 
-    Pure2D_ResUNet34_0_1_1_1_1:  # 5.3 M params
-        class: no3d.No3DSeg
+    Pure2D_Res16UNet28:  # 5.6 M params - 21.5 Mo on the GPU - ~6.1 ko/pixel at training time
+        class: no3d.no3dWithViewLogitFusion
         define_constants:
             in_feat: 32
             image_in_feat: 4
@@ -59,31 +62,34 @@ models:
                     block: ResBlock
                     N: [ 0, 1, 1, 1, 1 ]
                     stride: [ 1, 2, 2, 2, 2 ]
-                    kernel_size: [ 3, 2, 2, 2, 2 ]
-                    padding: [ 1, 0, 0, 0, 0 ]
+                    kernel_size: [ 3, 4, 4, 4, 4 ]
+                    padding: 1
                     down_conv_nn:
-                      [
-                          [ image_in_feat, in_feat ],
-                          [ in_feat, in_feat ],
-                          [ in_feat, 2*in_feat ],
-                          [ 2*in_feat, 4*in_feat ],
-                          [ 4*in_feat, 8*in_feat ],
-                      ]
+                        [
+                            [ image_in_feat, in_feat ],
+                            [ in_feat, in_feat ],
+                            [ in_feat, 2*in_feat ],
+                            [ 2*in_feat, 4*in_feat ],
+                            [ 4*in_feat, 8*in_feat ],
+                        ]
                 up_conv:
                     module_name: ResNetUp
                     block: ResBlock
                     N: [ 1, 1, 1, 1, 1 ]
                     stride: [ 2, 2, 2, 2, 1 ]
-                    kernel_size: [ 2, 2, 2, 2, 3 ]
-                    padding: [ 0, 0, 0, 0, 1 ]
+                    kernel_size: [ 4, 4, 4, 4, 3 ]
+                    padding: 1
                     up_conv_nn:
-                      [
-                          [ 8*in_feat, 4*in_feat ],
-                          [ 4*in_feat + 4*in_feat, 4*in_feat ],
-                          [ 4*in_feat + 2*in_feat, 3*in_feat ],
-                          [ 3*in_feat + in_feat, 3*in_feat ],
-                          [ 3*in_feat + in_feat, 3*in_feat ],
-                      ]
+                        [
+                            [ 8*in_feat, 4*in_feat ],
+                            [ 4*in_feat + 4*in_feat, 4*in_feat ],
+                            [ 4*in_feat + 2*in_feat, 2*in_feat ],
+                            [ 2*in_feat + in_feat, in_feat ],
+                            [ in_feat + in_feat, in_feat ],
+                        ]
+                last_conv:
+                    input_nc: in_feat
+                    output_nc: N_CLS
                 atomic_pooling:
                     module_name: BimodalCSRPool
                     mode: max
@@ -94,4 +100,3 @@ models:
                     module_name: BimodalFusion
                     mode: residual
                 branching_index: 0
-

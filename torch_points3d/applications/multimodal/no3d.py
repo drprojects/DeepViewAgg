@@ -67,7 +67,7 @@ class No3DEncoder(BackboneBasedModel, ABC):
         -----------
         data: MMData object
         """
-        self.input = (None, data.to(self.device).modalities)
+        self.input = (None, None, data.to(self.device).modalities)
         if data.pos is not None:
             self.xyz = data.pos
 
@@ -99,7 +99,7 @@ class No3DEncoder(BackboneBasedModel, ABC):
         # 3D point features are expected to be used in subsequent
         # modules. Restore the input Data object equipped with the
         # proper point positions and modality-generated features.
-        out = Batch(x=data[0], pos=self.xyz).to(self.device)
+        out = Batch(x=data[0], pos=self.xyz, seen=data[1]).to(self.device)
 
         # Apply the MLP head, if any
         if self.has_mlp_head:

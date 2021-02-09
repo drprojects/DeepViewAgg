@@ -108,8 +108,8 @@ class MMData(object):
         """
         Indexing mechanism on the points.
 
-        Returns a new copy of the indexed MMData, with updated modality data
-         and mappings. Supports torch and numpy indexing.
+        Returns a new copy of the indexed MMData, with updated modality
+        data and mappings. Supports torch and numpy indexing.
         """
         idx = tensor_idx(idx).to(self.device)
 

@@ -37,13 +37,14 @@ class BimodalCSRPool(nn.Module, ABC):
             # Segment_CSR is "the fastest method to apply for grouped
             # reductions."
             x_pool = torch_scatter.segment_csr(x_mod, csr_idx, reduce=self.mode)
+            x_seen = csr_idx[1:] > csr_idx[:-1]
 
         else:
             # TODO create the attention-based pooling (see notes below
             #  for softmax on CSR)
             raise NotImplementedError
 
-        return x_pool
+        return x_pool, x_seen
 
 
 """

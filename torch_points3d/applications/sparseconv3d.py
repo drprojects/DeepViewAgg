@@ -151,6 +151,7 @@ class BaseSparseConv3d(UnwrappedUnetBasedModel):
         if self.is_multimodal:
             self.input = (
                 sp3d.nn.SparseTensor(data.x, data.coords, data.batch, self.device),
+                None,
                 data.to(self.device).modalities)
         else:
             self.input = sp3d.nn.SparseTensor(data.x, data.coords, data.batch, self.device)

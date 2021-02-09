@@ -27,6 +27,7 @@ class ResBlock(nn.Module, ABC):
             padding_mode = 'zeros'
         else:
             padding_mode = 'reflect'
+
         super().__init__()
         self.block = (
             Seq()
@@ -158,10 +159,10 @@ class ResNetDown(nn.Module, ABC):
             self.blocks = None
 
     def forward(self, x):
-        out = self.conv_in(x)
+        x = self.conv_in(x)
         if self.blocks:
-            out = self.blocks(out)
-        return out
+            x = self.blocks(x)
+        return x
 
 
 class ResNetUp(ResNetDown, ABC):
@@ -181,10 +182,27 @@ class ResNetUp(ResNetDown, ABC):
 
     def forward(self, x, skip):
         if skip is not None:
-            inp = torch.cat((x, skip), dim=1)
-        else:
-            inp = x
-        return super().forward(inp)
+            x = torch.cat((x, skip), dim=1)
+        return super().forward(x)
+
+
+class UnaryConv(nn.Module, ABC):
+    """1x1 convolution on image."""
+
+    def __init__(self, input_nc, output_nc, norm=None, activation=None):
+        super().__init__()
+        self.norm = getattr(nn, norm) if norm is not None else norm
+        self.activation = getattr(nn, activation) if activation is not None \
+            else activation
+        self.conv = nn.Conv2d(input_nc, output_nc, stride=1, kernel_size=1)
+
+    def forward(self, x):
+        x = self.conv(x)
+        if self.norm:
+            x = self.norm(x)
+        if self.activation:
+            x = self.activation(x)
+        return x
 
 
 SPECIAL_NAMES = ["block_names"]
@@ -227,26 +245,32 @@ class UNet(nn.Module, ABC):
             self._init_from_compact_format(opt)
 
     def _init_from_compact_format(self, opt):
-        self.down_modules = nn.ModuleList()
-        self.inner_modules = nn.ModuleList()
-        self.up_modules = nn.ModuleList()
-
         # Down modules
+        self.down_modules = nn.ModuleList()
         for i in range(len(opt.down_conv.down_conv_nn)):
             down_module = self._build_module(opt.down_conv, i, "DOWN")
             self.down_modules.append(down_module)
 
         # Innermost module
         if hasattr(opt, "innermost") and opt.innermost is not None:
+            self.inner_modules = nn.ModuleList()
             inners = self._build_module(opt.innermost, 0, "INNER")
             self.inner_modules.append(inners)
         else:
-            self.inner_modules.append(Identity())
+            self.inner_modules = None
 
         # Up modules
+        self.up_modules = nn.ModuleList()
         for i in range(len(opt.up_conv.up_conv_nn)):
             up_module = self._build_module(opt.up_conv, i, "UP")
             self.up_modules.append(up_module)
+
+        # Final 1x1 conv
+        if hasattr(opt, "last_conv") and opt.last_conv is not None:
+            last = self._build_module(opt.last_conv, 0, "LAST")
+            self.last = last
+        else:
+            self.last = None
 
     def _build_module(self, opt, index, flow):
         """Builds a convolution (up, down or inner) block.
@@ -264,6 +288,8 @@ class UNet(nn.Module, ABC):
             module_cls = BottleneckBlock
         elif flow.lower() == 'UP'.lower():
             module_cls = ResNetUp
+        elif flow.lower() == 'LAST'.lower():
+            module_cls = UnaryConv
         else:
             raise NotImplementedError
         args = fetch_arguments_from_list(opt, index, SPECIAL_NAMES)
@@ -284,7 +310,7 @@ class UNet(nn.Module, ABC):
         x = self.down_modules[-1](x)
         stack_down.append(None)
 
-        if not isinstance(self.inner_modules[0], Identity):
+        if self.inner_modules is not None:
             raise NotImplementedError
             # TODO: debug innermost, stacks and upconv
             stack_down.append(x)
@@ -292,5 +318,8 @@ class UNet(nn.Module, ABC):
 
         for i in range(len(self.up_modules)):
             x = self.up_modules[i](x, stack_down.pop())
+
+        if self.last is not None:
+            x = self.last(x)
 
         return x
