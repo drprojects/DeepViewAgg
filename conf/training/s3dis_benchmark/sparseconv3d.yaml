@@ -1,7 +1,7 @@
 # Ref: https://github.com/chrischoy/SpatioTemporalSegmentation/blob/master/config.py
 training:
     epochs: 200
-    num_workers: 8
+    num_workers: 4
     batch_size: 8
     shuffle: True
     cuda: 0
