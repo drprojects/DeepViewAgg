@@ -7,6 +7,7 @@ from torch_points3d.core.common_modules.base_modules import Identity
 import MinkowskiEngine as me
 import torchsparse as ts
 from torchsparse.nn.functional import sphash, sphashquery
+import torch_scatter
 
 
 class MultimodalBlockDown(nn.Module, ABC):
@@ -77,8 +78,8 @@ class MultimodalBlockDown(nn.Module, ABC):
         x_3d, x_seen, mod_dict = mm_data_tuple
 
         # Conv on the main 3D modality - assumed to reduce 3D resolution
-        x_3d, mod_dict = self.forward_3d_block_down(
-            x_3d, mod_dict, self.down_block)
+        x_3d, x_seen, mod_dict = self.forward_3d_block_down(
+            x_3d, x_seen, mod_dict, self.down_block)
 
         for m in self.modalities:
             mod_branch = getattr(self, m)
@@ -89,13 +90,13 @@ class MultimodalBlockDown(nn.Module, ABC):
                 x_seen = torch.logical_or(x_seen, x_seen_mod)
 
         # Conv on the main 3D modality
-        x_3d, mod_dict = self.forward_3d_block_down(
-            x_3d, mod_dict, self.conv_block)
+        x_3d, x_seen, mod_dict = self.forward_3d_block_down(
+            x_3d, x_seen, mod_dict, self.conv_block)
 
         return tuple((x_3d, x_seen, mod_dict))
 
     @staticmethod
-    def forward_3d_block_down(x_3d, mod_dict, block):
+    def forward_3d_block_down(x_3d, x_seen, mod_dict, block):
         """
         Wrapper method to apply the forward pass on a 3D down conv
         block while preserving modality-specific mappings.
@@ -118,7 +119,7 @@ class MultimodalBlockDown(nn.Module, ABC):
         """
         # Leave the input untouched if the 3D conv block is Identity
         if isinstance(block, nn.Identity):
-            return x_3d, mod_dict
+            return x_3d, x_seen, mod_dict
 
         # Initialize index and indexation mode
         idx = None
@@ -190,11 +191,18 @@ class MultimodalBlockDown(nn.Module, ABC):
                 idx = idx_sample
             mode = 'pick'
 
+        # Update seen 3D points indices
+        if x_seen is not None and idx is not None:
+            if mode == 'pick':
+                x_seen = x_seen[idx]
+            else:
+                x_seen = torch_scatter.scatter(x_seen, idx, reduce='sum')
+
         # Update modality data and mappings wrt new point indexing
         for m in mod_dict.keys():
             mod_dict[m] = mod_dict[m].select_points(idx, mode=mode)
 
-        return x_3d, mod_dict
+        return x_3d, x_seen, mod_dict
 
 
 class UnimodalBranch(nn.Module, ABC):

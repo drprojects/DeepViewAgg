@@ -1,5 +1,5 @@
 models:
-    RENAME_THIS______AND_CHANGE_IMAGE_BLOCKS______MM_ResUNet34_0_2_2_2_2:
+    Res16UNet38_Res16Image21:
         class: sparseconv3d.APIModel
         conv_type: "SPARSE"
         backend: "torchsparse"
@@ -30,14 +30,19 @@ models:
                         [4*in_feat, 8*in_feat],
                         [8*in_feat, 8*in_feat],
                     ]
-                kernel_size: 3
+                kernel_size: [3, 3, 4, 3, 4, 3, 4, 3, 4, 3]
                 stride: [1, 1, 2, 1, 2, 1, 2, 1, 2, 1]
 
                 image:
                     down_conv:
                         module_name: ResNetDown
                         block: ResBlock
-                        N: [0, 2, 2, 2, 2]
+                        N: [ 0, 2, 2, 2, 2 ]
+                        stride: [ 1, 2, 2, 2, 2 ]
+                        kernel_size: [ 3, 4, 4, 4, 4 ]
+                        padding: 1
+                        normalization: GroupNorm
+                        weight_standardization: True
                         down_conv_nn:
                             [
                                 [ image_in_feat, in_feat ],
@@ -46,9 +51,6 @@ models:
                                 [ 2*in_feat, 4*in_feat ],
                                 [ 4*in_feat, 8*in_feat ],
                             ]
-                        kernel_size: [3, 2, 2, 2, 2]
-                        stride: [1, 2, 2, 2, 2]
-                        padding: [1, 0, 0, 0, 0]
                     atomic_pooling:
                         module_name: BimodalCSRPool
                         mode: max
@@ -63,14 +65,13 @@ models:
             up_conv:
                 block: block
                 module_name: ResNetUp
-                N: [1, 1, 1, 1, 1]
+                N: [1, 1, 1, 1]
+                kernel_size: [4, 4, 4, 4]
+                stride: [ 2, 2, 2, 2 ]
                 up_conv_nn:
                     [
-                        [8*in_feat, 4*in_feat],
-                        [4*in_feat + 4*in_feat, 4*in_feat],
-                        [4*in_feat + 2*in_feat, 3*in_feat],
-                        [3*in_feat + in_feat, 3*in_feat],
-                        [3*in_feat + in_feat, 3*in_feat],
+                        [ 8*in_feat, 4*in_feat, 4*in_feat ],
+                        [ 4*in_feat, 2*in_feat, 4*in_feat ],
+                        [ 4*in_feat, in_feat, 2*in_feat ],
+                        [ 2*in_feat, in_feat, in_feat ],
                     ]
-                kernel_size: 3
-                stride: [2, 2, 2, 2, 1]

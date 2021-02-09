@@ -2,6 +2,7 @@ import torch
 
 import sys
 
+from torch_points3d.utils.config import is_list
 from torch_points3d.core.common_modules import Seq, Identity
 import torch_points3d.modules.SparseConv3d.nn as snn
 
@@ -104,36 +105,49 @@ class ResNetDown(torch.nn.Module):
     def __init__(
         self, down_conv_nn=[], kernel_size=2, dilation=1, stride=2, N=1, block="ResBlock", **kwargs,
     ):
-        block = getattr(_res_blocks, block)
         super().__init__()
-        if stride > 1:
-            conv1_output = down_conv_nn[0]
-        else:
-            conv1_output = down_conv_nn[1]
 
+        # Recover the block module
+        block = getattr(_res_blocks, block)
+
+        # Compute the number of channels for the ResNetDown modules
+        nc_in, nc_stride_out, nc_block_in, nc_out = self._parse_conv_nn(
+            down_conv_nn, stride, N)
+
+        # Recover the convolution module
         conv = getattr(snn, self.CONVOLUTION)
-        self.conv_in = (
-            Seq()
-            .append(
-                conv(
-                    in_channels=down_conv_nn[0],
-                    out_channels=conv1_output,
-                    kernel_size=kernel_size,
-                    stride=stride,
-                    dilation=dilation,
-                )
-            )
-            .append(snn.BatchNorm(conv1_output))
-            .append(snn.ReLU())
-        )
 
+        # Build the initial strided convolution
+        self.conv_in = (
+            Seq().append(conv(
+                in_channels=nc_in,
+                out_channels=nc_stride_out,
+                kernel_size=kernel_size,
+                stride=stride,
+                dilation=dilation))
+            .append(snn.BatchNorm(nc_stride_out))
+            .append(snn.ReLU()))
+
+        # Build the N subsequent blocks
         if N > 0:
             self.blocks = Seq()
             for _ in range(N):
-                self.blocks.append(block(conv1_output, down_conv_nn[1], conv))
-                conv1_output = down_conv_nn[1]
+                self.blocks.append(block(nc_block_in, nc_out, conv))
+                nc_block_in = nc_out
         else:
             self.blocks = None
+
+    @staticmethod
+    def _parse_conv_nn(down_conv_nn, stride, N):
+        if is_list(down_conv_nn[0]):
+            down_conv_nn = down_conv_nn[0]
+        assert len(down_conv_nn) == 2, \
+            f"ResNetDown expects down_conv_nn to have length of 2 to carry " \
+            f"(nc_in, nc_out) but got len(down_conv_nn)={len(down_conv_nn)}."
+        nc_in, nc_out = down_conv_nn
+        nc_stride_out = nc_in if stride > 1 and N > 0 else nc_out
+        nc_block_in = nc_stride_out
+        return nc_in, nc_stride_out, nc_block_in, nc_out
 
     def forward(self, x):
         out = self.conv_in(x)
@@ -149,10 +163,24 @@ class ResNetUp(ResNetDown):
 
     CONVOLUTION = "Conv3dTranspose"
 
-    def __init__(self, up_conv_nn=[], kernel_size=2, dilation=1, stride=2, N=1, **kwargs):
+    def __init__(self, up_conv_nn=[], kernel_size=2, dilation=1, stride=2, N=1,
+                 **kwargs):
         super().__init__(
-            down_conv_nn=up_conv_nn, kernel_size=kernel_size, dilation=dilation, stride=stride, N=N, **kwargs,
-        )
+            down_conv_nn=up_conv_nn, kernel_size=kernel_size, dilation=dilation,
+            stride=stride, N=N, **kwargs)
+
+    @staticmethod
+    def _parse_conv_nn(up_conv_nn, stride, N):
+        if is_list(up_conv_nn[0]):
+            up_conv_nn = up_conv_nn[0]
+        assert len(up_conv_nn) == 3, \
+            f"ResNetUp expects up_conv_nn to have length of 3 to carry " \
+            f"(nc_in, nc_skip_in, nc_out) but got len(up_conv_nn)=" \
+            f"{len(up_conv_nn)}."
+        nc_in, nc_skip_in, nc_out = up_conv_nn
+        nc_stride_out = nc_in if stride > 1 and N > 0 else nc_out
+        nc_block_in = nc_stride_out + nc_skip_in
+        return nc_in, nc_stride_out, nc_block_in, nc_out
 
     def forward(self, x, skip):
         if skip is not None:
@@ -160,3 +188,11 @@ class ResNetUp(ResNetDown):
         else:
             inp = x
         return super().forward(inp)
+
+    def forward(self, x, skip):
+        x = self.conv_in(x)
+        if skip is not None:
+            x = snn.cat(x, skip)
+        if self.blocks:
+            x = self.blocks(x)
+        return x

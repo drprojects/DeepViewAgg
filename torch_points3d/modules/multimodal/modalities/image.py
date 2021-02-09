@@ -125,9 +125,7 @@ class ResBlock(nn.Module, ABC):
 
 
 class BottleneckBlock(nn.Module, ABC):
-    """
-    Bottleneck block with residual
-    """
+    """Bottleneck block with residual."""
 
     def __init__(self, input_nc, output_nc, convolution, normalization,
                  reduction=4, **kwargs):
@@ -201,12 +199,14 @@ class ResNetDown(nn.Module, ABC):
             padding=0, block="ResBlock", padding_mode='reflect',
             normalization='BatchNorm2d', weight_standardization=False,
             **kwargs):
-        block = getattr(_local_modules, block)
         super().__init__()
-        if stride > 1:
-            conv1_output = down_conv_nn[0]
-        else:
-            conv1_output = down_conv_nn[1]
+
+        # Recover the block module
+        block = getattr(_local_modules, block)
+
+        # Compute the number of channels for the ResNetDown modules
+        nc_in, nc_stride_out, nc_block_in, nc_out = self._parse_conv_nn(
+            down_conv_nn, stride, N)
 
         # Recover the convolution module
         if weight_standardization:
@@ -222,26 +222,40 @@ class ResNetDown(nn.Module, ABC):
         else:
             norm = getattr(nn, normalization)
 
+        # Build the initial strided convolution
         self.conv_in = (
             Seq().append(conv(
-                in_channels=down_conv_nn[0],
-                out_channels=conv1_output,
+                in_channels=nc_in,
+                out_channels=nc_stride_out,
                 kernel_size=kernel_size,
                 stride=stride,
                 dilation=dilation,
                 padding=padding,
                 padding_mode=padding_mode))
-            .append(norm(conv1_output))
+            .append(norm(nc_stride_out))
             .append(nn.ReLU()))
 
+        # Build the N subsequent blocks
         if N > 0:
             self.blocks = Seq()
             for _ in range(N):
-                self.blocks.append(block(conv1_output, down_conv_nn[1], conv,
+                self.blocks.append(block(nc_block_in, nc_out, conv,
                      norm))
-                conv1_output = down_conv_nn[1]
+                nc_block_in = nc_out
         else:
             self.blocks = None
+
+    @staticmethod
+    def _parse_conv_nn(down_conv_nn, stride, N):
+        if is_list(down_conv_nn[0]):
+            down_conv_nn = down_conv_nn[0]
+        assert len(down_conv_nn) == 2, \
+            f"ResNetDown expects down_conv_nn to have length of 2 to carry " \
+            f"(nc_in, nc_out) but got len(down_conv_nn)={len(down_conv_nn)}."
+        nc_in, nc_out = down_conv_nn
+        nc_stride_out = nc_in if stride > 1 and N > 0 else nc_out
+        nc_block_in = nc_stride_out
+        return nc_in, nc_stride_out, nc_block_in, nc_out
 
     def forward(self, x):
         x = self.conv_in(x)
@@ -251,9 +265,7 @@ class ResNetDown(nn.Module, ABC):
 
 
 class ResNetUp(ResNetDown, ABC):
-    """
-    Same as Down conv but for the Decoder
-    """
+    """Same as ResNetDown but for the Decoder."""
 
     CONVOLUTION = "ConvTranspose2d"
 
@@ -261,15 +273,31 @@ class ResNetUp(ResNetDown, ABC):
                  padding=0, padding_mode='zeros', normalization='BatchNorm2d',
                  weight_standardization=False, **kwargs):
         super().__init__(
-            down_conv_nn=up_conv_nn, kernel_size=kernel_size,
+            down_conv_nn=[up_conv_nn], kernel_size=kernel_size,
             dilation=dilation, stride=stride, N=N, padding=padding,
             padding_mode=padding_mode, normalization=normalization,
             weight_standardization=weight_standardization, **kwargs)
 
+    @staticmethod
+    def _parse_conv_nn(up_conv_nn, stride, N):
+        if is_list(up_conv_nn[0]):
+            up_conv_nn = up_conv_nn[0]
+        assert len(up_conv_nn) == 3, \
+            f"ResNetUp expects up_conv_nn to have length of 3 to carry " \
+            f"(nc_in, nc_skip_in, nc_out) but got len(up_conv_nn)=" \
+            f"{len(up_conv_nn)}."
+        nc_in, nc_skip_in, nc_out = up_conv_nn
+        nc_stride_out = nc_in if stride > 1 and N > 0 else nc_out
+        nc_block_in = nc_stride_out + nc_skip_in
+        return nc_in, nc_stride_out, nc_block_in, nc_out
+
     def forward(self, x, skip):
+        x = self.conv_in(x)
         if skip is not None:
             x = torch.cat((x, skip), dim=1)
-        return super().forward(x)
+        if self.blocks:
+            x = self.blocks(x)
+        return x
 
 
 class UnaryConv(nn.Module, ABC):
@@ -410,12 +438,10 @@ class UNet(nn.Module, ABC):
             x = self.down_modules[i](x)
             stack_down.append(x)
         x = self.down_modules[-1](x)
-        stack_down.append(None)
 
         if self.inner_modules is not None:
             raise NotImplementedError
             # TODO: debug innermost, stacks and upconv
-            stack_down.append(x)
             x = self.inner_modules[0](x)
 
         for i in range(len(self.up_modules)):

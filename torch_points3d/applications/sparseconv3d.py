@@ -235,7 +235,6 @@ class SparseConv3dUnet(BaseSparseConv3d):
 
         # Last down conv module
         data = self.down_modules[-1](data)
-        stack_down.append(None)
 
         # Discard the modalities used in the down modules, only
         # pointwise features are used in subsequent modules.
@@ -243,6 +242,7 @@ class SparseConv3dUnet(BaseSparseConv3d):
             data = data[0]
 
         # TODO : Manage the inner module
+
         for i in range(len(self.up_modules)):
             data = self.up_modules[i](data, stack_down.pop())
 

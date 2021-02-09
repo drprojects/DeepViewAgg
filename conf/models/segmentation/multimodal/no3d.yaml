@@ -1,5 +1,5 @@
 models:
-    Pure2D_Res16UNet36:  # 7.1 M params - 27.5 Mo on the GPU - ~6.5 ko/pixel at training time
+    Pure2D_Res16UNet33:  # 6.0 M params - 23 Mo on the GPU - ~4.8 ko/pixel at training time
         class: no3d.no3dWithViewLogitFusion
         define_constants:
             in_feat: 32
@@ -24,17 +24,16 @@ models:
                 up_conv:
                     module_name: ResNetUp
                     block: ResBlock
-                    N: [1, 1, 1, 1, 1]
-                    stride: [ 2, 2, 2, 2, 1 ]
-                    kernel_size: [ 4, 4, 4, 4, 3 ]
+                    N: [1, 1, 1, 1]
+                    stride: [ 2, 2, 2, 2 ]
+                    kernel_size: [ 4, 4, 4, 4 ]
                     padding: 1
                     up_conv_nn:
                         [
-                            [8*in_feat, 4*in_feat],
-                            [4*in_feat + 4*in_feat, 4*in_feat],
-                            [4*in_feat + 2*in_feat, 2*in_feat],
-                            [2*in_feat + in_feat, in_feat],
-                            [in_feat + in_feat, in_feat],
+                            [8*in_feat, 4*in_feat, 4*in_feat],
+                            [4*in_feat, 2*in_feat, 4*in_feat],
+                            [4*in_feat, in_feat, 2*in_feat],
+                            [2*in_feat, in_feat, in_feat],
                         ]
                 last_conv:
                     input_nc: in_feat
@@ -50,7 +49,7 @@ models:
                     mode: residual
                 branching_index: 0
 
-    Pure2D_Res16UNet28:  # 5.6 M params - 21.5 Mo on the GPU - ~6.1 ko/pixel at training time
+    Pure2D_Res16UNet25:  # 4.4 M params - 17.0 Mo on the GPU - ~4.3 ko/pixel at training time
         class: no3d.no3dWithViewLogitFusion
         define_constants:
             in_feat: 32
@@ -75,17 +74,16 @@ models:
                 up_conv:
                     module_name: ResNetUp
                     block: ResBlock
-                    N: [ 1, 1, 1, 1, 1 ]
-                    stride: [ 2, 2, 2, 2, 1 ]
-                    kernel_size: [ 4, 4, 4, 4, 3 ]
+                    N: [ 1, 1, 1, 1 ]
+                    stride: [ 2, 2, 2, 2 ]
+                    kernel_size: [ 4, 4, 4, 4 ]
                     padding: 1
                     up_conv_nn:
                         [
-                            [ 8*in_feat, 4*in_feat ],
-                            [ 4*in_feat + 4*in_feat, 4*in_feat ],
-                            [ 4*in_feat + 2*in_feat, 2*in_feat ],
-                            [ 2*in_feat + in_feat, in_feat ],
-                            [ in_feat + in_feat, in_feat ],
+                            [ 8*in_feat, 4*in_feat, 4*in_feat ],
+                            [ 4*in_feat, 2*in_feat, 4*in_feat ],
+                            [ 4*in_feat, in_feat, 2*in_feat ],
+                            [ 2*in_feat, in_feat, in_feat ],
                         ]
                 last_conv:
                     input_nc: in_feat
@@ -101,7 +99,7 @@ models:
                     mode: residual
                 branching_index: 0
 
-    Pure2D_Res16UNet36_GN_WS: # 7.1 M params - 27.5 Mo on the GPU - ~6.5 ko/pixel at training time
+    Pure2D_Res16UNet33_GN_WS: # 6.0 M params - 23 Mo on the GPU - ~4.8 ko/pixel at training time
         class: no3d.no3dWithViewLogitFusion
         define_constants:
             in_feat: 32
@@ -128,20 +126,19 @@ models:
                 up_conv:
                     module_name: ResNetUp
                     block: ResBlock
-                    N: [ 1, 1, 1, 1, 1 ]
-                    stride: [ 2, 2, 2, 2, 1 ]
-                    kernel_size: [ 4, 4, 4, 4, 3 ]
+                    N: [1, 1, 1, 1]
+                    stride: [ 2, 2, 2, 2 ]
+                    kernel_size: [ 4, 4, 4, 4 ]
                     padding: 1
                     normalization: GroupNorm
                     weight_standardization: True
                     up_conv_nn:
-                      [
-                          [ 8*in_feat, 4*in_feat ],
-                          [ 4*in_feat + 4*in_feat, 4*in_feat ],
-                          [ 4*in_feat + 2*in_feat, 2*in_feat ],
-                          [ 2*in_feat + in_feat, in_feat ],
-                          [ in_feat + in_feat, in_feat ],
-                      ]
+                        [
+                            [8*in_feat, 4*in_feat, 4*in_feat],
+                            [4*in_feat, 2*in_feat, 4*in_feat],
+                            [4*in_feat, in_feat, 2*in_feat],
+                            [2*in_feat, in_feat, in_feat],
+                        ]
                 last_conv:
                     input_nc: in_feat
                     output_nc: N_CLS
@@ -156,7 +153,7 @@ models:
                     mode: residual
                 branching_index: 0
 
-    Pure2D_Res16UNet28_GN_WS: # 5.6 M params - 21.5 Mo on the GPU - ~6.1 ko/pixel at training time
+    Pure2D_Res16UNet25_GN_WS: # 4.4 M params - 17.0 Mo on the GPU - ~4.3 ko/pixel at training time
         class: no3d.no3dWithViewLogitFusion
         define_constants:
             in_feat: 32
@@ -183,20 +180,19 @@ models:
                 up_conv:
                     module_name: ResNetUp
                     block: ResBlock
-                    N: [ 1, 1, 1, 1, 1 ]
-                    stride: [ 2, 2, 2, 2, 1 ]
-                    kernel_size: [ 4, 4, 4, 4, 3 ]
+                    N: [1, 1, 1, 1]
+                    stride: [ 2, 2, 2, 2 ]
+                    kernel_size: [ 4, 4, 4, 4 ]
                     padding: 1
                     normalization: GroupNorm
                     weight_standardization: True
                     up_conv_nn:
-                      [
-                          [ 8*in_feat, 4*in_feat ],
-                          [ 4*in_feat + 4*in_feat, 4*in_feat ],
-                          [ 4*in_feat + 2*in_feat, 2*in_feat ],
-                          [ 2*in_feat + in_feat, in_feat ],
-                          [ in_feat + in_feat, in_feat ],
-                      ]
+                        [
+                            [8*in_feat, 4*in_feat, 4*in_feat],
+                            [4*in_feat, 2*in_feat, 4*in_feat],
+                            [4*in_feat, in_feat, 2*in_feat],
+                            [2*in_feat, in_feat, in_feat],
+                        ]
                 last_conv:
                     input_nc: in_feat
                     output_nc: N_CLS

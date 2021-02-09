@@ -1,5 +1,5 @@
 models:
-    ResUNet32:
+    DEPRECATED_UPCONV_FORMAT____ResUNet32:
         class: sparseconv3d.APIModel
         conv_type: "SPARSE"
         backend: "torchsparse"
@@ -36,7 +36,7 @@ models:
                 kernel_size: 3
                 stride: [2, 2, 2, 2, 1]
 
-    Res16UNet34:
+    DEPRECATED_UPCONV_FORMAT____Res16UNet34:
         class: sparseconv3d.APIModel
         conv_type: "SPARSE"
         backend: "torchsparse"
@@ -73,7 +73,7 @@ models:
                 kernel_size: 3
                 stride: [2, 2, 2, 2, 1]
     
-    ResUNet34_0_2_2_2_2:
+    Res16UNet33:
         class: sparseconv3d.APIModel
         conv_type: "SPARSE"
         backend: "torchsparse"
@@ -85,6 +85,8 @@ models:
                 module_name: ResNetDown
                 block: block
                 N: [0, 2, 2, 2, 2]
+                kernel_size: [ 3, 4, 4, 4, 4 ]
+                stride: [ 1, 2, 2, 2, 2 ]
                 down_conv_nn:
                     [
                         [FEAT, in_feat],
@@ -93,24 +95,21 @@ models:
                         [2*in_feat, 4*in_feat],
                         [4*in_feat, 8*in_feat],
                     ]
-                kernel_size: 3
-                stride: [1, 2, 2, 2, 2]
             up_conv:
                 block: block
                 module_name: ResNetUp
-                N: [1, 1, 1, 1, 1]
+                N: [ 1, 1, 1, 1 ]
+                kernel_size: [4, 4, 4, 4]
+                stride: [ 2, 2, 2, 2 ]
                 up_conv_nn:
                     [
-                        [8*in_feat, 4*in_feat],
-                        [4*in_feat + 4*in_feat, 4*in_feat],
-                        [4*in_feat + 2*in_feat, 3*in_feat],
-                        [3*in_feat + in_feat, 3*in_feat],
-                        [3*in_feat + in_feat, 3*in_feat],
+                        [ 8*in_feat, 4*in_feat, 4*in_feat ],
+                        [ 4*in_feat, 2*in_feat, 4*in_feat ],
+                        [ 4*in_feat, in_feat, 2*in_feat ],
+                        [ 2*in_feat, in_feat, in_feat ],
                     ]
-                kernel_size: 3
-                stride: [2, 2, 2, 2, 1]
 
-    ResUNet34_0_1_1_1_1:
+    Res16UNet25:
         class: sparseconv3d.APIModel
         conv_type: "SPARSE"
         backend: "torchsparse"
@@ -122,6 +121,8 @@ models:
                 module_name: ResNetDown
                 block: block
                 N: [0, 1, 1, 1, 1]
+                kernel_size: [ 3, 4, 4, 4, 4 ]
+                stride: [ 1, 2, 2, 2, 2 ]
                 down_conv_nn:
                     [
                         [FEAT, in_feat],
@@ -130,19 +131,16 @@ models:
                         [2*in_feat, 4*in_feat],
                         [4*in_feat, 8*in_feat],
                     ]
-                kernel_size: 3
-                stride: [1, 2, 2, 2, 2]
             up_conv:
                 block: block
                 module_name: ResNetUp
-                N: [1, 1, 1, 1, 1]
+                N: [ 1, 1, 1, 1 ]
+                kernel_size: [ 4, 4, 4, 4 ]
+                stride: [ 2, 2, 2, 2 ]
                 up_conv_nn:
                     [
-                        [8*in_feat, 4*in_feat],
-                        [4*in_feat + 4*in_feat, 4*in_feat],
-                        [4*in_feat + 2*in_feat, 3*in_feat],
-                        [3*in_feat + in_feat, 3*in_feat],
-                        [3*in_feat + in_feat, 3*in_feat],
+                        [ 8*in_feat, 4*in_feat, 4*in_feat ],
+                        [ 4*in_feat, 2*in_feat, 4*in_feat ],
+                        [ 4*in_feat, in_feat, 2*in_feat ],
+                        [ 2*in_feat, in_feat, in_feat ],
                     ]
-                kernel_size: 3
-                stride: [2, 2, 2, 2, 1]

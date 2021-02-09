@@ -15,7 +15,7 @@ log = logging.getLogger(__name__)
 
 
 class No3D(BaseModel, ABC):
-    _REQUIRES_HEAD = True
+    _ALLOWS_HEAD = True
 
     def __init__(self, option, model_type, dataset, modules):
         # BaseModel init
@@ -25,7 +25,7 @@ class No3D(BaseModel, ABC):
         self.backbone = No3DEncoder(option, model_type, dataset, modules)
 
         # Segmentation head init
-        if self._REQUIRES_HEAD:
+        if self._ALLOWS_HEAD:
             self.head = nn.Sequential(nn.Linear(self.backbone.output_nc,
                                                 dataset.num_classes))
         self.loss_names = ["loss_seg"]
@@ -47,7 +47,7 @@ class No3D(BaseModel, ABC):
         data = self.backbone(self.input)
         features = data.x
         seen_mask = data.seen
-        if self._REQUIRES_HEAD:
+        if self._ALLOWS_HEAD:
             logits = self.head(features)
         else:
             logits = features
@@ -78,4 +78,4 @@ class No3D(BaseModel, ABC):
 
 
 class No3DWithViewLogitFusion(No3D):
-    _REQUIRES_HEAD = False
+    _ALLOWS_HEAD = False
