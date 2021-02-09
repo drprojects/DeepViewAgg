@@ -6,18 +6,22 @@ down_conv:
     block: block
     module_name: ResNetDown
     N: [0, 1, 2]
-    down_conv_nn: [[FEAT, in_feat], [in_feat, in_feat], [in_feat, 2*in_feat]]
-    kernel_size: [2, 2]
-    stride: [1, 2, 2]
+    kernel_size: [ 2, 2 ]
+    stride: [ 1, 2, 2 ]
+    down_conv_nn:
+        [
+            [FEAT, in_feat],
+            [in_feat, in_feat],
+            [in_feat, 2*in_feat]
+        ]
 up_conv:
     block: block
     module_name: ResNetUp
-    N: [1, 1, 0]
+    N: 1
+    kernel_size: 4
+    stride: 2
     up_conv_nn:
         [
-            [4*in_feat + 2*in_feat, 3*in_feat],
-            [3*in_feat + in_feat, 3*in_feat],
-            [3*in_feat + in_feat, 3*in_feat],
+            [2*in_feat, in_feat, 3*in_feat],
+            [3*in_feat, in_feat, 3*in_feat],
         ]
-    kernel_size: [2, 2, 3]
-    stride: [2, 2, 1]
