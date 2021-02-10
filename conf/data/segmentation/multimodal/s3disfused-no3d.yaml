@@ -10,10 +10,7 @@ data.multimodal.settings:
 data:
     task: segmentation.multimodal
     class: s3dis.S3DISFusedDataset
-#    dataroot: data
-#    dataroot: "/mnt/fa444ffd-fdb4-4701-88e7-f00297a8e29b/projects/datasets/s3dis_multimodal"  # DGX DATA
-#    dataroot: "/media/drobert-admin/DATA/datasets/s3dis_tp3d_multimodal"  # IGN DATA
-    dataroot: "/media/drobert-admin/DATA2/datasets/s3dis_tp3d_multimodal"  # IGN DATA2
+    dataroot: data
     fold: 5
     first_subsampling: 0.05
     use_category: False
