@@ -4,10 +4,17 @@ import torch
 import torch.nn as nn
 from torch_points3d.core.multimodal.data import MODALITY_NAMES
 from torch_points3d.core.common_modules.base_modules import Identity
-import MinkowskiEngine as me
-import torchsparse as ts
 from torchsparse.nn.functional import sphash, sphashquery
 import torch_scatter
+try:
+    import MinkowskiEngine as me
+except:
+    me = None
+try:
+    import torchsparse as ts
+except:
+    ts = None
+
 
 
 class MultimodalBlockDown(nn.Module, ABC):
@@ -125,8 +132,22 @@ class MultimodalBlockDown(nn.Module, ABC):
         idx = None
         mode = 'pick'
 
+        # Non-sparse forward and reindexing
+        if isinstance(x_3d, torch.Tensor):
+            # Forward pass on the block while keeping track of the
+            # sampler indices
+            block.sampler.last_idx = None
+            idx_ref = torch.arange(x_3d.shape[0])
+            x_3d = block(x_3d)
+            idx_sample = block.sampler.last_idx
+            if (idx_sample == idx_ref).all():
+                idx = None
+            else:
+                idx = idx_sample
+            mode = 'pick'
+
         # MinkowskiEngine forward and reindexing
-        if isinstance(x_3d, me.SparseTensor):
+        elif me is not None and isinstance(x_3d, me.SparseTensor):
             mode = 'merge'
 
             # Forward pass on the block while keeping track of the
@@ -143,7 +164,7 @@ class MultimodalBlockDown(nn.Module, ABC):
                 idx = target[src.argsort()]
 
         # TorchSparse forward and reindexing
-        elif isinstance(x_3d, ts.SparseTensor):
+        elif ts is not None and isinstance(x_3d, ts.SparseTensor):
             # Forward pass on the block while keeping track of the
             # stride levels
             stride_in = x_3d.s
@@ -177,19 +198,11 @@ class MultimodalBlockDown(nn.Module, ABC):
                 idx = sphashquery(sphash(in_coords), sphash(out_coords))
             mode = 'merge'
 
-        # Non-sparse forward and reindexing
         else:
-            # Forward pass on the block while keeping track of the
-            # sampler indices
-            block.sampler.last_idx = None
-            idx_ref = torch.arange(x_3d.shape[0])
-            x_3d = block(x_3d)
-            idx_sample = block.sampler.last_idx
-            if (idx_sample == idx_ref).all():
-                idx = None
-            else:
-                idx = idx_sample
-            mode = 'pick'
+            raise NotImplementedError(
+                f"Unsupported format for x_3d: {type(x_3d)}. If you are trying "
+                f"to use MinkowskiEngine or TorchSparse, make sure those are "
+                f"properly installed.")
 
         # Update seen 3D points indices
         if x_seen is not None and idx is not None:

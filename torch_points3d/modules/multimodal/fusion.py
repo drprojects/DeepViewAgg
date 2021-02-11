@@ -2,8 +2,6 @@ from abc import ABC
 
 import torch
 import torch.nn as nn
-import MinkowskiEngine as me
-import torchsparse as ts
 
 
 class BimodalFusion(nn.Module, ABC):
@@ -39,13 +37,12 @@ class BimodalFusion(nn.Module, ABC):
             return x_main
 
         # If the x_mod is a sparse tensor, we only keep its features
-        x_mod = x_mod.F \
-            if isinstance(x_mod, (me.SparseTensor, ts.SparseTensor)) \
-            else x_mod
+        x_mod = x_mod if isinstance(x_mod, torch.Tensor) else x_mod.F
 
         # Update the x_main while respecting its format
-        if isinstance(x_main, (me.SparseTensor, ts.SparseTensor)):
-            x_main.F = self.f(x_main.F, x_mod)
-        else:
+        if isinstance(x_main, torch.Tensor):
             x_main = self.f(x_main, x_mod)
+        else:
+            x_main.F = self.f(x_main.F, x_mod)
+
         return x_main
