@@ -4,19 +4,22 @@ models:
         class: no3d.no3dWithViewLogitFusion
         define_constants:
             in_feat: 32
-            image_in_feat: 4
+            in_feat_img: 4
+            strided_k: 4
+            strided_s: 2
+            strided_p: 1
         down_conv:
             image:
                 down_conv:
                     module_name: ResNetDown
                     block: ResBlock
                     N: [ 0, 2, 2, 2, 2 ]
-                    stride: [ 1, 2, 2, 2, 2 ]
-                    kernel_size: [ 3, 4, 4, 4, 4 ]
-                    padding: 1
+                    stride: [ 1, strided_s, strided_s, strided_s, strided_s ]
+                    kernel_size: [ 3, strided_k, strided_k, strided_k, strided_k ]
+                    padding: [ 1, strided_p, strided_p, strided_p, strided_p ]
                     down_conv_nn:
                       [
-                          [ image_in_feat, in_feat ],
+                          [ in_feat_img, in_feat ],
                           [ in_feat, in_feat ],
                           [ in_feat, 2*in_feat ],
                           [ 2*in_feat, 4*in_feat ],
@@ -25,10 +28,10 @@ models:
                 up_conv:
                     module_name: ResNetUp
                     block: ResBlock
-                    N: [ 1, 1, 1, 1 ]
-                    stride: [ 2, 2, 2, 2 ]
-                    kernel_size: [ 4, 4, 4, 4 ]
-                    padding: 1
+                    N: 1
+                    stride: strided_s
+                    kernel_size: strided_k
+                    padding: strided_p
                     up_conv_nn:
                       [
                           [ 8*in_feat, 4*in_feat, 4*in_feat ],
@@ -55,19 +58,22 @@ models:
         class: no3d.no3dWithViewLogitFusion
         define_constants:
             in_feat: 32
-            image_in_feat: 4
+            in_feat_img: 4
+            strided_k: 4
+            strided_s: 2
+            strided_p: 1
         down_conv:
             image:
                 down_conv:
                     module_name: ResNetDown
                     block: ResBlock
                     N: [ 0, 2, 2, 2, 2 ]
-                    stride: [ 1, 2, 2, 2, 2 ]
-                    kernel_size: [ 3, 4, 4, 4, 4 ]
-                    padding: 1
+                    stride: [ 1, strided_s, strided_s, strided_s, strided_s ]
+                    kernel_size: [ 3, strided_k, strided_k, strided_k, strided_k ]
+                    padding: [ 1, strided_p, strided_p, strided_p, strided_p ]
                     down_conv_nn:
                       [
-                          [ image_in_feat, in_feat ],
+                          [ in_feat_img, in_feat ],
                           [ in_feat, in_feat ],
                           [ in_feat, 2*in_feat ],
                           [ 2*in_feat, 4*in_feat ],
@@ -76,10 +82,10 @@ models:
                 up_conv:
                     module_name: ResNetUp
                     block: ResBlock
-                    N: [ 1, 1, 1, 1, 1 ]
-                    kernel_size: [ 4, 4, 4, 4, 3 ]
-                    stride: [ 2, 2, 2, 2, 1 ]
-                    padding: 1
+                    N: 1
+                    kernel_size: [ strided_k, strided_k, strided_k, strided_k, 3 ]
+                    stride: [ strided_s, strided_s, strided_s, strided_s, 1 ]
+                    padding: [ strided_p, strided_p, strided_p, strided_p, 1 ]
                     up_conv_nn:
                       [
                           [ 8*in_feat, 4*in_feat, 4*in_feat ],
@@ -107,19 +113,22 @@ models:
         class: no3d.no3dWithViewLogitFusion
         define_constants:
             in_feat: 32
-            image_in_feat: 4
+            in_feat_img: 4
+            strided_k: 4
+            strided_s: 2
+            strided_p: 1
         down_conv:
             image:
                 down_conv:
                     module_name: ResNetDown
                     block: ResBlock
                     N: [ 0, 1, 1, 1, 1 ]
-                    stride: [ 1, 2, 2, 2, 2 ]
-                    kernel_size: [ 3, 4, 4, 4, 4 ]
-                    padding: 1
+                    stride: [ 1, strided_s, strided_s, strided_s, strided_s ]
+                    kernel_size: [ 3, strided_k, strided_k, strided_k, strided_k ]
+                    padding: [ 1, strided_p, strided_p, strided_p, strided_p ]
                     down_conv_nn:
                       [
-                          [ image_in_feat, in_feat ],
+                          [ in_feat_img, in_feat ],
                           [ in_feat, in_feat ],
                           [ in_feat, 2*in_feat ],
                           [ 2*in_feat, 4*in_feat ],
@@ -128,10 +137,10 @@ models:
                 up_conv:
                     module_name: ResNetUp
                     block: ResBlock
-                    N: [ 1, 1, 1, 1 ]
-                    stride: [ 2, 2, 2, 2 ]
-                    kernel_size: [ 4, 4, 4, 4 ]
-                    padding: 1
+                    N: 1
+                    stride: strided_s
+                    kernel_size: strided_k
+                    padding: 0
                     up_conv_nn:
                       [
                           [ 8*in_feat, 4*in_feat, 4*in_feat ],
@@ -158,19 +167,22 @@ models:
         class: no3d.no3dWithViewLogitFusion
         define_constants:
             in_feat: 32
-            image_in_feat: 4
+            in_feat_img: 4
+            strided_k: 4
+            strided_s: 2
+            strided_p: 1
         down_conv:
             image:
                 down_conv:
                     module_name: ResNetDown
                     block: ResBlock
                     N: [ 0, 1, 1, 1, 1 ]
-                    stride: [ 1, 2, 2, 2, 2 ]
-                    kernel_size: [ 3, 4, 4, 4, 4 ]
-                    padding: 1
+                    stride: [ 1, strided_s, strided_s, strided_s, strided_s ]
+                    kernel_size: [ 3, strided_k, strided_k, strided_k, strided_k ]
+                    padding: [ 1, strided_p, strided_p, strided_p, strided_p ]
                     down_conv_nn:
                       [
-                          [ image_in_feat, in_feat ],
+                          [ in_feat_img, in_feat ],
                           [ in_feat, in_feat ],
                           [ in_feat, 2*in_feat ],
                           [ 2*in_feat, 4*in_feat ],
@@ -179,10 +191,10 @@ models:
                 up_conv:
                     module_name: ResNetUp
                     block: ResBlock
-                    N: [ 1, 1, 1, 1, 1 ]
-                    kernel_size: [ 4, 4, 4, 4, 3 ]
-                    stride: [ 2, 2, 2, 2, 1 ]
-                    padding: 1
+                    N: 1
+                    kernel_size: [ strided_k, strided_k, strided_k, strided_k, 3 ]
+                    stride: [ strided_s, strided_s, strided_s, strided_s, 1 ]
+                    padding: [ strided_p, strided_p, strided_p, strided_p, 1 ]
                     up_conv_nn:
                       [
                           [ 8*in_feat, 4*in_feat, 4*in_feat ],
@@ -210,21 +222,24 @@ models:
         class: no3d.no3dWithViewLogitFusion
         define_constants:
             in_feat: 32
-            image_in_feat: 4
+            in_feat_img: 4
+            strided_k: 4
+            strided_s: 2
+            strided_p: 1
         down_conv:
             image:
                 down_conv:
                     module_name: ResNetDown
                     block: ResBlock
                     N: [ 0, 2, 2, 2, 2 ]
-                    stride: [ 1, 2, 2, 2, 2 ]
-                    kernel_size: [ 3, 4, 4, 4, 4 ]
-                    padding: 1
+                    stride: [ 1, strided_s, strided_s, strided_s, strided_s ]
+                    kernel_size: [ 3, strided_k, strided_k, strided_k, strided_k ]
+                    padding: [ 1, strided_p, strided_p, strided_p, strided_p ]
                     normalization: GroupNorm
                     weight_standardization: True
                     down_conv_nn:
                       [
-                          [ image_in_feat, in_feat ],
+                          [ in_feat_img, in_feat ],
                           [ in_feat, in_feat ],
                           [ in_feat, 2*in_feat ],
                           [ 2*in_feat, 4*in_feat ],
@@ -233,10 +248,10 @@ models:
                 up_conv:
                     module_name: ResNetUp
                     block: ResBlock
-                    N: [ 1, 1, 1, 1 ]
-                    stride: [ 2, 2, 2, 2 ]
-                    kernel_size: [ 4, 4, 4, 4 ]
-                    padding: 1
+                    N: 1
+                    stride: strided_s
+                    kernel_size: strided_k
+                    padding: strided_p
                     normalization: GroupNorm
                     weight_standardization: True
                     up_conv_nn:
@@ -265,21 +280,24 @@ models:
         class: no3d.no3dWithViewLogitFusion
         define_constants:
             in_feat: 32
-            image_in_feat: 4
+            in_feat_img: 4
+            strided_k: 4
+            strided_s: 2
+            strided_p: 1
         down_conv:
             image:
                 down_conv:
                     module_name: ResNetDown
                     block: ResBlock
                     N: [ 0, 2, 2, 2, 2 ]
-                    stride: [ 1, 2, 2, 2, 2 ]
-                    kernel_size: [ 3, 4, 4, 4, 4 ]
-                    padding: 1
+                    stride: [ 1, strided_s, strided_s, strided_s, strided_s ]
+                    kernel_size: [ 3, strided_k, strided_k, strided_k, strided_k ]
+                    padding: [ 1, strided_p, strided_p, strided_p, strided_p ]
                     normalization: GroupNorm
                     weight_standardization: True
                     down_conv_nn:
                       [
-                          [ image_in_feat, in_feat ],
+                          [ in_feat_img, in_feat ],
                           [ in_feat, in_feat ],
                           [ in_feat, 2*in_feat ],
                           [ 2*in_feat, 4*in_feat ],
@@ -288,10 +306,10 @@ models:
                 up_conv:
                     module_name: ResNetUp
                     block: ResBlock
-                    N: [ 1, 1, 1, 1, 1 ]
-                    kernel_size: [ 4, 4, 4, 4, 3 ]
-                    stride: [ 2, 2, 2, 2, 1 ]
-                    padding: 1
+                    N: 1
+                    kernel_size: [ strided_k, strided_k, strided_k, strided_k, 3 ]
+                    stride: [ strided_s, strided_s, strided_s, strided_s, 1 ]
+                    padding: [ strided_p, strided_p, strided_p, strided_p, 1 ]
                     up_conv_nn:
                       [
                           [ 8*in_feat, 4*in_feat, 4*in_feat ],
@@ -319,21 +337,24 @@ models:
         class: no3d.no3dWithViewLogitFusion
         define_constants:
             in_feat: 32
-            image_in_feat: 4
+            in_feat_img: 4
+            strided_k: 4
+            strided_s: 2
+            strided_p: 1
         down_conv:
             image:
                 down_conv:
                     module_name: ResNetDown
                     block: ResBlock
                     N: [ 0, 1, 1, 1, 1 ]
-                    stride: [ 1, 2, 2, 2, 2 ]
-                    kernel_size: [ 3, 4, 4, 4, 4 ]
-                    padding: 1
+                    stride: [ 1, strided_s, strided_s, strided_s, strided_s ]
+                    kernel_size: [ 3, strided_k, strided_k, strided_k, strided_k ]
+                    padding: [ 1, strided_p, strided_p, strided_p, strided_p ]
                     normalization: GroupNorm
                     weight_standardization: True
                     down_conv_nn:
                       [
-                          [ image_in_feat, in_feat ],
+                          [ in_feat_img, in_feat ],
                           [ in_feat, in_feat ],
                           [ in_feat, 2*in_feat ],
                           [ 2*in_feat, 4*in_feat ],
@@ -342,10 +363,10 @@ models:
                 up_conv:
                     module_name: ResNetUp
                     block: ResBlock
-                    N: [ 1, 1, 1, 1 ]
-                    stride: [ 2, 2, 2, 2 ]
-                    kernel_size: [ 4, 4, 4, 4 ]
-                    padding: 1
+                    N: 1
+                    stride: strided_s
+                    kernel_size: strided_k
+                    padding: strided_p
                     normalization: GroupNorm
                     weight_standardization: True
                     up_conv_nn:
@@ -374,21 +395,24 @@ models:
         class: no3d.no3dWithViewLogitFusion
         define_constants:
             in_feat: 32
-            image_in_feat: 4
+            in_feat_img: 4
+            strided_k: 4
+            strided_s: 2
+            strided_p: 1
         down_conv:
             image:
                 down_conv:
                     module_name: ResNetDown
                     block: ResBlock
                     N: [ 0, 1, 1, 1, 1 ]
-                    stride: [ 1, 2, 2, 2, 2 ]
-                    kernel_size: [ 3, 4, 4, 4, 4 ]
-                    padding: 1
+                    stride: [ 1, strided_s, strided_s, strided_s, strided_s ]
+                    kernel_size: [ 3, strided_k, strided_k, strided_k, strided_k ]
+                    padding: [ 1, strided_p, strided_p, strided_p, strided_p ]
                     normalization: GroupNorm
                     weight_standardization: True
                     down_conv_nn:
                       [
-                          [ image_in_feat, in_feat ],
+                          [ in_feat_img, in_feat ],
                           [ in_feat, in_feat ],
                           [ in_feat, 2*in_feat ],
                           [ 2*in_feat, 4*in_feat ],
@@ -397,10 +421,10 @@ models:
                 up_conv:
                     module_name: ResNetUp
                     block: ResBlock
-                    N: [ 1, 1, 1, 1, 1 ]
-                    kernel_size: [ 4, 4, 4, 4, 3 ]
-                    stride: [ 2, 2, 2, 2, 1 ]
-                    padding: 1
+                    N: 1
+                    kernel_size: [ strided_k, strided_k, strided_k, strided_k, 3 ]
+                    stride: [ strided_s, strided_s, strided_s, strided_s, 1 ]
+                    padding: [ strided_p, strided_p, strided_p, strided_p, 1 ]
                     up_conv_nn:
                       [
                           [ 8*in_feat, 4*in_feat, 4*in_feat ],
