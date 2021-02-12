@@ -606,8 +606,8 @@ class UnwrappedUnetBasedModel(BaseModel, ABC):
         sampling_ids = self._collect_sampling_ids(stack_down)
 
         for i in range(len(self.up_modules)):
-            data = self.up_modules[i]((data, stack_down.pop()),
-                                      precomputed=precomputed_up)
+            skip = stack_down.pop(-1) if stack_down else None
+            data = self.up_modules[i]((data, skip), precomputed=precomputed_up)
 
         for key, value in sampling_ids.items():
             setattr(data, key, value)

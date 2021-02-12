@@ -244,7 +244,8 @@ class SparseConv3dUnet(BaseSparseConv3d):
         # TODO : Manage the inner module
 
         for i in range(len(self.up_modules)):
-            data = self.up_modules[i](data, stack_down.pop())
+            skip = stack_down.pop(-1) if stack_down else None
+            data = self.up_modules[i](data, skip)
 
         out = Batch(x=data.F, pos=self.xyz).to(self.device)
         if self.has_mlp_head:

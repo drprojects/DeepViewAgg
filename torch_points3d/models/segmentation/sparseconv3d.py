@@ -16,6 +16,7 @@ class APIModel(BaseModel):
         self.backbone = SparseConv3d(
             "unet", dataset.feature_dimension, config=option.backbone, backend=option.get("backend", "minkowski")
         )
+        self._modalities = self.backbone._modalities
         self.head = nn.Sequential(nn.Linear(self.backbone.output_nc, dataset.num_classes))
         self.loss_names = ["loss_seg"]
 

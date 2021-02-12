@@ -23,6 +23,7 @@ class No3D(BaseModel, ABC):
 
         # UnwrappedUnetBasedModel init
         self.backbone = No3DEncoder(option, model_type, dataset, modules)
+        self._modalities = self.backbone._modalities
 
         # Segmentation head init
         if self._ALLOWS_HEAD:

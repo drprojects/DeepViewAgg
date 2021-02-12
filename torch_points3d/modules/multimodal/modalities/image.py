@@ -445,7 +445,8 @@ class UNet(nn.Module, ABC):
             x = self.inner_modules[0](x)
 
         for i in range(len(self.up_modules)):
-            x = self.up_modules[i](x, stack_down.pop())
+            skip = stack_down.pop(-1) if stack_down else None
+            x = self.up_modules[i](x, skip)
 
         if self.last is not None:
             x = self.last(x)
