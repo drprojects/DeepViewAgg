@@ -74,7 +74,7 @@ models:
                 stride: [2, 2, 2, 2, 1]
 
     Res16UNet21-12:
-        # 19.8 M params - 77.2 Mo on the GPU
+    # 12.8 M params - 50.4 Mo on the GPU
         class: sparseconv3d.APIModel
         conv_type: "SPARSE"
         backend: "torchsparse"
@@ -86,7 +86,7 @@ models:
                 module_name: ResNetDown
                 block: block
                 N: [ 0, 2, 2, 2, 2 ]
-                kernel_size: [ 3, 4, 4, 4, 4 ]
+                kernel_size: [ 3, 2, 2, 2, 2 ]
                 stride: [ 1, 2, 2, 2, 2 ]
                 down_conv_nn:
                     [
@@ -100,7 +100,7 @@ models:
                 block: block
                 module_name: ResNetUp
                 N: [ 1, 1, 1, 1 ]
-                kernel_size: [ 4, 4, 4, 4 ]
+                kernel_size: [ 2, 2, 2, 2 ]
                 stride: [ 2, 2, 2, 2 ]
                 up_conv_nn:
                     [
@@ -111,7 +111,7 @@ models:
                     ]
 
     Res16UNet21-15:
-        # 20.0 M params - 77.8 Mo on the GPU
+    # 13.0 M params - 51.4 Mo on the GPU
         class: sparseconv3d.APIModel
         conv_type: "SPARSE"
         backend: "torchsparse"
@@ -123,7 +123,7 @@ models:
                 module_name: ResNetDown
                 block: block
                 N: [ 0, 2, 2, 2, 2 ]
-                kernel_size: [ 3, 4, 4, 4, 4 ]
+                kernel_size: [ 3, 2, 2, 2, 2 ]
                 stride: [ 1, 2, 2, 2, 2 ]
                 down_conv_nn:
                     [
@@ -137,7 +137,7 @@ models:
                 block: block
                 module_name: ResNetUp
                 N: [ 1, 1, 1, 1, 1 ]
-                kernel_size: [ 4, 4, 4, 4, 3 ]
+                kernel_size: [ 2, 2, 2, 2, 3 ]
                 stride: [ 2, 2, 2, 2, 1 ]
                 up_conv_nn:
                     [
@@ -149,7 +149,7 @@ models:
                     ]
 
     Res16UNet13-12:
-        # 15.0 M params - 59.1 Mo on the GPU
+    # 8.1 M params - 31.3 Mo on the GPU
         class: sparseconv3d.APIModel
         conv_type: "SPARSE"
         backend: "torchsparse"
@@ -161,7 +161,7 @@ models:
                 module_name: ResNetDown
                 block: block
                 N: [ 0, 1, 1, 1, 1 ]
-                kernel_size: [ 3, 4, 4, 4, 4 ]
+                kernel_size: [ 3, 2, 2, 2, 2 ]
                 stride: [ 1, 2, 2, 2, 2 ]
                 down_conv_nn:
                     [
@@ -175,7 +175,7 @@ models:
                 block: block
                 module_name: ResNetUp
                 N: [ 1, 1, 1, 1 ]
-                kernel_size: [ 4, 4, 4, 4 ]
+                kernel_size: [ 2, 2, 2, 2 ]
                 stride: [ 2, 2, 2, 2 ]
                 up_conv_nn:
                     [
@@ -186,7 +186,7 @@ models:
                     ]
 
     Res16UNet13-15:
-        # 15.3 M params - 59.8 Mo on the GPU
+    # 8.3 M params - 32.4 Mo on the GPU
         class: sparseconv3d.APIModel
         conv_type: "SPARSE"
         backend: "torchsparse"
@@ -198,7 +198,7 @@ models:
                 module_name: ResNetDown
                 block: block
                 N: [ 0, 1, 1, 1, 1 ]
-                kernel_size: [ 3, 4, 4, 4, 4 ]
+                kernel_size: [ 3, 2, 2, 2, 2 ]
                 stride: [ 1, 2, 2, 2, 2 ]
                 down_conv_nn:
                     [
@@ -212,7 +212,7 @@ models:
                 block: block
                 module_name: ResNetUp
                 N: [ 1, 1, 1, 1, 1 ]
-                kernel_size: [ 4, 4, 4, 4, 3 ]
+                kernel_size: [ 2, 2, 2, 2, 3 ]
                 stride: [ 2, 2, 2, 2, 1 ]
                 up_conv_nn:
                     [

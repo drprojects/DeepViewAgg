@@ -14,7 +14,7 @@ models:
                 module_name: ResNetDown
                 block: block
                 N: [ 0,0,  0,2,  0,2,  0,2,  0,2 ]
-                kernel_size: [ 3,3,  4,3,  4,3,  4,3,  4,3 ]
+                kernel_size: [ 3,3,  2,3,  2,3,  2,3,  2,3 ]
                 stride: [ 1,1,  2,1,  2,1,  2,1,  2,1 ]
                 down_conv_nn:
                   [
@@ -67,7 +67,7 @@ models:
                 block: block
                 module_name: ResNetUp
                 N: [ 1, 1, 1, 1, 1 ]
-                kernel_size: [ 4, 4, 4, 4, 3 ]
+                kernel_size: [ 2, 2, 2, 2, 3 ]
                 stride: [ 2, 2, 2, 2, 1 ]
                 up_conv_nn:
                   [
