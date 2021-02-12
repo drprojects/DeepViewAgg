@@ -1,5 +1,5 @@
 data:
-  task: multimodal
+  task: segmentation
   class: s3dis.S3DISFusedDataset
   # dataroot: data
   dataroot: /media/drobert-admin/DATA/datasets/s3dis_tp3d  # local path to S3DIS on my machine
