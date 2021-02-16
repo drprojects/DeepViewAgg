@@ -21,7 +21,6 @@ docs_old
 /test/kernels/dispositions
 *.egg-info*
 *.prof
-notebooks/*.ipynb
 notebooks/*.yaml
 
 # Python egg metadata, regenerated from source files by setuptools.
