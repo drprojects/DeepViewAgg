@@ -320,10 +320,18 @@ class S3DISOriginalFusedMM(InMemoryDataset):
                 |___images
                     |___area_{1, 2, 3, 4, 5a, 5b, 6}
                         |___pano
-                            |___rgb
-                                |___original_image_name.png
+                            |___depth
+                                |___image_name_depth.png
+                            |___normal
+                                |___image_name_normals.json
                             |___pose
-                                |___original_image_name.json
+                                |___image_name_pose.json
+                            |___rgb
+                                |___image_name_rgb.png
+                            |___semantic
+                                |___image_name_semantic.json
+                            |___semantic_pretty
+                                |___image_name_semantic_pretty.json
                 """
                 log.info("WARNING: You are downloading S3DIS dataset")
                 log.info(f"Please, register yourself by filling up the form "
