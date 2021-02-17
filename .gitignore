@@ -22,6 +22,7 @@ docs_old
 *.egg-info*
 *.prof
 notebooks/*.yaml
+notebooks/*.ipynb
 
 # Python egg metadata, regenerated from source files by setuptools.
 /*.egg

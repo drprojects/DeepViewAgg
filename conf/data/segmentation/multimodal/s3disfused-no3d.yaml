@@ -1,12 +1,3 @@
-data.multimodal.settings:
-    mapping_key: mapping_index  # hardcoded key used to sync 3D points and modality mappings
-    ref_size: [256, 128]  # [512, 256]
-    proj_upscale: 4
-    r_max: 8
-    r_min: 0.05
-    growth_k: 0.5
-    growth_r: 100  # growth_k and growth_r set so that correction factor is ~1.1 at r_max=8
-    per_sphere_memory_credit: 256*256*8
 data:
     task: segmentation.multimodal
     class: s3dis.S3DISFusedDataset
@@ -33,7 +24,7 @@ data:
             r_min: 0.05
             growth_k: 0.5
             growth_r: 100  # growth_k and growth_r set so that correction factor is ~1.1 at r_max=8
-            per_sphere_memory_credit: 131072  # 256**128*4 choose based on GPU capacity, model ko/pixel cost and 3D batch_size
+            per_sphere_memory_credit: 131072  # 256*128*4 choose based on GPU capacity, model ko/pixel cost and 3D batch_size
         pre_transform:
             - transform: LoadImages    # Read images from disk
               params:
@@ -62,7 +53,7 @@ data:
               params:
                     brightness: 0.3
                     contrast: 0.3
-                    saturation: 0.6
+                    saturation: 0.5
             - transform: RandomHorizontalFlip
               params:
                     p: 0.5
