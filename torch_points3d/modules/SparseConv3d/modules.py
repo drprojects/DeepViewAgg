@@ -137,8 +137,7 @@ class ResNetDown(torch.nn.Module):
         else:
             self.blocks = None
 
-    @staticmethod
-    def _parse_conv_nn(down_conv_nn, stride, N):
+    def _parse_conv_nn(self, down_conv_nn, stride, N):
         if is_list(down_conv_nn[0]):
             down_conv_nn = down_conv_nn[0]
         assert len(down_conv_nn) == 2, \
@@ -164,35 +163,47 @@ class ResNetUp(ResNetDown):
     CONVOLUTION = "Conv3dTranspose"
 
     def __init__(self, up_conv_nn=[], kernel_size=2, dilation=1, stride=2, N=1,
-                 **kwargs):
+                 skip_first=False, **kwargs):
+        self.skip_first = skip_first
         super().__init__(
             down_conv_nn=up_conv_nn, kernel_size=kernel_size, dilation=dilation,
             stride=stride, N=N, **kwargs)
 
-    @staticmethod
-    def _parse_conv_nn(up_conv_nn, stride, N):
+    def _parse_conv_nn(self, up_conv_nn, stride, N):
         if is_list(up_conv_nn[0]):
             up_conv_nn = up_conv_nn[0]
-        assert len(up_conv_nn) == 3, \
-            f"ResNetUp expects up_conv_nn to have length of 3 to carry " \
-            f"(nc_in, nc_skip_in, nc_out) but got len(up_conv_nn)=" \
-            f"{len(up_conv_nn)}."
-        nc_in, nc_skip_in, nc_out = up_conv_nn
-        nc_stride_out = nc_in if stride > 1 and N > 0 else nc_out
-        nc_block_in = nc_stride_out + nc_skip_in
+
+        if self.skip_first:
+            assert len(up_conv_nn) == 2, \
+                f"ResNetUp with skip_first=True expects down_conv_nn to have " \
+                f"length of 2 to carry (nc_in, nc_out) but got " \
+                f"len(up_conv_nn)={len(up_conv_nn)}."
+        else:
+            assert len(up_conv_nn) == 3, \
+                f"ResNetUp with skip_first=False expects up_conv_nn to have " \
+                f"length of 3 to carry (nc_in, nc_skip_in, nc_out) but got " \
+                f"len(up_conv_nn)={len(up_conv_nn)}."
+
+        if self.skip_first:
+            nc_in, nc_out = up_conv_nn
+            nc_stride_out = nc_in if stride > 1 and N > 0 else nc_out
+            nc_block_in = nc_stride_out
+        else:
+            nc_in, nc_skip_in, nc_out = up_conv_nn
+            nc_stride_out = nc_in if stride > 1 and N > 0 else nc_out
+            nc_block_in = nc_stride_out + nc_skip_in
+
         return nc_in, nc_stride_out, nc_block_in, nc_out
 
     def forward(self, x, skip):
-        if skip is not None:
-            inp = snn.cat(x, skip)
+        if self.skip_first:
+            if skip is not None:
+                x = snn.cat(x, skip)
+            x = self.conv_in(x)
         else:
-            inp = x
-        return super().forward(inp)
-
-    def forward(self, x, skip):
-        x = self.conv_in(x)
-        if skip is not None:
-            x = snn.cat(x, skip)
+            x = self.conv_in(x)
+            if skip is not None:
+                x = snn.cat(x, skip)
         if self.blocks:
             x = self.blocks(x)
         return x
