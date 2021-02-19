@@ -245,8 +245,7 @@ class ResNetDown(nn.Module, ABC):
         else:
             self.blocks = None
 
-    @staticmethod
-    def _parse_conv_nn(down_conv_nn, stride, N):
+    def _parse_conv_nn(self, down_conv_nn, stride, N):
         if is_list(down_conv_nn[0]):
             down_conv_nn = down_conv_nn[0]
         assert len(down_conv_nn) == 2, \
@@ -271,30 +270,49 @@ class ResNetUp(ResNetDown, ABC):
 
     def __init__(self, up_conv_nn=[], kernel_size=2, dilation=1, stride=2, N=1,
                  padding=0, padding_mode='zeros', normalization='BatchNorm2d',
-                 weight_standardization=False, **kwargs):
+                 weight_standardization=False, skip_first=False, **kwargs):
+        self.skip_first = skip_first
         super().__init__(
             down_conv_nn=[up_conv_nn], kernel_size=kernel_size,
             dilation=dilation, stride=stride, N=N, padding=padding,
             padding_mode=padding_mode, normalization=normalization,
             weight_standardization=weight_standardization, **kwargs)
 
-    @staticmethod
-    def _parse_conv_nn(up_conv_nn, stride, N):
+    def _parse_conv_nn(self, up_conv_nn, stride, N):
         if is_list(up_conv_nn[0]):
             up_conv_nn = up_conv_nn[0]
-        assert len(up_conv_nn) == 3, \
-            f"ResNetUp expects up_conv_nn to have length of 3 to carry " \
-            f"(nc_in, nc_skip_in, nc_out) but got len(up_conv_nn)=" \
-            f"{len(up_conv_nn)}."
-        nc_in, nc_skip_in, nc_out = up_conv_nn
-        nc_stride_out = nc_in if stride > 1 and N > 0 else nc_out
-        nc_block_in = nc_stride_out + nc_skip_in
+
+        if self.skip_first:
+            assert len(up_conv_nn) == 2, \
+                f"ResNetUp with skip_first=True expects down_conv_nn to have " \
+                f"length of 2 to carry (nc_in, nc_out) but got " \
+                f"len(up_conv_nn)={len(up_conv_nn)}."
+        else:
+            assert len(up_conv_nn) == 3, \
+                f"ResNetUp with skip_first=False expects up_conv_nn to have " \
+                f"length of 3 to carry (nc_in, nc_skip_in, nc_out) but got " \
+                f"len(up_conv_nn)={len(up_conv_nn)}."
+
+        if self.skip_first:
+            nc_in, nc_out = up_conv_nn
+            nc_stride_out = nc_in if stride > 1 and N > 0 else nc_out
+            nc_block_in = nc_stride_out
+        else:
+            nc_in, nc_skip_in, nc_out = up_conv_nn
+            nc_stride_out = nc_in if stride > 1 and N > 0 else nc_out
+            nc_block_in = nc_stride_out + nc_skip_in
+
         return nc_in, nc_stride_out, nc_block_in, nc_out
 
     def forward(self, x, skip):
-        x = self.conv_in(x)
-        if skip is not None:
-            x = torch.cat((x, skip), dim=1)
+        if self.skip_first:
+            if skip is not None:
+                x = torch.cat((x, skip), dim=1)
+            x = self.conv_in(x)
+        else:
+            x = self.conv_in(x)
+            if skip is not None:
+                x = torch.cat((x, skip), dim=1)
         if self.blocks:
             x = self.blocks(x)
         return x
@@ -443,6 +461,10 @@ class UNet(nn.Module, ABC):
             raise NotImplementedError
             # TODO: debug innermost, stacks and upconv
             x = self.inner_modules[0](x)
+
+        # Recover the skip mode from the up modules
+        if self.up_modules[0].skip_first:
+            stack_down.append(None)
 
         for i in range(len(self.up_modules)):
             skip = stack_down.pop(-1) if stack_down else None

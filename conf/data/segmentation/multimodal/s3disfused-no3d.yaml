@@ -25,7 +25,7 @@ data:
             growth_k: 0.5
             growth_r: 100  # growth_k and growth_r set so that correction factor is ~1.1 at r_max=8
             train_pixel_credit: 4  # Choose based on GPU capacity, model ko/pixel cost and 3D batch_size
-            test_pixel_credit: 8
+            test_pixel_credit: 4
         pre_transform:
             - transform: LoadImages    # Read images from disk
               params:
