@@ -38,12 +38,12 @@ models:
                     down_conv:
                         module_name: ResNetDown
                         block: ResBlock
-                        N: [ 0, 2, 2, 2, 2 ]
-                        stride: [ 1, 2, 2, 2, 2 ]
-                        kernel_size: [ 3, 4, 4, 4, 4 ]
-                        padding: 1
                         normalization: GroupNorm
                         weight_standardization: True
+                        N: [ 0, 2, 2, 2, 2 ]
+                        stride: [ 1, 2, 2, 2, 2 ]
+                        kernel_size: [ 3, 2, 2, 2, 2 ]
+                        padding: [ 1, 0, 0, 0, 0 ]
                         down_conv_nn:
                           [
                               [ in_feat_img, in_feat ],
@@ -73,7 +73,7 @@ models:
                   [
                       [ 8*in_feat, 4*in_feat, 4*in_feat ],
                       [ 4*in_feat, 2*in_feat, 4*in_feat ],
-                      [ 4*in_feat, in_feat, 2*in_feat ],
-                      [ 2*in_feat, in_feat, 2*in_feat ],
-                      [ 2*in_feat, 0, in_feat ],
+                      [ 4*in_feat, in_feat, 3*in_feat ],
+                      [ 3*in_feat, in_feat, 3*in_feat ],
+                      [ 3*in_feat, 0, 3*in_feat ],
                   ]

@@ -3,7 +3,8 @@ data:
   class: s3dis.S3DISFusedDataset
   dataroot: data
   fold: 5
-  first_subsampling: 0.03
+#  first_subsampling: 0.03
+  first_subsampling: 0.05
   use_category: False
   pre_collate_transform:
       - transform: PointCloudFusion   # One point cloud per area
