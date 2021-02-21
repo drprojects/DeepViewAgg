@@ -73,7 +73,7 @@ models:
                 kernel_size: 3
                 stride: [2, 2, 2, 2, 1]
 
-    Res16UNet21-15-large:
+    Res16UNet21-15:
         # xxx M params - xxx Mo on the GPU
         class: sparseconv3d.APIModel
         conv_type: "SPARSE"
