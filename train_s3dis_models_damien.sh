@@ -46,8 +46,8 @@ MODEL_TYPE=sparseconv3d
 export SPARSE_BACKEND=torchsparse
 # export SPARSE_BACKEND=minkowski
 
-TASK=segmentation/multimodal
-#TASK=segmentation
+# TASK=segmentation/multimodal
+TASK=segmentation
 
 #DATASET=s3disfused
 #DATASET=s3disfused-no3d
