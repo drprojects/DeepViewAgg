@@ -22,6 +22,10 @@ PROJECT_DIR=~/projects/torch-points3d
 #VOXEL=$(LANG=C printf %.3f\\n "$(( 10**3 * ${RESOLUTION_3D_CM} / 100  ))e-3")
 #let WIDTH=HEIGHT*2
 
+VOXEL=0.05
+# VOXEL=0.04
+# VOXEL=0.03
+
 MACHINE_DATA_ROOT='/media/drobert-admin/DATA2/datasets/s3dis'  # IGN DATA2
 #MACHINE_DATA_ROOT='/var/data/drobert/datasets/s3dis'          # AI4GEO
 #MACHINE_DATA_ROOT='/home/qt/robertda/scratch/datasets/s3dis'  # CNES
@@ -61,7 +65,7 @@ CHECKPOINT_DIR=""
 
 EPOCHS=200
 
-WORKERS=4
+WORKERS=2
 
 BATCH_SIZE=8
 #BATCH_SIZE=4
@@ -72,27 +76,24 @@ LR_SCHEDULER=multi_step_s3dis
 
 #------------------------------------------------------------------------------#
 
+FOLD=5
 
-for FOLD in 5
-do
-  EXP_NAME=${MODEL_NAME}_${DATASET}_fold${FOLD}
+EXP_NAME=${MODEL_NAME}_${DATASET}_fold${FOLD}
 
-	python -W ignore train.py \
-  task=${TASK} \
-  dataset=${DATASET} \
-  training=${TRAINING} \
-  training.checkpoint_dir=${CHECKPOINT_DIR} \
-  model_type=${MODEL_TYPE} \
-  model_name=${MODEL_NAME} \
-  lr_scheduler=${LR_SCHEDULER} \
-  data.fold=${FOLD} \
-  data.first_subsampling=${VOXEL} \
-  data.dataroot=${DATA_ROOT} \
-  wandb.log=True \
-  wandb.name=${EXP_NAME} \
-  training.cuda=${I_GPU} \
-  training.batch_size=${BATCH_SIZE} \
-  training.epochs=${EPOCHS} \
-  training.num_workers=${WORKERS} \
-  training.optim.base_lr=${BASE_LR}
-done
+python -W ignore train.py \
+task=${TASK} \
+dataset=${DATASET} \
+training=${TRAINING} \
+model_type=${MODEL_TYPE} \
+model_name=${MODEL_NAME} \
+lr_scheduler=${LR_SCHEDULER} \
+data.fold=${FOLD} \
+data.first_subsampling=${VOXEL} \
+data.dataroot=${DATA_ROOT} \
+wandb.log=True \
+wandb.name=${EXP_NAME} \
+training.cuda=${I_GPU} \
+training.batch_size=${BATCH_SIZE} \
+training.epochs=${EPOCHS} \
+training.num_workers=${WORKERS} \
+training.optim.base_lr=${BASE_LR}
