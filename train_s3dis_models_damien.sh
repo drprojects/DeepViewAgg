@@ -29,7 +29,7 @@ VOXEL=0.05
 MACHINE_DATA_ROOT='/media/drobert-admin/DATA2/datasets/s3dis'  # IGN DATA2
 #MACHINE_DATA_ROOT='/var/data/drobert/datasets/s3dis'          # AI4GEO
 #MACHINE_DATA_ROOT='/home/qt/robertda/scratch/datasets/s3dis'  # CNES
-#MACHINE_DATA_ROOT='/raid/datasets/pointcloud/data/s3dis'      # ENGIE
+#MACHINE_DATA_ROOT='/raid/dataset/pointcloud/data/s3dis'      # ENGIE
 
 #DATA_ROOT=${MACHINE_DATA_ROOT}/2cm
 #DATA_ROOT=${MACHINE_DATA_ROOT}/3cm
