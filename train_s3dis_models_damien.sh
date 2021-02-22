@@ -28,7 +28,7 @@ VOXEL=0.05
 MACHINE_DATA_ROOT='/media/drobert-admin/DATA2/datasets/s3dis'  # IGN DATA2
 #MACHINE_DATA_ROOT='/var/data/drobert/datasets/s3dis'          # AI4GEO
 #MACHINE_DATA_ROOT='/home/qt/robertda/scratch/datasets/s3dis'  # CNES
-#MACHINE_DATA_ROOT='/raid/datasets/pointcloud/data/s3dis'      # ENGIE
+#MACHINE_DATA_ROOT='/raid/dataset/pointcloud/data/s3dis'      # ENGIE
 
 #DATA_ROOT=${MACHINE_DATA_ROOT}/2cm
 #DATA_ROOT=${MACHINE_DATA_ROOT}/3cm
@@ -38,6 +38,10 @@ DATA_ROOT=${MACHINE_DATA_ROOT}/5cm
 
 ### XYZRGB and XYZ
 MODEL_NAME=Res16UNet21-15
+
+### XYZ+RGB
+MODEL_NAME=Res16UNet21-15_Res16Image21_encoder_mean
+MODEL_NAME=Res16UNet21-15_Res16Image21_encoder_max
 
 ### RGB
 #MODEL_NAME=Res16UNet21-15_GN_WS
@@ -96,3 +100,23 @@ training.batch_size=${BATCH_SIZE} \
 training.epochs=${EPOCHS} \
 training.num_workers=${WORKERS} \
 training.optim.base_lr=${BASE_LR}
+
+
+#python -W ignore train.py \
+#task=${TASK} \
+#dataset=${DATASET} \
+#training=${TRAINING} \
+#model_type=${MODEL_TYPE} \
+#model_name=${MODEL_NAME} \
+#lr_scheduler=${LR_SCHEDULER} \
+#data.fold=${FOLD} \
+#data.first_subsampling=${VOXEL} \
+#data.dataroot=${DATA_ROOT} \
+#wandb.log=True \
+#wandb.name=${EXP_NAME} \
+#training.cuda=${I_GPU} \
+#training.checkpoint_dir=${CHECKPOINT_DIR} \
+#training.batch_size=${BATCH_SIZE} \
+#training.epochs=${EPOCHS} \
+#training.num_workers=${WORKERS} \
+#training.optim.base_lr=${BASE_LR}
