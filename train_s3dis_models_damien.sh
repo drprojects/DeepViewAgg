@@ -40,6 +40,10 @@ DATA_ROOT=${MACHINE_DATA_ROOT}/5cm
 ### XYZRGB and XYZ
 MODEL_NAME=Res16UNet21-15
 
+### XYZ+RGB
+MODEL_NAME=Res16UNet21-15_Res16Image21_encoder_mean
+MODEL_NAME=Res16UNet21-15_Res16Image21_encoder_max
+
 ### RGB
 #MODEL_NAME=Res16UNet21-15_GN_WS
 #MODEL_NAME=Res16UNet21-15_GN
@@ -97,3 +101,23 @@ training.batch_size=${BATCH_SIZE} \
 training.epochs=${EPOCHS} \
 training.num_workers=${WORKERS} \
 training.optim.base_lr=${BASE_LR}
+
+
+#python -W ignore train.py \
+#task=${TASK} \
+#dataset=${DATASET} \
+#training=${TRAINING} \
+#model_type=${MODEL_TYPE} \
+#model_name=${MODEL_NAME} \
+#lr_scheduler=${LR_SCHEDULER} \
+#data.fold=${FOLD} \
+#data.first_subsampling=${VOXEL} \
+#data.dataroot=${DATA_ROOT} \
+#wandb.log=True \
+#wandb.name=${EXP_NAME} \
+#training.cuda=${I_GPU} \
+#training.checkpoint_dir=${CHECKPOINT_DIR} \
+#training.batch_size=${BATCH_SIZE} \
+#training.epochs=${EPOCHS} \
+#training.num_workers=${WORKERS} \
+#training.optim.base_lr=${BASE_LR}
