@@ -433,8 +433,14 @@ class PickImagesFromMemoryCredit(ImageTransform):
 
     _PROCESS_IMAGE_DATA = True
 
-    def __init__(self, credit=256*256*8):
-        self.credit = credit
+    def __init__(self, credit=None, img_size=[], n_img=0):
+        if credit is not None:
+            self.credit = credit
+        elif len(img_size) == 2 and n_img > 0:
+            self.credit = img_size[0] * img_size[1] * n_img
+        else:
+            raise ValueError(
+                "Either credit or img_size and n_img must be provided.")
 
     def _process(self, data: Data, images: ImageData):
         picked = [[] for _ in range(images.num_settings)]

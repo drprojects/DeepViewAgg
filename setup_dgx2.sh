@@ -16,6 +16,16 @@ cd ${PROJECTS_DIR}
 # Create tp3d-dev from yml
 conda env create -f ${YML_FILE}
 
+# Dependencies not installed from the .yml
+pip install --upgrade omegaconf
+pip install torch-points-kernels
+pip install torchnet
+pip install wandb
+pip install tensorboard
+pip install plyfile
+pip install hydra-core==0.11.3
+pip install pytorch-metric-learning
+
 # Activate the env
 source ${CONDA_DIR}/etc/profile.d/conda.sh  
 conda activate tp3d_dev

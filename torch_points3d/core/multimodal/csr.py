@@ -1,5 +1,5 @@
 import numpy as np
-from numba import njit
+# from numba import njit
 import torch
 import copy
 from torch_points3d.utils.multimodal import tensor_idx
@@ -152,34 +152,50 @@ class CSRData(object):
         return copy.copy(self)
 
     @staticmethod
-    def _sorted_indices_to_pointers(indices):
+    def _sorted_indices_to_pointers(indices: torch.LongTensor):
         """
         Convert pre-sorted dense indices to CSR format.
         """
         device = indices.device
         assert len(indices.shape) == 1, "Only 1D indices are accepted."
         assert indices.shape[0] >= 1, "At least one group index is required."
-        assert CSRData._is_sorted_numba(np.asarray(indices.cpu())), \
+        assert CSRData._is_sorted(indices), \
             "Indices must be sorted in increasing order."
-        sorted_indices = CSRData._sorted_indices_to_pointers_numba(np.asarray(
-            indices.cpu()))
-        return torch.from_numpy(sorted_indices).to(device)
+        pointers = torch.cat([
+            torch.LongTensor([0]).to(device),
+            torch.where(indices[1:] > indices[:-1])[0] + 1,
+            torch.LongTensor([indices.shape[0]]).to(device)])
+        return pointers
 
-    @staticmethod
-    @njit(cache=True, nogil=True)
-    def _sorted_indices_to_pointers_numba(indices: np.ndarray):
-        # Compute the pointers
-        idx_previous = indices[0]
-        pointers = [0]
-        for i, idx in enumerate(indices):
-            if idx != idx_previous:
-                pointers.append(i)
-                idx_previous = idx
+    # @staticmethod
+    # def _sorted_indices_to_pointers(indices):
+    #     """
+    #     Convert pre-sorted dense indices to CSR format.
+    #     """
+    #     device = indices.device
+    #     assert len(indices.shape) == 1, "Only 1D indices are accepted."
+    #     assert indices.shape[0] >= 1, "At least one group index is required."
+    #     assert CSRData._is_sorted_numba(np.asarray(indices.cpu())), \
+    #         "Indices must be sorted in increasing order."
+    #     sorted_indices = CSRData._sorted_indices_to_pointers_numba(np.asarray(
+    #         indices.cpu()))
+    #     return torch.from_numpy(sorted_indices).to(device)
 
-        # Last index must be treated separately
-        pointers.append(len(indices))
-
-        return np.asarray(pointers)
+    # @staticmethod
+    # @njit(cache=True, nogil=True)
+    # def _sorted_indices_to_pointers_numba(indices: np.ndarray):
+    #     # Compute the pointers
+    #     idx_previous = indices[0]
+    #     pointers = [0]
+    #     for i, idx in enumerate(indices):
+    #         if idx != idx_previous:
+    #             pointers.append(i)
+    #             idx_previous = idx
+    #
+    #     # Last index must be treated separately
+    #     pointers.append(len(indices))
+    #
+    #     return np.asarray(pointers)
 
     def reindex_groups(self, group_indices: torch.LongTensor, num_groups=None):
         """
@@ -199,10 +215,9 @@ class CSRData(object):
         provided, it is inferred from the size of group_indices. 
         """
         order = torch.argsort(group_indices)
-
-        csr_new = self[order]
-        csr_new = csr_new.insert_empty_groups(group_indices[order],
-                                              num_groups=num_groups)
+        csr_new = self[order].insert_empty_groups(
+            group_indices[order],
+            num_groups=num_groups)
         return csr_new
 
     def insert_empty_groups(self, group_indices: torch.LongTensor,
@@ -210,17 +225,17 @@ class CSRData(object):
         """
         Method called when in-place reindexing groups.
 
-        The group_indices are assumed to be sorted and group_indices[i] 
+        The group_indices are assumed to be sorted and group_indices[i]
         corresponds to the position of existing group i in the new tensor. The
-        indices missing from group_indices correspond to empty groups to be 
+        indices missing from group_indices correspond to empty groups to be
         injected.
 
         The num_groups specifies the number of groups in the new tensor. If not
-        provided, it is inferred from the size of group_indices. 
+        provided, it is inferred from the size of group_indices.
         """
         assert self.num_groups == group_indices.shape[0], \
             "New group indices must correspond to the existing number of groups"
-        assert CSRData._is_sorted_numba(np.asarray(group_indices.cpu())), \
+        assert CSRData._is_sorted(group_indices), \
             "New group indices must be sorted."
 
         if num_groups is not None:
@@ -228,38 +243,76 @@ class CSRData(object):
         else:
             num_groups = group_indices.max() + 1
 
-        self.pointers = torch.from_numpy(CSRData._insert_empty_groups_numba(
-            np.asarray(self.pointers.cpu()), np.asarray(group_indices.cpu()),
-            int(num_groups))).to(self.device)
+        starts = torch.cat([
+            torch.LongTensor([-1]).to(self.device),
+            group_indices.to(self.device)])
+        ends = torch.cat([
+            group_indices.to(self.device),
+            torch.LongTensor([num_groups]).to(self.device)])
+        repeats = ends - starts
+        self.pointers = torch.repeat_interleave(self.pointers, repeats)
 
         return self
 
-    @staticmethod
-    @njit(cache=True, nogil=True)
-    def _insert_empty_groups_numba(pointers: np.ndarray,
-                                   group_indices: np.ndarray, num_groups):
-        pointers_expanded = np.zeros(num_groups + 1, dtype=group_indices.dtype)
-        pointers_expanded[group_indices + 1] = pointers[1:]
-        pointer_previous = 0
-        for i in range(pointers_expanded.shape[0]):
-            if pointers_expanded[i] < pointer_previous:
-                pointers_expanded[i] = pointer_previous
-            pointer_previous = pointers_expanded[i]
-        return pointers_expanded
+    # def insert_empty_groups(self, group_indices: torch.LongTensor,
+    #                         num_groups=None):
+    #     """
+    #     Method called when in-place reindexing groups.
+    #
+    #     The group_indices are assumed to be sorted and group_indices[i]
+    #     corresponds to the position of existing group i in the new tensor. The
+    #     indices missing from group_indices correspond to empty groups to be
+    #     injected.
+    #
+    #     The num_groups specifies the number of groups in the new tensor. If not
+    #     provided, it is inferred from the size of group_indices.
+    #     """
+    #     assert self.num_groups == group_indices.shape[0], \
+    #         "New group indices must correspond to the existing number of groups"
+    #     assert CSRData._is_sorted_numba(np.asarray(group_indices.cpu())), \
+    #         "New group indices must be sorted."
+    #
+    #     if num_groups is not None:
+    #         num_groups = max(group_indices.max() + 1, num_groups)
+    #     else:
+    #         num_groups = group_indices.max() + 1
+    #
+    #     self.pointers = torch.from_numpy(CSRData._insert_empty_groups_numba(
+    #         np.asarray(self.pointers.cpu()), np.asarray(group_indices.cpu()),
+    #         int(num_groups))).to(self.device)
+    #
+    #     return self
+
+    # @staticmethod
+    # @njit(cache=True, nogil=True)
+    # def _insert_empty_groups_numba(pointers: np.ndarray,
+    #                                group_indices: np.ndarray, num_groups):
+    #     pointers_expanded = np.zeros(num_groups + 1, dtype=group_indices.dtype)
+    #     pointers_expanded[group_indices + 1] = pointers[1:]
+    #     pointer_previous = 0
+    #     for i in range(pointers_expanded.shape[0]):
+    #         if pointers_expanded[i] < pointer_previous:
+    #             pointers_expanded[i] = pointer_previous
+    #         pointer_previous = pointers_expanded[i]
+    #     return pointers_expanded
+
+    # @staticmethod
+    # @njit(cache=True, nogil=True)
+    # def _is_sorted_numba(a: np.ndarray):
+    #     for i in range(a.size - 1):
+    #         if a[i + 1] < a[i]:
+    #             return False
+    #     return True
 
     @staticmethod
-    @njit(cache=True, nogil=True)
-    def _is_sorted_numba(a: np.ndarray):
-        for i in range(a.size - 1):
-            if a[i + 1] < a[i]:
-                return False
-        return True
+    def _is_sorted(a: torch.Tensor):
+        return torch.all(a[:-1] <= a[1:])
 
     @staticmethod
     def _index_select_pointers(pointers: torch.LongTensor,
                                indices: torch.LongTensor):
         """
-        Index selection of pointers. 
+        Index selection of pointers.
 
         Returns a new pointer tensor with updated pointers, along with an
         indices tensor to be used to update any values tensor associated with
@@ -267,24 +320,55 @@ class CSRData(object):
         """
         assert indices.max() <= pointers.shape[0] - 2
         device = pointers.device
-        pointers_updated, val_indices = CSRData._index_select_pointers_numba(
-            np.asarray(pointers.cpu()), np.asarray(indices.cpu()))
-        return torch.from_numpy(pointers_updated).to(device), torch.from_numpy(
-            np.concatenate(val_indices)).to(device)
 
-    @staticmethod
-    @njit(cache=True, nogil=True)
-    def _index_select_pointers_numba(pointers: np.ndarray,
-                                     indices: np.ndarray):
-        pointers_selection = np.zeros(indices.shape[0] + 1,
-                                      dtype=pointers.dtype)
-        pointers_selection[1:] = np.cumsum(
-            pointers[indices + 1] - pointers[indices])
-        val_indices = [np.arange(pointers[i], pointers[i + 1])
-                       for i in indices]
-        # Can't np.concatenate the nb.list here for some reason, so we
-        # need to np.concatenate outside of the @njit scope
-        return pointers_selection, val_indices
+        # Create the new pointers
+        pointers_new = torch.cat([
+            torch.zeros(1, dtype=pointers.dtype, device=device),
+            torch.cumsum(pointers[indices + 1] - pointers[indices], 0)])
+
+        # Create the indexing tensor to select and order values.
+        # Simply, we could have used a list of slices but we want to
+        # avoid for loops and list concatenations to benefit from torch
+        # capabilities.
+        sizes = pointers_new[1:] - pointers_new[:-1]
+        val_idx = torch.arange(pointers_new[-1]).to(device)
+        val_idx -= torch.repeat_interleave(
+            torch.arange(pointers_new[-1] + 1)[pointers_new[:-1]],
+            sizes).to(device)
+        val_idx += torch.repeat_interleave(pointers[indices], sizes).to(device)
+
+        return pointers_new, val_idx
+
+    # @staticmethod
+    # def _index_select_pointers(pointers: torch.LongTensor,
+    #                            indices: torch.LongTensor):
+    #     """
+    #     Index selection of pointers.
+    #
+    #     Returns a new pointer tensor with updated pointers, along with an
+    #     indices tensor to be used to update any values tensor associated with
+    #     the input pointers.
+    #     """
+    #     assert indices.max() <= pointers.shape[0] - 2
+    #     device = pointers.device
+    #     pointers_updated, val_indices = CSRData._index_select_pointers_numba(
+    #         np.asarray(pointers.cpu()), np.asarray(indices.cpu()))
+    #     return torch.from_numpy(pointers_updated).to(device), torch.from_numpy(
+    #         np.concatenate(val_indices)).to(device)
+    #
+    # @staticmethod
+    # @njit(cache=True, nogil=True)
+    # def _index_select_pointers_numba(pointers: np.ndarray,
+    #                                  indices: np.ndarray):
+    #     pointers_selection = np.zeros(indices.shape[0] + 1,
+    #                                   dtype=pointers.dtype)
+    #     pointers_selection[1:] = np.cumsum(
+    #         pointers[indices + 1] - pointers[indices])
+    #     val_indices = [np.arange(pointers[i], pointers[i + 1])
+    #                    for i in indices]
+    #     # Can't np.concatenate the nb.list here for some reason, so we
+    #     # need to np.concatenate outside of the @njit scope
+    #     return pointers_selection, val_indices
 
     def __getitem__(self, idx):
         """

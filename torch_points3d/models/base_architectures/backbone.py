@@ -195,3 +195,7 @@ class BackboneBasedModel(BaseModel, ABC):
         args["index"] = index
         module = self._module_factories[modality].get_module(flow)
         return module(**args)
+
+    @property
+    def modalities(self):
+        return self._modalities
