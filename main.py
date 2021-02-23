@@ -1,7 +1,15 @@
 
 import os
 import sys
+import numpy as np
+import torch
+import glob
+from matplotlib.colors import ListedColormap
 from omegaconf import OmegaConf
+from time import time
+
+_ = torch.cuda.is_available()
+_ = torch.cuda.memory_allocated()
 
 
 if __name__ == "__main__":
@@ -12,18 +20,13 @@ if __name__ == "__main__":
     sys.path.insert(0, DIR)
     from torch_points3d.datasets.segmentation.multimodal import S3DISFusedDataset
 
-    from time import time
     start = time()
+    dataset = torch.load('/home/ign.fr/drobert-admin/Bureau/s3dis_test_bckp.pt')
+    print(f"Time = {time() - start:0.1f} sec.")
 
-    dataset_options = OmegaConf.load(os.path.join('conf/data/segmentation/multimodal/s3disfused.yaml'))
-    # Set root to the DATA drive, where the data was downloaded
-    # dataset_options.data.dataroot = "/mnt/fa444ffd-fdb4-4701-88e7-f00297a8e29b/projects/datasets/s3dis_multimodal"
-    dataset_options.data.dataroot = "/media/drobert-admin/DATA/datasets/s3dis_tp3d_multimodal"
-    dataset = S3DISFusedDataset(dataset_options.data)
-    
-    print("Dataset")
-    print(dataset)
-    print("-" * 50 + "\n")
-
-    print()
-    print(f"Total preprocessing time: {time() - start:0.0f}")
+    n_iter = 200
+    start = time()
+    for _ in range(n_iter):
+        _ = dataset.train_dataset[0]
+    time_per_iter = (time() - start) / n_iter
+    print(f"Time per iteration: {time_per_iter:0.4f}")

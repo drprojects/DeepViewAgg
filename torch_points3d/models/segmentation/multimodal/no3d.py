@@ -15,9 +15,11 @@ log = logging.getLogger(__name__)
 
 
 class No3D(BaseModel, ABC):
-    _ALLOWS_HEAD = True
 
     def __init__(self, option, model_type, dataset, modules):
+        if not hasattr(self, '_HAS_HEAD'):
+            raise NotImplementedError
+
         # BaseModel init
         super().__init__(option)
 
@@ -26,7 +28,7 @@ class No3D(BaseModel, ABC):
         self._modalities = self.backbone._modalities
 
         # Segmentation head init
-        if self._ALLOWS_HEAD:
+        if self._HAS_HEAD:
             self.head = nn.Sequential(nn.Linear(self.backbone.output_nc,
                                                 dataset.num_classes))
         self.loss_names = ["loss_seg"]
@@ -48,7 +50,7 @@ class No3D(BaseModel, ABC):
         data = self.backbone(self.input)
         features = data.x
         seen_mask = data.seen
-        if self._ALLOWS_HEAD:
+        if self._HAS_HEAD:
             logits = self.head(features)
         else:
             logits = features
@@ -78,5 +80,9 @@ class No3D(BaseModel, ABC):
         self.loss_seg.backward()
 
 
-class No3DWithViewLogitFusion(No3D):
-    _ALLOWS_HEAD = False
+class No3DFeatureFusion(No3D):
+    _HAS_HEAD = True
+
+
+class No3DLogitFusion(No3D):
+    _HAS_HEAD = False
