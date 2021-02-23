@@ -1,7 +1,7 @@
 models:
     Res16UNet21-15_GN_WS:
         # 6.1 M params - 23.8 Mo on the GPU - ~7.2 ko/pixel at training time
-        class: no3d.no3dWithViewLogitFusion
+        class: no3d.No3DLogitFusion
         define_constants:
             in_feat: 32
             in_feat_img: 4
@@ -60,7 +60,7 @@ models:
 
     Res16UNet21-15_GN:
         # 6.1 M params - 23.8 Mo on the GPU - ~7.2 ko/pixel at training time
-        class: no3d.no3dWithViewLogitFusion
+        class: no3d.No3DLogitFusion
         define_constants:
             in_feat: 32
             in_feat_img: 4
@@ -119,7 +119,7 @@ models:
 
     Res16UNet21-15_BN:
         # 6.1 M params - 23.8 Mo on the GPU - ~7.2 ko/pixel at training time
-        class: no3d.no3dWithViewLogitFusion
+        class: no3d.No3DLogitFusion
         define_constants:
             in_feat: 32
             in_feat_img: 4
@@ -178,7 +178,7 @@ models:
 
     Res16UNet21-15_max:
         # 6.1 M params - 23.8 Mo on the GPU - ~7.2 ko/pixel at training time
-        class: no3d.No3D
+        class: no3d.No3DFeatureFusion
         define_constants:
             in_feat: 32
             in_feat_img: 4
