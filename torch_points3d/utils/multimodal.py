@@ -24,7 +24,7 @@ def tensor_idx(idx):
     return idx
 
 
-def lexsort(*args, use_cuda=False):
+def lexsort(*args, use_cuda=True):
     """Return input tensors sorted in lexicographic order."""
     device = 'cuda' if args[0].device.type == 'cuda' else 'cpu'
     if device == 'cuda':
@@ -39,7 +39,7 @@ def lexsort(*args, use_cuda=False):
     return out if len(out) > 1 else out[0]
 
 
-def lexargsort(*args, use_cuda=False):
+def lexargsort(*args, use_cuda=True):
     """Return indices to sort input tensors in lexicographic order."""
     device = 'cuda' if args[0].device.type == 'cuda' else 'cpu'
     if device == 'cuda':
@@ -53,7 +53,7 @@ def lexargsort(*args, use_cuda=False):
     return out.to(device)
 
 
-def lexunique(*args, use_cuda=False):
+def lexunique(*args, use_cuda=True):
     """Return unique values in the input tensors sorted in lexicographic
      order."""
     device = 'cuda' if args[0].device.type == 'cuda' else 'cpu'
@@ -69,7 +69,7 @@ def lexunique(*args, use_cuda=False):
     return out if len(out) > 1 else out[0]
 
 
-def lexargunique(*args, use_cuda=False):
+def lexargunique(*args, use_cuda=True):
     """Return indices to mapping input tensors to their unique values
     sorted sorted in lexicographic order.
     """
