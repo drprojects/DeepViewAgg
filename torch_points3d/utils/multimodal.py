@@ -24,62 +24,62 @@ def tensor_idx(idx):
     return idx
 
 
-def lexsort(*args, use_cuda=True):
+def lexsort(*args, use_cuda=False):
     """Return input tensors sorted in lexicographic order."""
-    device = 'cuda' if args[0].device.type == 'cuda' else 'cpu'
-    if device == 'cuda':
+    device = args[0].device
+    if device.type == 'cuda':
         use_cuda = True
     elif not torch.cuda.is_available():
         use_cuda = False
     if use_cuda:
-        out = cuda_lex_op(*args, op='sort')
+        out = cuda_lex_op(*args, op='sort', device=device)
     else:
         out = cpu_lex_op(*args, op='sort', torch_out=True)
     out = [x.to(device) for x in out]
     return out if len(out) > 1 else out[0]
 
 
-def lexargsort(*args, use_cuda=True):
+def lexargsort(*args, use_cuda=False):
     """Return indices to sort input tensors in lexicographic order."""
-    device = 'cuda' if args[0].device.type == 'cuda' else 'cpu'
-    if device == 'cuda':
+    device = args[0].device
+    if device.type == 'cuda':
         use_cuda = True
     elif not torch.cuda.is_available():
         use_cuda = False
     if use_cuda:
-        out = cuda_lex_op(*args, op='argsort')
+        out = cuda_lex_op(*args, op='argsort', device=device)
     else:
         out = cpu_lex_op(*args, op='argsort', torch_out=True)
     return out.to(device)
 
 
-def lexunique(*args, use_cuda=True):
+def lexunique(*args, use_cuda=False):
     """Return unique values in the input tensors sorted in lexicographic
      order."""
-    device = 'cuda' if args[0].device.type == 'cuda' else 'cpu'
-    if device == 'cuda':
+    device = args[0].device
+    if device.type == 'cuda':
         use_cuda = True
     elif not torch.cuda.is_available():
         use_cuda = False
     if use_cuda:
-        out = cuda_lex_op(*args, op='unique')
+        out = cuda_lex_op(*args, op='unique', device=device)
     else:
         out = cpu_lex_op(*args, op='unique', torch_out=True)
     out = [x.to(device) for x in out]
     return out if len(out) > 1 else out[0]
 
 
-def lexargunique(*args, use_cuda=True):
+def lexargunique(*args, use_cuda=False):
     """Return indices to mapping input tensors to their unique values
     sorted sorted in lexicographic order.
     """
-    device = 'cuda' if args[0].device.type == 'cuda' else 'cpu'
-    if device == 'cuda':
+    device = args[0].device
+    if device.type == 'cuda':
         use_cuda = True
     elif not torch.cuda.is_available():
         use_cuda = False
     if use_cuda:
-        out = cuda_lex_op(*args, op='argunique')
+        out = cuda_lex_op(*args, op='argunique', device=device)
     else:
         out = cpu_lex_op(*args, op='argunique', torch_out=True)
     return out.to(device)
@@ -103,13 +103,15 @@ class CompositeTensor:
         supported_formats = (torch.int8, torch.int16, torch.int32, torch.int64,
                              torch.bool)
         assert len(args) > 0, "At least one tensor must be provided."
-        if device == 'cuda':
+        if ((isinstance(device, str) and device == 'cuda')
+            or (isinstance(device, torch.device) and device.type == 'cuda')):
             assert torch.cuda.is_available(), "CUDA not found."
 
         # Convert input to cuda torch tensor
         tensor_list = [torch.from_numpy(a).to(device)
                        if isinstance(a, np.ndarray)
-                       else a.to(device) for a in args]
+                       else a.to(device)
+                       for a in args]
         assert tensor_list[0].ndim == 1, \
             'Only 1D tensors are accepted as input.'
         assert all([a.shape == tensor_list[0].shape for a in tensor_list]), \
@@ -217,7 +219,7 @@ class CompositeNDArray:
         return out
 
 
-def cuda_lex_op(*args, op='unique'):
+def cuda_lex_op(*args, op='unique', device='cuda'):
     """
     Lexicographic-aware operations on a set of input tensors on GPU.
 
@@ -228,7 +230,7 @@ def cuda_lex_op(*args, op='unique'):
     Returns torch cuda tensors.
     """
     # Create a composite cuda tensor holding the input data
-    composite = CompositeTensor(*args, device='cuda')
+    composite = CompositeTensor(*args, device=device)
 
     # Core operation on the composite tensor
     if op == 'unique':
@@ -240,7 +242,7 @@ def cuda_lex_op(*args, op='unique'):
         unique, inverse = torch.unique(
             composite.data, sorted=True, return_inverse=True)
         perm = torch.arange(
-            inverse.size(0), dtype=inverse.dtype, device=inverse.device)
+            inverse.size(0), dtype=inverse.dtype, device=device)
         inverse, perm = inverse.flip([0]), perm.flip([0])
         return inverse.new_empty(unique.size(0)).scatter_(0, inverse, perm)
     elif op == 'sort':

@@ -162,9 +162,9 @@ class CSRData(object):
         assert CSRData._is_sorted(indices), \
             "Indices must be sorted in increasing order."
         pointers = torch.cat([
-            torch.LongTensor([0]),
+            torch.LongTensor([0]).to(device),
             torch.where(indices[1:] > indices[:-1])[0] + 1,
-            torch.LongTensor([indices.shape[0]])])
+            torch.LongTensor([indices.shape[0]]).to(device)])
         return pointers
 
     # @staticmethod
@@ -243,8 +243,13 @@ class CSRData(object):
         else:
             num_groups = group_indices.max() + 1
 
-        repeats = torch.cat([group_indices, torch.LongTensor([num_groups])]) \
-                  - torch.cat([torch.LongTensor([-1]), group_indices])
+        starts = torch.cat([
+            torch.LongTensor([-1]).to(self.device),
+            group_indices.to(self.device)])
+        ends = torch.cat([
+            group_indices.to(self.device),
+            torch.LongTensor([num_groups]).to(self.device)])
+        repeats = ends - starts
         self.pointers = torch.repeat_interleave(self.pointers, repeats)
 
         return self
@@ -314,10 +319,11 @@ class CSRData(object):
         the input pointers.
         """
         assert indices.max() <= pointers.shape[0] - 2
+        device = pointers.device
 
         # Create the new pointers
         pointers_new = torch.cat([
-            torch.zeros(1, dtype=pointers.dtype),
+            torch.zeros(1, dtype=pointers.dtype, device=device),
             torch.cumsum(pointers[indices + 1] - pointers[indices], 0)])
 
         # Create the indexing tensor to select and order values.
@@ -325,11 +331,11 @@ class CSRData(object):
         # avoid for loops and list concatenations to benefit from torch
         # capabilities.
         sizes = pointers_new[1:] - pointers_new[:-1]
-        val_idx = torch.arange(pointers_new[-1])
+        val_idx = torch.arange(pointers_new[-1]).to(device)
         val_idx -= torch.repeat_interleave(
             torch.arange(pointers_new[-1] + 1)[pointers_new[:-1]],
-            sizes)
-        val_idx += torch.repeat_interleave(pointers[indices], sizes)
+            sizes).to(device)
+        val_idx += torch.repeat_interleave(pointers[indices], sizes).to(device)
 
         return pointers_new, val_idx
 
