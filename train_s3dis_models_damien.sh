@@ -63,6 +63,7 @@ DATASET=s3disfused-sparse
 #DATASET=s3disfused-sparse-norgb
 
 TRAINING=s3dis_benchmark/sparseconv3d
+#TRAINING=s3dis_benchmark/sparseconv3d_adam
 
 CHECKPOINT_DIR=""
 

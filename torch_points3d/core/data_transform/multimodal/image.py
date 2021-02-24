@@ -424,7 +424,6 @@ class PickImagesFromMappingArea(ImageTransform):
         return data, images[idx]
 
 
-
 class PickImagesFromMemoryCredit(ImageTransform):
     """
     Transform to cherry-pick SameSettingImageData from an ImageData
@@ -433,7 +432,7 @@ class PickImagesFromMemoryCredit(ImageTransform):
 
     _PROCESS_IMAGE_DATA = True
 
-    def __init__(self, credit=None, img_size=[], n_img=0):
+    def __init__(self, credit=None, img_size=[], k_coverage=0, n_img=0):
         if credit is not None:
             self.credit = credit
         elif len(img_size) == 2 and n_img > 0:
@@ -441,34 +440,90 @@ class PickImagesFromMemoryCredit(ImageTransform):
         else:
             raise ValueError(
                 "Either credit or img_size and n_img must be provided.")
+        self.use_coverage = k_coverage > 0
+        self.k_coverage = k_coverage
 
     def _process(self, data: Data, images: ImageData):
-        picked = [[] for _ in range(images.num_settings)]
-        setting_indices = [np.arange(im.num_views).tolist() for im in images]
-        setting_sizes = [im.img_size[0] * im.img_size[1] for im in images]
+        # We use lists in favor of arrays or tensors to facilitate
+        # item popping
+
+        # Compute the global indexing pair for each image and the list
+        # of picked image
+        picked = [[] for _ in range(images.num_views)]
+        img_indices = [[i, j] for i, im in enumerate(images)
+                       for j in range(im.num_views)]
+
+        # Compute the image sizes and viewed points boolean masks
+        img_sizes = [images[i].img_size[0] * images[i].img_size[1]
+                     for i, j in img_indices]
+
+        # Compute the unseen points boolean masks and split them in a
+        # list of masks for easier popping
+        if self.use_coverage:
+            img_unseen_points = torch.zeros(images.num_views, data.num_nodes,
+                                    dtype=torch.bool)
+            i_offset = 0
+            for im in images:
+                mappings = im.mappings
+                i_idx = mappings.images + i_offset
+                j_idx = torch.repeat_interleave(
+                    mappings.points,
+                    mappings.pointers[1:] - mappings.pointers[:-1])
+                img_unseen_points[i_idx, j_idx] = True
+                i_offset += im.num_views
+            img_unseen_points = [x.numpy() for x in img_unseen_points]
+
+        # Credit init
         credit = self.credit
 
-        assert credit > 0 and credit >= min(setting_sizes), \
+        assert credit > 0 and credit >= min(img_sizes), \
             f"Insufficient credit={credit} to pick any of the provided " \
-            f"images with min_size={min(setting_sizes)}."
+            f"images with min_size={min(img_sizes)}."
 
-        while credit > 0 and np.concatenate(setting_indices).size > 0 \
-                and credit >= min([size if len(idx) > 0 else credit + 1
-                                   for size, idx
-                                   in zip(setting_sizes, setting_indices)]):
-            setting_weights = [size * len(indices) if size <= credit else 0
-                               for size, indices in
-                               zip(setting_sizes, setting_indices)]
-            setting_probas = np.array(setting_weights) / sum(setting_weights)
+        while credit > 0 and len(img_indices) > 0 and credit >= min(img_sizes):
+            # Drop images that are too large to fit the remaining credit
+            for idx in range(len(img_indices), 0, -1):
+                if img_sizes[idx-1] > credit:
+                    img_indices.pop(idx-1)
+                    img_sizes.pop(idx-1)
+                    if self.use_coverage:
+                        img_unseen_points.pop(idx-1)
 
-            idx_set = np.random.choice(np.arange(images.num_settings),
-                                       p=setting_probas)
-            idx_set_left_img = np.random.randint(
-                low=0, high=len(setting_indices[idx_set]))
-            idx_img = setting_indices[idx_set].pop(idx_set_left_img)
+            # Compute the coverage factor for each image, defined as
+            # the normalized number of yet-unseen points each image
+            # carries
+            if self.use_coverage:
+                w_cov = np.array([x.sum() for x in img_unseen_points])
+                w_cov = self.k_coverage * w_cov / (w_cov.max() + 1)
+            else:
+                w_cov = np.zeros(len(img_indices))
 
-            picked[idx_set].append(idx_img)
-            credit -= setting_sizes[idx_set]
+            # Compute the size weights, defined as the normalized
+            # pixel area of each image
+            w_size = np.array(img_sizes) / np.array(img_sizes).max()
+
+            # Compute the weight of each image, based on its size and
+            # unseen points coverage
+            weights = w_size + w_cov
+
+            # Normalize the weights into probabilities
+            probas = weights / weights.sum()
+
+            # Pick one of the remaining images
+            idx = np.random.choice(np.arange(probas.shape[0]), p=probas)
+
+            # Pop the selected image from image attributes
+            i, j = img_indices.pop(idx)
+            s = img_sizes.pop(idx)
+            if self.use_coverage:
+                newly_seen = img_unseen_points.pop(idx)
+
+            # Update the picked images, unseen points and credit left
+            picked[i].append(j)
+            credit -= s
+            if self.use_coverage:
+                img_unseen_points = [np.logical_and(x, ~newly_seen)
+                                     for x in img_unseen_points]
 
         # Select the images, remove image data if need be
         images = ImageData([im[torch.LongTensor(idx)]
