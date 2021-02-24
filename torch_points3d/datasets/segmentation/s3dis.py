@@ -643,9 +643,11 @@ class S3DISFusedDataset(BaseDataset):
         sampling_format = dataset_opt.get("sampling_format", "sphere")
         dataset_cls = S3DISCylinder if sampling_format == "cylinder" else S3DISSphere
 
+        sample_per_epoch = dataset_opt.get('sample_per_epoch', 3000)
+
         self.train_dataset = dataset_cls(
             self._data_path,
-            sample_per_epoch=3000,
+            sample_per_epoch=sample_per_epoch,
             test_area=self.dataset_opt.fold,
             split="train",
             pre_collate_transform=self.pre_collate_transform,
