@@ -69,6 +69,9 @@ CHECKPOINT_DIR=""
 
 EPOCHS=200
 
+SPHERE_SAMPLES=3000
+#SPHERE_SAMPLES=2000
+
 WORKERS=2
 
 BATCH_SIZE=8
@@ -93,6 +96,7 @@ model_name=${MODEL_NAME} \
 lr_scheduler=${LR_SCHEDULER} \
 data.fold=${FOLD} \
 data.first_subsampling=${VOXEL} \
+data.sample_per_epoch=${SPHERE_SAMPLES} \
 data.dataroot=${DATA_ROOT} \
 wandb.log=True \
 wandb.name=${EXP_NAME} \
