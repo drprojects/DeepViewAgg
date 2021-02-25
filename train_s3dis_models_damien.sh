@@ -64,10 +64,14 @@ DATASET=s3disfused-sparse
 #DATASET=s3disfused-sparse-norgb
 
 TRAINING=s3dis_benchmark/sparseconv3d
+#TRAINING=s3dis_benchmark/sparseconv3d_adam
 
 CHECKPOINT_DIR=""
 
 EPOCHS=200
+
+SPHERE_SAMPLES=3000
+#SPHERE_SAMPLES=2000
 
 WORKERS=2
 
@@ -77,6 +81,8 @@ BATCH_SIZE=8
 BASE_LR=0.1
 
 LR_SCHEDULER=multi_step_s3dis
+
+EVAL_FREQUENCY=5
 
 #------------------------------------------------------------------------------#
 
@@ -91,8 +97,10 @@ training=${TRAINING} \
 model_type=${MODEL_TYPE} \
 model_name=${MODEL_NAME} \
 lr_scheduler=${LR_SCHEDULER} \
+eval_frequency=${EVAL_FREQUENCY} \
 data.fold=${FOLD} \
 data.first_subsampling=${VOXEL} \
+data.sample_per_epoch=${SPHERE_SAMPLES} \
 data.dataroot=${DATA_ROOT} \
 wandb.log=True \
 wandb.name=${EXP_NAME} \

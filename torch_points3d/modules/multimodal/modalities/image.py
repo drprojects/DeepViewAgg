@@ -6,12 +6,16 @@ from torch_points3d.utils.config import *
 from torch_points3d.core.common_modules import Seq, Identity
 
 
-def standardize_weights(weight):
+def standardize_weights(weight, scaled=False):
     weight_mean = weight.mean(dim=1, keepdim=True).mean(dim=2,
         keepdim=True).mean(dim=3, keepdim=True)
     weight = weight - weight_mean
     std = weight.view(weight.size(0), -1).std(dim=1).view(-1, 1, 1, 1) + 1e-5
-    weight = weight / std.expand_as(weight)
+    fan_in = torch.Tensor([weight.shape[1]])
+    if scaled:
+        weight = weight / (std.expand_as(weight) * torch.sqrt(fan_in))
+    else:
+        weight = weight / std.expand_as(weight)
     return weight
 
 
@@ -25,13 +29,15 @@ class Conv2dWS(nn.Conv2d, ABC):
 
     def __init__(self, in_channels, out_channels, kernel_size, stride=1,
                  padding=0, dilation=1, groups=1, bias=True,
-                 padding_mode='zeros'):
+                 padding_mode='zeros', scaled=False):
         super(Conv2dWS, self).__init__(in_channels, out_channels, kernel_size,
             stride=stride, padding=padding, dilation=dilation, groups=groups,
             bias=bias, padding_mode=padding_mode)
+        self.scaled = scaled
 
     def forward(self, x):
-        return self._conv_forward(x, standardize_weights(self.weight))
+        weights = standardize_weights(self.weight, scaled=self.scaled)
+        return self._conv_forward(x, weights)
 
 
 class ConvTranspose2dWS(nn.ConvTranspose2d, ABC):
@@ -42,11 +48,12 @@ class ConvTranspose2dWS(nn.ConvTranspose2d, ABC):
 
     def __init__(self, in_channels, out_channels, kernel_size, stride=1,
                  padding=0, output_padding=0, dilation=1, groups=1, bias=True,
-                 padding_mode='zeros'):
+                 padding_mode='zeros', scaled=False):
         super(ConvTranspose2dWS, self).__init__(in_channels, out_channels,
             kernel_size, stride=stride, padding=padding,
             output_padding=output_padding, dilation=dilation, groups=groups,
             bias=bias, padding_mode=padding_mode)
+        self.scaled = scaled
 
     def forward(self, x, output_size=None):
         if self.padding_mode != 'zeros':
@@ -56,9 +63,11 @@ class ConvTranspose2dWS(nn.ConvTranspose2d, ABC):
         output_padding = self._output_padding(x, output_size,
             self.stride, self.padding, self.kernel_size)
 
+        weights = standardize_weights(self.weight, scaled=self.scaled)
+
         return torch.nn.functional.conv_transpose2d(
-            x, standardize_weights(self.weight), self.bias, self.stride,
-            self.padding, output_padding, self.groups, self.dilation)
+            x, weights, self.bias, self.stride, self.padding, output_padding,
+            self.groups, self.dilation)
 
 
 class ResBlock(nn.Module, ABC):

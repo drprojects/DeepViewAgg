@@ -6,7 +6,7 @@ from torch_points3d.core.data_transform import SphereSampling
 from torch_points3d.core.multimodal.data import MAPPING_KEY
 from torch_points3d.core.multimodal.image import SameSettingImageData, \
     ImageMapping, ImageData
-from torch_points3d.utils.multimodal import lexunique
+from torch_points3d.utils.multimodal import lexunique, lexargunique
 import torchvision.transforms as T
 from .projection import compute_index_map
 from tqdm.auto import tqdm as tq
@@ -158,7 +158,7 @@ class MapImages(ImageTransform):
     """
 
     def __init__(self, ref_size=None, proj_upscale=None, voxel=None, r_max=None,
-                 r_min=None, growth_k=None, growth_r=None, empty=0, no_id=-1):
+                 r_min=None, growth_k=None, growth_r=None, empty=None, no_id=-1):
         self.key = MAPPING_KEY
         self.empty = empty
         self.no_id = no_id
@@ -201,6 +201,7 @@ class MapImages(ImageTransform):
         # Initialize the mapping arrays
         image_ids = []
         point_ids = []
+        features = []
         pixels = []
 
         from time import time
@@ -222,7 +223,7 @@ class MapImages(ImageTransform):
 
             # Projection to build the index map
             start = time()
-            id_map, _ = compute_index_map(
+            id_map, depth_map = compute_index_map(
                 (data_sample.pos - image.pos.squeeze()).numpy(),
                 getattr(data_sample, self.key).numpy(),
                 np.array(image.opk.squeeze()),
@@ -233,7 +234,7 @@ class MapImages(ImageTransform):
                 r_min=image.r_min,
                 growth_k=image.growth_k,
                 growth_r=image.growth_r,
-                empty=self.empty,
+                empty=self.empty if self.empty is not None else image.r_max+1,
                 no_id=self.no_id,
             )
             t_projection += time() - start
@@ -246,8 +247,10 @@ class MapImages(ImageTransform):
             # NB: no_id pixels are ignored
             start = time()
             id_map = torch.from_numpy(id_map)
+            depth_map = torch.from_numpy(depth_map)
             pix_x_, pix_y_ = torch.where(id_map != self.no_id)
             point_ids_ = id_map[(pix_x_, pix_y_)]
+            features_ = depth_map[(pix_x_, pix_y_)]
 
             # Skip image if no mapping was found
             if point_ids_.shape[0] == 0:
@@ -268,8 +271,9 @@ class MapImages(ImageTransform):
                 & (pix_x_ < image.crop_size[0])
                 & (pix_y_ < image.crop_size[1]))
             pix_x_ = pix_x_[cropped_in_idx]
-            pix_x_ = pix_x_[cropped_in_idx]
+            pix_y_ = pix_y_[cropped_in_idx]
             point_ids_ = point_ids_[cropped_in_idx]
+            features_ = features_[cropped_in_idx]
             pix_x_ = (pix_x_ // image.downscale).long()
             pix_y_ = (pix_y_ // image.downscale).long()
             t_coord_pixels += time() - start
@@ -277,8 +281,13 @@ class MapImages(ImageTransform):
             # Remove duplicate id-xy in low resolution
             # Sort by point id
             start = time()
-            point_ids_, pix_x_, pix_y_ = lexunique(point_ids_, pix_x_, pix_y_,
-                                                   use_cuda=True)
+            # point_ids_, pix_x_, pix_y_ = lexunique(point_ids_, pix_x_, pix_y_,
+            #                                        use_cuda=True)
+            unique_idx = lexargunique(point_ids_, pix_x_, pix_y_, use_cuda=True)
+            pix_x_ = pix_x_[unique_idx]
+            pix_y_ = pix_y_[unique_idx]
+            point_ids_ = point_ids_[unique_idx]
+            features_ = features_[unique_idx]
             t_unique_pixels += time() - start
 
             # Cast pixel coordinates to a dtype minimizing memory use
@@ -292,6 +301,7 @@ class MapImages(ImageTransform):
             start = time()
             image_ids.append(i_image)
             point_ids.append(point_ids_)
+            features.append(features_)
             pixels.append(pixels_)
             del pixels_, point_ids_
             t_append += time() - start
@@ -337,12 +347,13 @@ class MapImages(ImageTransform):
         image_ids = torch.repeat_interleave(
             image_ids, torch.LongTensor([x.shape[0] for x in point_ids]))
         point_ids = torch.cat(point_ids)
+        features = torch.cat(features)
         pixels = torch.cat(pixels)
         print(f"        t_concat_dense_mappings_data: {time() - start:0.3f}")
 
         start = time()
         mappings = ImageMapping.from_dense(
-            point_ids, image_ids, pixels,
+            point_ids, image_ids, pixels, features,
             num_points=getattr(data, self.key).numpy().max() + 1)
         print(f"        t_ImageMapping_init: {time() - start:0.3f}\n")
 
@@ -424,7 +435,6 @@ class PickImagesFromMappingArea(ImageTransform):
         return data, images[idx]
 
 
-
 class PickImagesFromMemoryCredit(ImageTransform):
     """
     Transform to cherry-pick SameSettingImageData from an ImageData
@@ -433,7 +443,7 @@ class PickImagesFromMemoryCredit(ImageTransform):
 
     _PROCESS_IMAGE_DATA = True
 
-    def __init__(self, credit=None, img_size=[], n_img=0):
+    def __init__(self, credit=None, img_size=[], k_coverage=0, n_img=0):
         if credit is not None:
             self.credit = credit
         elif len(img_size) == 2 and n_img > 0:
@@ -441,34 +451,90 @@ class PickImagesFromMemoryCredit(ImageTransform):
         else:
             raise ValueError(
                 "Either credit or img_size and n_img must be provided.")
+        self.use_coverage = k_coverage > 0
+        self.k_coverage = k_coverage
 
     def _process(self, data: Data, images: ImageData):
-        picked = [[] for _ in range(images.num_settings)]
-        setting_indices = [np.arange(im.num_views).tolist() for im in images]
-        setting_sizes = [im.img_size[0] * im.img_size[1] for im in images]
+        # We use lists in favor of arrays or tensors to facilitate
+        # item popping
+
+        # Compute the global indexing pair for each image and the list
+        # of picked image
+        picked = [[] for _ in range(images.num_views)]
+        img_indices = [[i, j] for i, im in enumerate(images)
+                       for j in range(im.num_views)]
+
+        # Compute the image sizes and viewed points boolean masks
+        img_sizes = [images[i].img_size[0] * images[i].img_size[1]
+                     for i, j in img_indices]
+
+        # Compute the unseen points boolean masks and split them in a
+        # list of masks for easier popping
+        if self.use_coverage:
+            img_unseen_points = torch.zeros(images.num_views, data.num_nodes,
+                                    dtype=torch.bool)
+            i_offset = 0
+            for im in images:
+                mappings = im.mappings
+                i_idx = mappings.images + i_offset
+                j_idx = torch.repeat_interleave(
+                    mappings.points,
+                    mappings.pointers[1:] - mappings.pointers[:-1])
+                img_unseen_points[i_idx, j_idx] = True
+                i_offset += im.num_views
+            img_unseen_points = [x.numpy() for x in img_unseen_points]
+
+        # Credit init
         credit = self.credit
 
-        assert credit > 0 and credit >= min(setting_sizes), \
+        assert credit > 0 and credit >= min(img_sizes), \
             f"Insufficient credit={credit} to pick any of the provided " \
-            f"images with min_size={min(setting_sizes)}."
+            f"images with min_size={min(img_sizes)}."
 
-        while credit > 0 and np.concatenate(setting_indices).size > 0 \
-                and credit >= min([size if len(idx) > 0 else credit + 1
-                                   for size, idx
-                                   in zip(setting_sizes, setting_indices)]):
-            setting_weights = [size * len(indices) if size <= credit else 0
-                               for size, indices in
-                               zip(setting_sizes, setting_indices)]
-            setting_probas = np.array(setting_weights) / sum(setting_weights)
+        while credit > 0 and len(img_indices) > 0 and credit >= min(img_sizes):
+            # Drop images that are too large to fit the remaining credit
+            for idx in range(len(img_indices), 0, -1):
+                if img_sizes[idx-1] > credit:
+                    img_indices.pop(idx-1)
+                    img_sizes.pop(idx-1)
+                    if self.use_coverage:
+                        img_unseen_points.pop(idx-1)
 
-            idx_set = np.random.choice(np.arange(images.num_settings),
-                                       p=setting_probas)
-            idx_set_left_img = np.random.randint(
-                low=0, high=len(setting_indices[idx_set]))
-            idx_img = setting_indices[idx_set].pop(idx_set_left_img)
+            # Compute the coverage factor for each image, defined as
+            # the normalized number of yet-unseen points each image
+            # carries
+            if self.use_coverage:
+                w_cov = np.array([x.sum() for x in img_unseen_points])
+                w_cov = self.k_coverage * w_cov / (w_cov.max() + 1)
+            else:
+                w_cov = np.zeros(len(img_indices))
 
-            picked[idx_set].append(idx_img)
-            credit -= setting_sizes[idx_set]
+            # Compute the size weights, defined as the normalized
+            # pixel area of each image
+            w_size = np.array(img_sizes) / np.array(img_sizes).max()
+
+            # Compute the weight of each image, based on its size and
+            # unseen points coverage
+            weights = w_size + w_cov
+
+            # Normalize the weights into probabilities
+            probas = weights / weights.sum()
+
+            # Pick one of the remaining images
+            idx = np.random.choice(np.arange(probas.shape[0]), p=probas)
+
+            # Pop the selected image from image attributes
+            i, j = img_indices.pop(idx)
+            s = img_sizes.pop(idx)
+            if self.use_coverage:
+                newly_seen = img_unseen_points.pop(idx)
+
+            # Update the picked images, unseen points and credit left
+            picked[i].append(j)
+            credit -= s
+            if self.use_coverage:
+                img_unseen_points = [np.logical_and(x, ~newly_seen)
+                                     for x in img_unseen_points]
 
         # Select the images, remove image data if need be
         images = ImageData([im[torch.LongTensor(idx)]
