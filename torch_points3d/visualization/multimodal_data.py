@@ -298,7 +298,8 @@ def visualize_2d(
         # Get the mapping of all points in the sample
         idx = im.mappings.feature_map_indexing
 
-        color_mode = color_mode if color_mode in ['light', 'rgb', 'pos', 'y'] \
+        color_mode = color_mode \
+            if color_mode in ['light', 'rgb', 'pos', 'y', 'feat'] \
             else 'light'
         if color_mode == 'y' and class_colors is None:
             color_mode = 'light'
@@ -349,6 +350,35 @@ def visualize_2d(
                 im.mappings.values[1].pointers[1:]
                 - im.mappings.values[1].pointers[:-1],
                 dim=0)
+
+        elif color_mode == 'feat':
+            # Set mapping mask to first-encountered feature
+            color = torch.repeat_interleave(
+                im.mappings.features,
+                im.mappings.values[1].pointers[1:]
+                - im.mappings.values[1].pointers[:-1])
+            color = (color - color.min()) / (color.max() + 1e-6)
+            color = (color * 255).type(torch.uint8)
+
+            if color.dim() == 1:
+                color = color.unsqueeze(1)
+            elif color.dim() > 2:
+                raise NotImplementedError
+
+            if color.shape[1] == 1:
+                # If only 1 feature is found convert to a 3-channel
+                # repetition for black-and-white visualization
+                color = torch.repeat_interleave(color, 3, 1)
+            elif color.shape[1] == 2:
+                # If 2 features are found, add an extra channel of 127
+                color = torch.cat([color,
+                    torch.full((color.shape[0], 1), 127)], 1)
+                color = torch.cat([])
+            elif color.shape[1] > 3:
+                # If more than 3 features or more are found, project
+                # features to a 3-dimensional space using PCA
+                # TODO: compute PCA
+                raise NotImplementedError
 
         # Apply the coloring to the mapping masks
         im.x[idx] = color
