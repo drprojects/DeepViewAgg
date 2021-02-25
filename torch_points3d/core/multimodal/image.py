@@ -549,8 +549,6 @@ class SameSettingImageData(object):
 
         Returns a new SameSettingImageData object.
         """
-        # TODO: careful with the device used at train time. Can't rely
-        #  on CUDA...
         # TODO: make sure the merge mode works on real data...
 
         # Images are not affected if no mappings are present or idx is
@@ -845,7 +843,7 @@ class SameSettingImageData(object):
         """
         # Assert shared keys are the same for all items
         keys = tuple(set(SameSettingImageData._shared_keys)
-                     - set([SameSettingImageData._mask_key]))
+                     - {SameSettingImageData._mask_key})
         return hash(tuple(getattr(self, k) for k in keys))
 
     @staticmethod
@@ -1211,9 +1209,6 @@ class ImageBatch(ImageData):
         # SameSettingImageData idx in ImageData
         im_idx_dict = {h: [] for h in hashes}
 
-        # Number of points in the SameSettingImageData mappings
-        n_pts_dict = {h: [] for h in hashes}
-
         # Distribute the SameSettingImageData to its relevant hash
         batches = [[]] * len(hashes)
         for il_idx, il in enumerate(image_data_list):
@@ -1266,8 +1261,8 @@ class ImageBatch(ImageData):
                     self.__im_idx_dict__[h],
                     ib.to_data_list()):
                 # Restore the point ids in the mappings
-                im.mappings = im.mappings[self.__cum_pts__[il_idx]
-                                          :self.__cum_pts__[il_idx+1]]
+                im.mappings = im.mappings[
+                    self.__cum_pts__[il_idx]:self.__cum_pts__[il_idx+1]]
 
                 # Update the list of MultiSettingImages with each
                 # SameSettingImageData in its original position
@@ -1280,10 +1275,8 @@ class ImageBatch(ImageData):
 class ImageMapping(CSRData):
     """CSRData format for point-image-pixel mappings."""
 
-    # TODO: expand to optional projection features in the view-level mappings
-
     @staticmethod
-    def from_dense(point_ids, image_ids, pixels, num_points=None):
+    def from_dense(point_ids, image_ids, pixels, features, num_points=None):
         """
         Recommended method for building an ImageMapping from dense data.
         """
@@ -1293,12 +1286,16 @@ class ImageMapping(CSRData):
             'point_ids and image_ids must have the same shape'
         assert point_ids.shape[0] == pixels.shape[0], \
             'pixels and indices must have the same shape'
+        assert features is None or point_ids.shape == features.shape, \
+            'point_ids and features must have the same shape'
 
         # Sort by point_ids first, image_ids second
         idx_sort = lexargsort(point_ids, image_ids)
         image_ids = image_ids[idx_sort]
         point_ids = point_ids[idx_sort]
         pixels = pixels[idx_sort]
+        if features is not None:
+            features = features[idx_sort]
         del idx_sort
 
         # Convert to "nested CSRData" format.
@@ -1311,15 +1308,28 @@ class ImageMapping(CSRData):
         del composite_ids
 
         # Compress point_ids and image_ids by taking the last value of
-        # each pointer
+        # each pointer. For features, take the mean across the pixel
+        # masks
         image_ids = image_ids[image_pixel_mappings.pointers[1:] - 1]
         point_ids = point_ids[image_pixel_mappings.pointers[1:] - 1]
+        if features is not None:
+            if torch.cuda.is_available():
+                features = torch_scatter.segment_csr(features.cuda(),
+                    image_pixel_mappings.pointers.cuda(), reduce='mean').cpu()
+            else:
+                features = torch_scatter.segment_csr(features,
+                    image_pixel_mappings.pointers, reduce='mean')
 
         # Instantiate the main CSRData object
         # Compute point pointers in the image_ids array
-        mapping = ImageMapping(
-            point_ids, image_ids, image_pixel_mappings, dense=True,
-            is_index_value=[True, False])
+        if features is None:
+            mapping = ImageMapping(
+                point_ids, image_ids, image_pixel_mappings, dense=True,
+                is_index_value=[True, False])
+        else:
+            mapping = ImageMapping(
+                point_ids, image_ids, image_pixel_mappings, features,
+                dense=True, is_index_value=[True, False, False])
 
         # Some points may have been seen by no image so we need to
         # inject 0-sized pointers to account for these.
@@ -1342,10 +1352,9 @@ class ImageMapping(CSRData):
         super(ImageMapping, self).debug()
 
         # ImageMapping-specific debug
-        # TODO: change here to account for projection features
-        assert len(self.values) == 2, \
+        assert len(self.values) == 2 or self.has_features, \
             f"CSRData format does not match that of ImageMapping: " \
-            f"len(values) should be 2 but is {len(self.values)}."
+            f"len(values) should be 2 or 3 but is {len(self.values)}."
         assert isinstance(self.values[1], CSRData), \
             f"CSRData format does not match that of ImageMapping: " \
             f"values[1] is {type(self.values[1])} but should inherit " \
@@ -1366,6 +1375,22 @@ class ImageMapping(CSRData):
     @images.setter
     def images(self, images):
         self.values[0] = images.to(self.device)
+
+    @property
+    def has_features(self):
+        return len(self.values) == 3
+
+    @property
+    def features(self):
+        return self.values[2] if self.has_features else None
+
+    @features.setter
+    def features(self, features):
+        if self.has_features:
+            self.values[2] = features.to(self.device)
+        else:
+            self.values.append(features.to(self.device))
+            self.debug()
 
     @property
     def pixels(self):
@@ -1440,8 +1465,6 @@ class ImageMapping(CSRData):
 
         Returns a new ImageMapping object.
         """
-        # TODO: careful with the device used at train time. Can't rely
-        #  on CUDA...
         assert ratio >= 1, \
             f"Invalid image subsampling ratio: {ratio}. Must be larger than 1."
 
@@ -1564,8 +1587,6 @@ class ImageMapping(CSRData):
 
         Returns a new ImageMapping object.
         """
-        # TODO: careful with the device used at train time. Can't rely
-        #  on CUDA...
         # TODO: make sure the merge mode works on real data...
         MODES = ['pick', 'merge']
         assert mode in MODES, \
@@ -1599,6 +1620,12 @@ class ImageMapping(CSRData):
             image_ids = torch.repeat_interleave(
                 self.images,
                 self.values[1].pointers[1:] - self.values[1].pointers[:-1])
+            if self.has_features:
+                features = torch.repeat_interleave(
+                    self.features,
+                    self.values[1].pointers[1:] - self.values[1].pointers[:-1])
+            else:
+                features = None
             pixels = self.pixels
 
             # Remove duplicates and aggregate projection features
@@ -1606,11 +1633,12 @@ class ImageMapping(CSRData):
                                       pixels[:, 1])
             point_ids = point_ids[idx_unique]
             image_ids = image_ids[idx_unique]
+            features = features[idx_unique] if features is not None else None
             pixels = pixels[idx_unique]
 
             # Convert to CSR format
             out = ImageMapping.from_dense(point_ids, image_ids, pixels,
-                                          num_points=idx.max()+1)
+                features, num_points=idx.max()+1)
         else:
             raise ValueError(f"Unknown point selection mode '{mode}'.")
 
@@ -1631,7 +1659,6 @@ class ImageMapping(CSRData):
         assumes the same cropping is also applied to the corresponding
         SameSettingImageData.
         """
-        # TODO: expand to handle projection features here too
         assert crop_offsets.shape == (torch.unique(self.images).shape[0], 2), \
             f"Expected crop_offsets to have shape " \
             f"{(torch.unique(self.images).shape[0], 2)} but got shape " \
@@ -1666,18 +1693,25 @@ class ImageMapping(CSRData):
         point_ids = torch.repeat_interleave(
             point_ids,
             self.values[1].pointers[1:] - self.values[1].pointers[:-1])
-        image_ids = torch.repeat_interleave(
-            self.images,
-            self.values[1].pointers[1:] - self.values[1].pointers[:-1])
+        # image_ids = torch.repeat_interleave(
+        #     self.images,
+        #     self.values[1].pointers[1:] - self.values[1].pointers[:-1])
+        if self.has_features:
+            features = torch.repeat_interleave(
+                self.features,
+                self.values[1].pointers[1:] - self.values[1].pointers[:-1])
+        else:
+            features = None
 
         # Select only the valid mappings and create a mapping
         point_ids = point_ids[cropped_in_idx]
         image_ids = image_ids[cropped_in_idx]
+        features = features[cropped_in_idx] if features is not None else None
         pixels = pixels[cropped_in_idx]
 
         # Convert to CSR format
-        return ImageMapping.from_dense(point_ids, image_ids, pixels,
-                                       num_points=self.num_groups)
+        return ImageMapping.from_dense(point_ids, image_ids, pixels, features,
+            num_points=self.num_groups)
 
 
 class ImageMappingBatch(ImageMapping, CSRBatch):

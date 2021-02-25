@@ -6,7 +6,7 @@ from torch_points3d.core.data_transform import SphereSampling
 from torch_points3d.core.multimodal.data import MAPPING_KEY
 from torch_points3d.core.multimodal.image import SameSettingImageData, \
     ImageMapping, ImageData
-from torch_points3d.utils.multimodal import lexunique
+from torch_points3d.utils.multimodal import lexunique, lexargunique
 import torchvision.transforms as T
 from .projection import compute_index_map
 from tqdm.auto import tqdm as tq
@@ -158,7 +158,7 @@ class MapImages(ImageTransform):
     """
 
     def __init__(self, ref_size=None, proj_upscale=None, voxel=None, r_max=None,
-                 r_min=None, growth_k=None, growth_r=None, empty=0, no_id=-1):
+                 r_min=None, growth_k=None, growth_r=None, empty=None, no_id=-1):
         self.key = MAPPING_KEY
         self.empty = empty
         self.no_id = no_id
@@ -201,6 +201,7 @@ class MapImages(ImageTransform):
         # Initialize the mapping arrays
         image_ids = []
         point_ids = []
+        features = []
         pixels = []
 
         from time import time
@@ -222,7 +223,7 @@ class MapImages(ImageTransform):
 
             # Projection to build the index map
             start = time()
-            id_map, _ = compute_index_map(
+            id_map, depth_map = compute_index_map(
                 (data_sample.pos - image.pos.squeeze()).numpy(),
                 getattr(data_sample, self.key).numpy(),
                 np.array(image.opk.squeeze()),
@@ -233,7 +234,7 @@ class MapImages(ImageTransform):
                 r_min=image.r_min,
                 growth_k=image.growth_k,
                 growth_r=image.growth_r,
-                empty=self.empty,
+                empty=self.empty if self.empty is not None else image.r_max+1,
                 no_id=self.no_id,
             )
             t_projection += time() - start
@@ -246,8 +247,10 @@ class MapImages(ImageTransform):
             # NB: no_id pixels are ignored
             start = time()
             id_map = torch.from_numpy(id_map)
+            depth_map = torch.from_numpy(depth_map)
             pix_x_, pix_y_ = torch.where(id_map != self.no_id)
             point_ids_ = id_map[(pix_x_, pix_y_)]
+            features_ = depth_map[(pix_x_, pix_y_)]
 
             # Skip image if no mapping was found
             if point_ids_.shape[0] == 0:
@@ -268,8 +271,9 @@ class MapImages(ImageTransform):
                 & (pix_x_ < image.crop_size[0])
                 & (pix_y_ < image.crop_size[1]))
             pix_x_ = pix_x_[cropped_in_idx]
-            pix_x_ = pix_x_[cropped_in_idx]
+            pix_y_ = pix_y_[cropped_in_idx]
             point_ids_ = point_ids_[cropped_in_idx]
+            features_ = features_[cropped_in_idx]
             pix_x_ = (pix_x_ // image.downscale).long()
             pix_y_ = (pix_y_ // image.downscale).long()
             t_coord_pixels += time() - start
@@ -277,8 +281,13 @@ class MapImages(ImageTransform):
             # Remove duplicate id-xy in low resolution
             # Sort by point id
             start = time()
-            point_ids_, pix_x_, pix_y_ = lexunique(point_ids_, pix_x_, pix_y_,
-                                                   use_cuda=True)
+            # point_ids_, pix_x_, pix_y_ = lexunique(point_ids_, pix_x_, pix_y_,
+            #                                        use_cuda=True)
+            unique_idx = lexargunique(point_ids_, pix_x_, pix_y_, use_cuda=True)
+            pix_x_ = pix_x_[unique_idx]
+            pix_y_ = pix_y_[unique_idx]
+            point_ids_ = point_ids_[unique_idx]
+            features_ = features_[unique_idx]
             t_unique_pixels += time() - start
 
             # Cast pixel coordinates to a dtype minimizing memory use
@@ -292,6 +301,7 @@ class MapImages(ImageTransform):
             start = time()
             image_ids.append(i_image)
             point_ids.append(point_ids_)
+            features.append(features_)
             pixels.append(pixels_)
             del pixels_, point_ids_
             t_append += time() - start
@@ -337,12 +347,13 @@ class MapImages(ImageTransform):
         image_ids = torch.repeat_interleave(
             image_ids, torch.LongTensor([x.shape[0] for x in point_ids]))
         point_ids = torch.cat(point_ids)
+        features = torch.cat(features)
         pixels = torch.cat(pixels)
         print(f"        t_concat_dense_mappings_data: {time() - start:0.3f}")
 
         start = time()
         mappings = ImageMapping.from_dense(
-            point_ids, image_ids, pixels,
+            point_ids, image_ids, pixels, features,
             num_points=getattr(data, self.key).numpy().max() + 1)
         print(f"        t_ImageMapping_init: {time() - start:0.3f}\n")
 
