@@ -17,18 +17,21 @@ class BimodalFusion(nn.Module, ABC):
     main modality
     """
 
-    MODES = ['residual', 'concatenation']
+    MODES = ['residual', 'concatenation', 'both']
 
     def __init__(self, mode='residual', **kwargs):
         super(BimodalFusion, self).__init__()
-        assert mode in self.MODES, 'Unknown fusion mode: {mode}'
         self.mode = mode
         if self.mode == 'residual':
             self.f = lambda a, b: a + b
         elif self.mode == 'concatenation':
             self.f = lambda a, b: torch.cat((a, b), dim=-1)
+        elif self.mode == 'both':
+            self.f = lambda a, b: torch.cat((a, a + b), dim=-1)
         else:
-            raise NotImplementedError
+            raise NotImplementedError(
+                f"Unknown fusion mode='{mode}'. Please choose among "
+                f"supported modes: {self.MODES}.")
 
     def forward(self, x_main, x_mod):
         if x_main is None:
