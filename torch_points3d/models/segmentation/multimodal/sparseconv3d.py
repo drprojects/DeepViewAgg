@@ -13,7 +13,7 @@ class LateFeatureFusion(APIModel):
     with late feature fusion mechanism.
     """
 
-    MODES = ['residual', 'concatenation']
+    MODES = ['residual', 'concatenation', 'both']
 
     def __init__(self, option, model_type, dataset, modules):
         # call the initialization method of UnetBasedModel
@@ -56,10 +56,20 @@ class LateFeatureFusion(APIModel):
             self.head = nn.Sequential(nn.Linear(
                 self.backbone_3d.output_nc + self.backbone_no3d.output_nc,
                 dataset.num_classes))
+        elif self.mode == 'both':
+            assert self.backbone_3d.output_nc == self.backbone_no3d.output_nc, \
+                f"Backbones output dimensions must be the same. Received " \
+                f"backbone_3d.output_nc={self.backbone_3d.output_nc} and " \
+                f"backbone_no3d.output_nc={self.backbone_no3d.output_nc} " \
+                f"instead."
+            self.fusion = lambda a, b: torch.cat((a, a + b), dim=-1)
+            self.head = nn.Sequential(nn.Linear(
+                self.backbone_3d.output_nc + self.backbone_no3d.output_nc,
+                dataset.num_classes))
         else:
             raise NotImplementedError(
-                f"Unknown mode='{self.mode}'. Please choose among supported "
-                f"modes: {self.MODES}")
+                f"Unknown fusion mode='{self.mode}'. Please choose among "
+                f"supported modes: {self.MODES}.")
 
         self.loss_names = ["loss_seg"]
 
