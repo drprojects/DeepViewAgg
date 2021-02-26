@@ -43,13 +43,20 @@ class RemoveAttributes(object):
         self._attr_names = attr_names
         self._strict = strict
 
-    def __call__(self, data):
+    def _process(self, data: Data):
         keys = set(data.keys)
         for attr_name in self._attr_names:
             if attr_name not in keys and self._strict:
                 raise Exception("attr_name: {} isn t within keys: {}".format(attr_name, keys))
         for attr_name in self._attr_names:
             delattr(data, attr_name)
+        return data
+
+    def __call__(self, data):
+        if isinstance(data, list):
+            data = [self._process(d) for d in data]
+        else:
+            data = self._process(data)
         return data
 
     def __repr__(self):
