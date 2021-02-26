@@ -91,32 +91,42 @@ class GridSampling3D:
     size: float
         Size of a voxel (in each dimension).
     quantize_coords: bool
-        If True, it will convert the points into their associated sparse coordinates within the grid and store
-        the value into a new `coords` attribute
+        If True, it will convert the points into their associated sparse
+        coordinates within the grid and store the value into a new
+        `coords` attribute.
     mode: string:
         The mode can be either `last` or `mean`.
-        If mode is `mean`, all the points and their features within a cell will be averaged
-        If mode is `last`, one random points per cell will be selected with its associated features
+        If mode is `mean`, all the points and their features within a
+        cell will be averaged. If mode is `last`, one random points per
+        cell will be selected with its associated features.
+    setattr_full_pos: bool
+        If True, the input point positions will be saved into a new
+        'full_pos' attribute. This memory-costly step may reveal
+        necessary for subsequent local feature computation.
     """
 
-    def __init__(self, size, quantize_coords=False, mode="mean", verbose=False):
+    def __init__(self, size, quantize_coords=False, mode="mean", verbose=False,
+                 setattr_full_pos=False):
         self._grid_size = size
         self._quantize_coords = quantize_coords
         self._mode = mode
+        self._setattr_full_pos = setattr_full_pos
         if verbose:
             log.warning(
-                "If you need to keep track of the position of your points, use SaveOriginalPosId transform before using GridSampling3D"
-            )
+                "If you need to keep track of the position of your points, use "
+                "SaveOriginalPosId transform before using GridSampling3D.")
 
             if self._mode == "last":
                 log.warning(
-                    "The tensors within data will be shuffled each time this transform is applied. Be careful that if an attribute doesn't have the size of num_points, it won't be shuffled"
-                )
+                    "The tensors within data will be shuffled each time this "
+                    "transform is applied. Be careful that if an attribute "
+                    "doesn't have the size of num_points, it won't be shuffled")
 
     def _process(self, data):
         if self._mode == "last":
             data = shuffle_data(data)
 
+        full_pos = data.pos
         coords = torch.round((data.pos) / self._grid_size)
         if "batch" not in data:
             cluster = grid_cluster(coords, torch.tensor([1, 1, 1]))
@@ -129,6 +139,15 @@ class GridSampling3D:
             data.coords = coords[unique_pos_indices].int()
 
         data.grid_size = torch.tensor([self._grid_size])
+
+        # Keep track of the initial full-resolution point cloud for
+        # later use. Typically needed for local features computation.
+        # However, for obvious memory-wary considerations, it is
+        # recommended to delete the 'full_pos' attribute as soon as it
+        # is no longer needed.
+        if self._setattr_full_pos:
+            data.full_pos = full_pos
+
         return data
 
     def __call__(self, data):
