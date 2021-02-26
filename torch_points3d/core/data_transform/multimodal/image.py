@@ -731,6 +731,7 @@ class PadImages(ImageTransform):
 
 class AddPixelHeightFeature(ImageTransform):
     """Transform to add the pixel height to the image features."""
+    # TODO: take crop and roll into account to call anytime
     def _process(self, data: Data, images: SameSettingImageData):
         if images.x is None:
             images.load()
@@ -745,6 +746,7 @@ class AddPixelHeightFeature(ImageTransform):
     
 class AddPixelWidthFeature(ImageTransform):
     """Transform to add the pixel width to the image features."""
+    # TODO: take crop and roll into account to call anytime
     def _process(self, data: Data, images: SameSettingImageData):
         if images.x is None:
             images.load()
