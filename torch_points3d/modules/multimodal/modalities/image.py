@@ -11,9 +11,10 @@ def standardize_weights(weight, scaled=False):
         keepdim=True).mean(dim=3, keepdim=True)
     weight = weight - weight_mean
     std = weight.view(weight.size(0), -1).std(dim=1).view(-1, 1, 1, 1) + 1e-5
-    fan_in = torch.Tensor([weight.shape[1]])
+    fan_in = torch.Tensor([weight.shape[1]]).to(weight.device)
     if scaled:
         weight = weight / (std.expand_as(weight) * torch.sqrt(fan_in))
+        # ALSO ... scale ReLU by sqrt(2 / (1 - 1/pi)) ...
     else:
         weight = weight / std.expand_as(weight)
     return weight
