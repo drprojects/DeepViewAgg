@@ -83,10 +83,11 @@ class MMData(object):
         return self.data.num_node_features
 
     def to(self, device):
-        self.data = self.data.to(device)
-        self.modalities = {mod: data_mod.to(device)
-                           for mod, data_mod in self.modalities.items()}
-        return self
+        out = self.clone()
+        out.data = out.data.to(device)
+        out.modalities = {mod: data_mod.to(device)
+                          for mod, data_mod in out.modalities.items()}
+        return out
 
     @property
     def device(self):

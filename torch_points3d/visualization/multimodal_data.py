@@ -30,6 +30,43 @@ def rgb_to_plotly_rgb(rgb):
     return [f"rgb{tuple(x)}" for x in (rgb * 255).int().numpy()]
 
 
+def feats_to_rgb(feats):
+    """Convert features of the format M x N with N>=1 to an M x 3
+    tensor with values in [0, 1 for RGB visualization].
+    """
+    if feats.dim() == 1:
+        feats = feats.unsqueeze(1)
+    elif feats.dim() > 2:
+        raise NotImplementedError
+
+    if feats.shape[1] == 3:
+        color = feats
+        
+    elif feats.shape[1] == 1:
+        # If only 1 feature is found convert to a 3-channel
+        # repetition for black-and-white visualization.
+        color = torch.repeat_interleave(feats, 3, 1)
+        
+    elif feats.shape[1] == 2:
+        # If 2 features are found, add an extra channel.
+        color = torch.cat([feats, torch.ones(feats.shape[0], 1)], 1)
+    
+    elif feats.shape[1] > 3:
+        # If more than 3 features or more are found, project
+        # features to a 3-dimensional space using PCA
+        x_centered = feats - feats.mean(axis=0)
+        cov_matrix = x_centered.T.mm(x_centered) / len(x_centered)
+        _, eigenvectors = torch.symeig(cov_matrix, eigenvectors=True)
+        color = x_centered.mm(eigenvectors[:, -3:])
+        
+    # Unit-normalize the features in a hypercube of shared scale
+    # for nicer visualizations
+    color = color - color.min() if color.max() != color.min() else color
+    color = color / (color.max() + 1e-6)
+    
+    return color
+
+
 def visualize_3d(
         mm_data, class_names=None, class_colors=None, class_opacities=None,
         figsize=800, width=None, height=None, voxel=0.1, max_points=100000,
@@ -158,6 +195,28 @@ def visualize_3d(
             visible=False,))
     n_pos_rgb_traces = 1  # keep track of the number of traces
 
+    # Draw a trace for 3D point cloud features
+    if getattr(data, 'x', None) is not None:
+        # Recover the features and convert them to an RGB format for 
+        # visualization.
+        data.feat_3d = feats_to_rgb(data.x)
+        fig.add_trace(
+            go.Scatter3d(
+                name='Features 3D',
+                x=data.pos[:, 0],
+                y=data.pos[:, 1],
+                z=data.pos[:, 2],
+                mode='markers',
+                marker=dict(
+                    size=pointsize,
+                    color=rgb_to_plotly_rgb(data.feat_3d), ),
+                hoverinfo='x+y+z',
+                showlegend=False,
+                visible=False, ))
+        n_feat_3d_traces = 1  # keep track of the number of traces
+    else:
+        n_feat_3d_traces = 0  # keep track of the number of traces
+
     # Draw image positions
     if images.num_settings >= 2:
         image_xyz = torch.cat([im.pos for im in images]).numpy()
@@ -210,7 +269,8 @@ def visualize_3d(
         visibilities = np.array([d.visible for d in fig.data], dtype='bool')
 
         # Traces visibility for interactive point cloud coloring
-        n_traces = n_rgb_traces + n_y_traces + n_seen_traces + n_pos_rgb_traces
+        n_traces = (n_rgb_traces + n_y_traces + n_seen_traces
+                    + n_pos_rgb_traces + n_feat_3d_traces)
         if mode == 'rgb':
             a = 0
             b = n_rgb_traces
@@ -226,6 +286,10 @@ def visualize_3d(
         elif mode == 'position_rgb':
             a = n_rgb_traces + n_y_traces + n_seen_traces
             b = a + n_pos_rgb_traces
+
+        elif mode == 'feats_3d':
+            a = n_rgb_traces + n_y_traces + n_seen_traces + n_pos_rgb_traces
+            b = a + n_feat_3d_traces
 
         else:
             raise ValueError(f"Unknown mode '{mode}'")
@@ -250,7 +314,10 @@ def visualize_3d(
                      args=trace_visibility('n_seen')),
                 dict(label='Position RGB',
                      method='update',
-                     args=trace_visibility('position_rgb')),],
+                     args=trace_visibility('position_rgb')),
+                dict(label='Features 3D',
+                     method='update',
+                     args=trace_visibility('feats_3d')),],
             pad={'r': 10, 't': 10},
             showactive=True,
             type='dropdown',
@@ -285,24 +352,44 @@ def visualize_2d(
     # Convert images to ImageData for convenience
     if isinstance(images, SameSettingImageData):
         images = ImageData([images])
+    
+    # Fallback to 'light' visualization mode if provided mode is 
+    # unknown
+    MODES_2D = ['light', 'rgb', 'pos', 'y', 'feat_3d', 'feat_proj']
+    color_mode = color_mode if color_mode in MODES_2D else 'light'
+    if color_mode == 'y' and class_colors is None:
+        color_mode = 'light'
+    elif color_mode == 'feat_3d' and getattr(data, 'x', None) is None:
+        color_mode = 'light'
+    elif color_mode == 'feat_proj' \
+        and any([im.mappings.features is None for im in images]):
+        color_mode = 'light'
+        
+    # Load images if need be
+    images = ImageData([im.load() if im.x is None else im for im in images])
+    
+    # Convert image features to [0, 1] colors, if need be. All images 
+    # must be handled at once, in case we need to PCA the features in a 
+    # common projective space.
+    if images[0].x.is_floating_point():
+        shapes = [im.x.shape for im in images]
+        sizes = [s[0] * s[2] * s[3] for s in shapes]
+        feats = torch.cat([
+            im.x.permute(1, 0, 2, 3).reshape(s[1], -1).T
+            for im, s in zip(images, shapes)], dim=0)
+        colors = feats_to_rgb(feats)
+        colors = [x.T.reshape(3, s[0], s[2], s[3]).permute(1, 0, 2, 3) 
+                 for x, s in zip(colors.split(sizes), shapes)]
+        for x, im in zip(colors, images):
+            im.x = (x * 255).byte()
 
     for im in images:
-        # Load images if need be
-        im = im.load() if im.x is None else im
-
-        # Color the images where points are projected and darken the rest
-        if im.x.is_floating_point():
-            im.x = (im.x * 255).byte()
+        # Color the images where points are projected and darken the 
+        # rest
         im.x = (im.x.float() / alpha).floor().type(torch.uint8)
 
         # Get the mapping of all points in the sample
         idx = im.mappings.feature_map_indexing
-
-        color_mode = color_mode \
-            if color_mode in ['light', 'rgb', 'pos', 'y', 'feat'] \
-            else 'light'
-        if color_mode == 'y' and class_colors is None:
-            color_mode = 'light'
 
         if color_mode == 'light':
             # Set mapping mask back to original lighting
@@ -350,35 +437,26 @@ def visualize_2d(
                 im.mappings.values[1].pointers[1:]
                 - im.mappings.values[1].pointers[:-1],
                 dim=0)
-
-        elif color_mode == 'feat':
-            # Set mapping mask to first-encountered feature
+        
+        elif color_mode == 'feat_3d':
+            color = (feats_to_rgb(data.x) * 255).type(torch.uint8)
             color = torch.repeat_interleave(
-                im.mappings.features,
+                color,
+                im.mappings.pointers[1:] - im.mappings.pointers[:-1],
+                dim=0)
+            color = torch.repeat_interleave(
+                color,
                 im.mappings.values[1].pointers[1:]
-                - im.mappings.values[1].pointers[:-1])
-            color = (color - color.min()) / (color.max() + 1e-6)
-            color = (color * 255).type(torch.uint8)
-
-            if color.dim() == 1:
-                color = color.unsqueeze(1)
-            elif color.dim() > 2:
-                raise NotImplementedError
-
-            if color.shape[1] == 1:
-                # If only 1 feature is found convert to a 3-channel
-                # repetition for black-and-white visualization
-                color = torch.repeat_interleave(color, 3, 1)
-            elif color.shape[1] == 2:
-                # If 2 features are found, add an extra channel of 127
-                color = torch.cat([color,
-                    torch.full((color.shape[0], 1), 127)], 1)
-                color = torch.cat([])
-            elif color.shape[1] > 3:
-                # If more than 3 features or more are found, project
-                # features to a 3-dimensional space using PCA
-                # TODO: compute PCA
-                raise NotImplementedError
+                - im.mappings.values[1].pointers[:-1],
+                dim=0)
+        
+        elif color_mode == 'feat_proj':
+            color = (feats_to_rgb(im.mappings.features) * 255).type(torch.uint8)
+            color = torch.repeat_interleave(
+                color,
+                im.mappings.values[1].pointers[1:]
+                - im.mappings.values[1].pointers[:-1], 
+                dim=0)
 
         # Apply the coloring to the mapping masks
         im.x[idx] = color
@@ -492,4 +570,3 @@ def visualize_mm_data(
             f.write(fig_html)
     
     return
-

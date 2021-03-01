@@ -11,9 +11,10 @@ def standardize_weights(weight, scaled=False):
         keepdim=True).mean(dim=3, keepdim=True)
     weight = weight - weight_mean
     std = weight.view(weight.size(0), -1).std(dim=1).view(-1, 1, 1, 1) + 1e-5
-    fan_in = torch.Tensor([weight.shape[1]])
+    fan_in = torch.Tensor([weight.shape[1]]).to(weight.device)
     if scaled:
         weight = weight / (std.expand_as(weight) * torch.sqrt(fan_in))
+        # ALSO ... scale ReLU by sqrt(2 / (1 - 1/pi)) ...
     else:
         weight = weight / std.expand_as(weight)
     return weight
@@ -210,6 +211,14 @@ class ResNetDown(nn.Module, ABC):
             **kwargs):
         super().__init__()
 
+        # If an empty down_conv_nn or channel sizes smaller than 1 are
+        # passed, the ResNetDown will simply become a pass-through
+        # Identity module
+        if len(down_conv_nn) < 2 or any([x < 1 for x in down_conv_nn]):
+            self.conv_in = None
+            self.blocks = None
+            return
+
         # Recover the block module
         block = getattr(_local_modules, block)
 
@@ -266,7 +275,8 @@ class ResNetDown(nn.Module, ABC):
         return nc_in, nc_stride_out, nc_block_in, nc_out
 
     def forward(self, x):
-        x = self.conv_in(x)
+        if self.conv_in:
+            x = self.conv_in(x)
         if self.blocks:
             x = self.blocks(x)
         return x
@@ -317,9 +327,11 @@ class ResNetUp(ResNetDown, ABC):
         if self.skip_first:
             if skip is not None:
                 x = torch.cat((x, skip), dim=1)
-            x = self.conv_in(x)
+            if self.conv_in:
+                x = self.conv_in(x)
         else:
-            x = self.conv_in(x)
+            if self.conv_in:
+                x = self.conv_in(x)
             if skip is not None:
                 x = torch.cat((x, skip), dim=1)
         if self.blocks:

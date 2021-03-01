@@ -441,6 +441,10 @@ class UnwrappedUnetBasedModel(BaseModel, ABC):
 
         # Down modules - modality-specific branches
         if self.is_multimodal:
+            # Insert identity 3D convolutions to allow branching
+            # directly into the raw 3D features
+            down_modules = [nn.Identity(), nn.Identity()] + down_modules
+
             assert len(down_modules) % 2 == 0 and len(down_modules) > 0, \
                 f"Expected an even number of 3D conv modules but got " \
                 f"{len(down_modules)} modules instead."
@@ -592,12 +596,17 @@ class UnwrappedUnetBasedModel(BaseModel, ABC):
         # TODO : expand to handle multimodal data or let child classes handle it ?
         if self.is_multimodal:
             raise NotImplementedError
-
+        
         stack_down = []
-        for i in range(len(self.down_modules) - 1):
+        for i in range(1, len(self.down_modules) - 1):
             data = self.down_modules[i](data, precomputed=precomputed_down)
             stack_down.append(data)
         data = self.down_modules[-1](data, precomputed=precomputed_down)
+        
+        # First down module of multimodal model operates on raw data, 
+        # its output is not 'skipped'
+        if self.is_multimodal:
+            stack_down.pop(0)
 
         if not isinstance(self.inner_modules[0], Identity):
             stack_down.append(data)
