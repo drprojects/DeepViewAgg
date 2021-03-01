@@ -109,10 +109,11 @@ class CSRData(object):
 
     def to(self, device):
         """Move the CSRData to the specified device."""
-        self.pointers = self.pointers.to(device)
-        for i in range(self.num_values):
-            self.values[i] = self.values[i].to(device)
-        return self
+        out = self.clone()
+        out.pointers = out.pointers.to(device)
+        for i in range(out.num_values):
+            out.values[i] = out.values[i].to(device)
+        return out
 
     def cpu(self):
         """Move the CSRData to the CPU."""
@@ -149,7 +150,10 @@ class CSRData(object):
         downstream operations but it saves time and memory. In practice,
         it shouldn't in this project.
         """
-        return copy.copy(self)
+        out = copy.copy(self)
+        out.pointers = copy.copy(self.pointers)
+        out.values = copy.copy(self.values)
+        return out
 
     @staticmethod
     def _sorted_indices_to_pointers(indices: torch.LongTensor):
@@ -437,10 +441,10 @@ class CSRBatch(CSRData):
 
     def to(self, device):
         """Move the CSRBatch to the specified device."""
-        self = super(CSRBatch, self).to(device)
-        self.__sizes__ = self.__sizes__.to(device) \
+        out = super(CSRBatch, self).to(device)
+        out.__sizes__ = self.__sizes__.to(device) \
             if self.__sizes__ is not None else None
-        return self
+        return out
 
     @staticmethod
     def from_csr_list(csr_list):
