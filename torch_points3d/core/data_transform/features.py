@@ -174,12 +174,19 @@ class AddFeatsByKeys(object):
 
         self.transform = Compose(transforms)
 
-    def __call__(self, data):
+    def _process(self, data: Data):
         data = self.transform(data)
         if self._delete_feats:
             for feat_name, delete_feat in zip(self._feat_names, self._delete_feats):
                 if delete_feat:
                     delattr(data, feat_name)
+        return data
+    
+    def __call__(self, data):
+        if isinstance(data, list):
+            data = [self._process(d) for d in data]
+        else:
+            data = self._process(data)
         return data
 
     def __repr__(self):
@@ -211,7 +218,7 @@ class AddFeatByKey(object):
         self._input_nc_feat = input_nc_feat
         self._strict: bool = strict
 
-    def __call__(self, data: Data):
+    def _process(self, data: Data):
         if not self._add_to_x:
             return data
         feat = getattr(data, self._feat_name, None)
@@ -247,6 +254,13 @@ class AddFeatByKey(object):
                     )
         return data
 
+    def __call__(self, data):
+        if isinstance(data, list):
+            data = [self._process(d) for d in data]
+        else:
+            data = self._process(data)
+        return data
+    
     def __repr__(self):
         return "{}(add_to_x: {}, feat_name: {}, strict: {})".format(
             self.__class__.__name__, self._add_to_x, self._feat_name, self._strict
@@ -311,6 +325,19 @@ class PCACompute(object):
         pos_centered = data.pos - data.pos.mean(axis=0)
         cov_matrix = pos_centered.T.mm(pos_centered) / len(pos_centered)
         eig, v = torch.symeig(cov_matrix, eigenvectors=True)
+        
+        # If Nan values are computed, return equal eigenvalues and 
+        # Identity eigenvectors
+        if torch.any(torch.isnan(eig)) or torch.any(torch.isnan(v)):
+            print("NaN values found in PCACompute results. Falling back to "
+                  "default eigendecomposition results.")
+            eig = torch.ones(3)
+            v = torch.eye(3)
+            
+        # Precision errors may cause close-to-zero eigenvalues to be 
+        # negative. Hard-code these to zero
+        eig[torch.where(eig < 0)] = 0
+        
         data.eigenvalues = eig
         data.eigenvectors = v
         return data
@@ -399,7 +426,8 @@ class PCAComputePointwise(object):
 
         # Compute PCA for each neighborhood
         if self._workers < 2:
-            data.eigenvalues, data.eigenvectors = run_pca(neighbors)
+            data.eigenvalues, data.eigenvectors = run_pca(neighbors, 
+                xyz=xyz_search)
 
         else:
             parallel_pca = functools.partial(run_pca, xyz=xyz_search)
@@ -481,7 +509,22 @@ class EigenFeatures(object):
         # Following, [Yang et al. 2015] we use the sqrt of eigenvalues
         v0 = data.eigenvalues[:, 0].sqrt().squeeze()
         v1 = data.eigenvalues[:, 1].sqrt().squeeze()
-        v2 = data.eigenvalues[:, 2].sqrt().squeeze()
+        v2 = data.eigenvalues[:, 2].sqrt().squeeze() + 1e-6
+        
+        if torch.any(torch.isnan(data.eigenvalues[:, 0])):
+            print("Nan values in l0")
+        if torch.any(torch.isnan(data.eigenvalues[:, 1])):
+            print("Nan values in l1")
+        if torch.any(torch.isnan(data.eigenvalues[:, 2])):
+            print("Nan values in l2")
+            
+        if torch.any(torch.isnan(data.eigenvectors[:, 0:3])):
+            print("Nan values in ev0")
+        if torch.any(torch.isnan(data.eigenvectors[:, 3:6])):
+            print("Nan values in ev1")
+        if torch.any(torch.isnan(data.eigenvectors[:, 6:9])):
+            print("Nan values in ev2")
+            
 
         if self._linearity:
             data.linearity = (v2 - v1) / v2
@@ -491,6 +534,19 @@ class EigenFeatures(object):
 
         if self._scattering:
             data.scattering = v0 / v2
+        
+        if torch.any(torch.isnan(data.linearity)):
+            print("Nan values in linearity")
+            idx = torch.where(torch.isnan(data.linearity))
+            print(data.eigenvalues[idx])
+        if torch.any(torch.isnan(data.planarity)):
+            print("Nan values in planarity")
+            idx = torch.where(torch.isnan(data.planarity))
+            print(data.eigenvalues[idx])
+        if torch.any(torch.isnan(data.scattering)):
+            print("Nan values in scattering")
+            idx = torch.where(torch.isnan(data.scattering))
+            print(data.eigenvalues[idx])
 
         return data
 

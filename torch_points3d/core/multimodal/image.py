@@ -817,16 +817,17 @@ class SameSettingImageData(object):
 
     def to(self, device):
         """Set torch.Tensor attributes device."""
-        self.pos = self.pos.to(device)
-        self.opk = self.opk.to(device)
-        self._crop_offsets = self.crop_offsets.to(device)
-        self._x = self.x.to(device) if self.x is not None \
+        out = self.clone()
+        out.pos = out.pos.to(device)
+        out.opk = out.opk.to(device)
+        out._crop_offsets = out.crop_offsets.to(device)
+        out._x = out.x.to(device) if out.x is not None \
             else None
-        self._mappings = self.mappings.to(device) if self.mappings is not None \
+        out._mappings = out.mappings.to(device) if out.mappings is not None \
             else None
-        self._mask = self.mask.to(device) if self.mask is not None \
+        out._mask = out.mask.to(device) if out.mask is not None \
             else None
-        return self
+        return out
 
     @property
     def device(self):
@@ -1094,8 +1095,9 @@ class ImageData:
         return self.__class__([im.clone() for im in self])
 
     def to(self, device):
-        self._list = [im.to(device) for im in self]
-        return self
+        out = self.clone()
+        out._list = [im.to(device) for im in out]
+        return out
 
     @property
     def device(self):
