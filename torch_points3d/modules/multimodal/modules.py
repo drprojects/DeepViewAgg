@@ -90,7 +90,7 @@ class MultimodalBlockDown(nn.Module, ABC):
 
         for m in self.modalities:
             mod_branch = getattr(self, m)
-            x_3d, x_seen_mod, mod_dict[m] = mod_branch((x_3d, mod_dict[m]))
+            x_3d, x_seen_mod, mod_dict[m] = mod_branch((x_3d, x_seen, mod_dict[m]))
             if x_seen is None:
                 x_seen = x_seen_mod
             else:
@@ -241,7 +241,7 @@ class UnimodalBranch(nn.Module, ABC):
 
     def forward(self, mm_data_tuple):
         # Unpack the multimodal data tuple
-        x_3d, mod_data = mm_data_tuple
+        x_3d, _, mod_data = mm_data_tuple
 
         # Check whether the modality carries multi-setting data
         has_multi_setting = isinstance(mod_data.x, list)

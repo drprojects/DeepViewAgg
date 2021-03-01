@@ -81,9 +81,7 @@ class BackboneBasedModel(BaseModel, ABC):
 
         # Down modules - 3D conv only
         down_modules = []
-        if self.no_3d_conv:
-            down_modules = [nn.Identity()] * 2
-        else:
+        if not self.no_3d_conv:
             for i in range(len(opt.down_conv.down_conv_nn)):
                 down_conv_3d = self._build_module(opt.down_conv, i, flow="DOWN")
                 self._save_sampling_and_search(down_conv_3d)
@@ -91,6 +89,10 @@ class BackboneBasedModel(BaseModel, ABC):
 
         # Down modules - modality-specific branches
         if self.is_multimodal:
+            # Insert identity 3D convolutions to allow branching
+            # directly into the raw 3D features
+            down_modules = [nn.Identity(), nn.Identity()] + down_modules
+
             assert len(down_modules) % 2 == 0 and len(down_modules) > 0, \
                 f"Expected an even number of 3D conv modules but got " \
                 f"{len(down_modules)} modules instead."
