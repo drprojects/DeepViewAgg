@@ -171,36 +171,6 @@ class CSRData(object):
             torch.LongTensor([indices.shape[0]]).to(device)])
         return pointers
 
-    # @staticmethod
-    # def _sorted_indices_to_pointers(indices):
-    #     """
-    #     Convert pre-sorted dense indices to CSR format.
-    #     """
-    #     device = indices.device
-    #     assert len(indices.shape) == 1, "Only 1D indices are accepted."
-    #     assert indices.shape[0] >= 1, "At least one group index is required."
-    #     assert CSRData._is_sorted_numba(np.asarray(indices.cpu())), \
-    #         "Indices must be sorted in increasing order."
-    #     sorted_indices = CSRData._sorted_indices_to_pointers_numba(np.asarray(
-    #         indices.cpu()))
-    #     return torch.from_numpy(sorted_indices).to(device)
-
-    # @staticmethod
-    # @njit(cache=True, nogil=True)
-    # def _sorted_indices_to_pointers_numba(indices: np.ndarray):
-    #     # Compute the pointers
-    #     idx_previous = indices[0]
-    #     pointers = [0]
-    #     for i, idx in enumerate(indices):
-    #         if idx != idx_previous:
-    #             pointers.append(i)
-    #             idx_previous = idx
-    #
-    #     # Last index must be treated separately
-    #     pointers.append(len(indices))
-    #
-    #     return np.asarray(pointers)
-
     def reindex_groups(self, group_indices: torch.LongTensor, num_groups=None):
         """
         Returns a copy of self with modified pointers to account for new groups.
@@ -258,56 +228,6 @@ class CSRData(object):
 
         return self
 
-    # def insert_empty_groups(self, group_indices: torch.LongTensor,
-    #                         num_groups=None):
-    #     """
-    #     Method called when in-place reindexing groups.
-    #
-    #     The group_indices are assumed to be sorted and group_indices[i]
-    #     corresponds to the position of existing group i in the new tensor. The
-    #     indices missing from group_indices correspond to empty groups to be
-    #     injected.
-    #
-    #     The num_groups specifies the number of groups in the new tensor. If not
-    #     provided, it is inferred from the size of group_indices.
-    #     """
-    #     assert self.num_groups == group_indices.shape[0], \
-    #         "New group indices must correspond to the existing number of groups"
-    #     assert CSRData._is_sorted_numba(np.asarray(group_indices.cpu())), \
-    #         "New group indices must be sorted."
-    #
-    #     if num_groups is not None:
-    #         num_groups = max(group_indices.max() + 1, num_groups)
-    #     else:
-    #         num_groups = group_indices.max() + 1
-    #
-    #     self.pointers = torch.from_numpy(CSRData._insert_empty_groups_numba(
-    #         np.asarray(self.pointers.cpu()), np.asarray(group_indices.cpu()),
-    #         int(num_groups))).to(self.device)
-    #
-    #     return self
-
-    # @staticmethod
-    # @njit(cache=True, nogil=True)
-    # def _insert_empty_groups_numba(pointers: np.ndarray,
-    #                                group_indices: np.ndarray, num_groups):
-    #     pointers_expanded = np.zeros(num_groups + 1, dtype=group_indices.dtype)
-    #     pointers_expanded[group_indices + 1] = pointers[1:]
-    #     pointer_previous = 0
-    #     for i in range(pointers_expanded.shape[0]):
-    #         if pointers_expanded[i] < pointer_previous:
-    #             pointers_expanded[i] = pointer_previous
-    #         pointer_previous = pointers_expanded[i]
-    #     return pointers_expanded
-
-    # @staticmethod
-    # @njit(cache=True, nogil=True)
-    # def _is_sorted_numba(a: np.ndarray):
-    #     for i in range(a.size - 1):
-    #         if a[i + 1] < a[i]:
-    #             return False
-    #     return True
-
     @staticmethod
     def _is_sorted(a: torch.Tensor):
         return torch.all(a[:-1] <= a[1:])
@@ -342,37 +262,6 @@ class CSRData(object):
         val_idx += torch.repeat_interleave(pointers[indices], sizes).to(device)
 
         return pointers_new, val_idx
-
-    # @staticmethod
-    # def _index_select_pointers(pointers: torch.LongTensor,
-    #                            indices: torch.LongTensor):
-    #     """
-    #     Index selection of pointers.
-    #
-    #     Returns a new pointer tensor with updated pointers, along with an
-    #     indices tensor to be used to update any values tensor associated with
-    #     the input pointers.
-    #     """
-    #     assert indices.max() <= pointers.shape[0] - 2
-    #     device = pointers.device
-    #     pointers_updated, val_indices = CSRData._index_select_pointers_numba(
-    #         np.asarray(pointers.cpu()), np.asarray(indices.cpu()))
-    #     return torch.from_numpy(pointers_updated).to(device), torch.from_numpy(
-    #         np.concatenate(val_indices)).to(device)
-    #
-    # @staticmethod
-    # @njit(cache=True, nogil=True)
-    # def _index_select_pointers_numba(pointers: np.ndarray,
-    #                                  indices: np.ndarray):
-    #     pointers_selection = np.zeros(indices.shape[0] + 1,
-    #                                   dtype=pointers.dtype)
-    #     pointers_selection[1:] = np.cumsum(
-    #         pointers[indices + 1] - pointers[indices])
-    #     val_indices = [np.arange(pointers[i], pointers[i + 1])
-    #                    for i in indices]
-    #     # Can't np.concatenate the nb.list here for some reason, so we
-    #     # need to np.concatenate outside of the @njit scope
-    #     return pointers_selection, val_indices
 
     def __getitem__(self, idx):
         """
@@ -554,56 +443,6 @@ class CSRBatch(CSRData):
             for j, v in zip(pointers, values)]
 
         return csr_list
-
-    # def __getitem__(self, idx):
-    #     """
-    #     Indexing CSRBatch format. Supports Numpy and torch indexing
-    #     mechanisms.
-    #
-    #     Only allows for batch-contiguous indexing as other indexes would
-    #     break the batches. This means indices linking to the same batch
-    #     are contiguous and preserve the original batch order.
-    #
-    #     Return a copy of self with updated batches, pointers and values.
-    #     """
-    #     if isinstance(idx, int):
-    #         idx = torch.LongTensor([idx])
-    #     elif isinstance(idx, list):
-    #         idx = torch.LongTensor(idx)
-    #     elif isinstance(idx, slice):
-    #         idx = torch.arange(self.num_groups)[idx]
-    #     elif isinstance(idx, np.ndarray):
-    #         idx = torch.from_numpy(idx)
-    #     assert idx.dtype is torch.int64, \
-    #         "CSRData only supports int and torch.LongTensor indexing"
-    #
-    #     # Find the batch each index falls into and ensure indices are
-    #     # batch-contiguous. Otherwise indexing the CSRBatch would
-    #     # break the batching.
-    #     idx_batch_ids = torch.bucketize(idx, self.batch_pointers[1:], right=True)
-    #
-    #     # Recover the indexing to be separately applied to each CSRData
-    #     # item in the CSRBatch. If the index is not sorted in a
-    #     # batch-contiguous fashion, this will raise an error.
-    #     idx_batch_pointers = CSRData._sorted_indices_to_pointers(idx_batch_ids)
-    #     idx_list = [
-    #         (
-    #             idx_batch_ids[idx_batch_pointers[i]],
-    #             idx[idx_batch_pointers[i]:idx_batch_pointers[i+1]] - self.batch_pointers[idx_batch_ids[idx_batch_pointers[i]]]
-    #         )
-    #         for i in range(len(idx_batch_pointers) - 1)
-    #     ]
-    #
-    #     # Convert the CSRBatch to its list of CSRData and index the
-    #     # proper CSRData objects with the associated indices.
-    #     # REMARK: some CSRData items may be discarded in the process,
-    #     # if not all batch items are represented in the input idx.
-    #     csr_list = self.to_csr_list()
-    #     csr_list = [
-    #         csr_list[i_csr][idx_csr] for i_csr, idx_csr in idx_list
-    #     ]
-    #
-    #     return CSRBatch.from_csr_list(csr_list)
 
     def __getitem__(self, idx):
         """
