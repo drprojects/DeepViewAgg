@@ -225,6 +225,12 @@ class MapImages(ImageTransform):
             xyz_to_img = (data_sample.pos - image.pos.squeeze()).float().numpy()
             indices = getattr(data_sample, self.key).numpy()
             img_opk = image.opk.squeeze().float().numpy()
+            linearity = data_sample.linearity.numpy() \
+                if getattr(data, 'linearity', None) is not None \
+                else None
+            planarity = data_sample.planarity.numpy() \
+                if getattr(data, 'planarity', None) is not None \
+                else None
             scattering = data_sample.scattering.numpy() \
                 if getattr(data, 'scattering', None) is not None \
                 else None
@@ -240,6 +246,8 @@ class MapImages(ImageTransform):
                 xyz_to_img,
                 indices,
                 img_opk,
+                linearity=linearity,
+                planarity=planarity,
                 scattering=scattering,
                 normals=normals,
                 img_mask=img_mask,

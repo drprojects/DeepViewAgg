@@ -433,6 +433,7 @@ def compute_index_map(
 
     return idx_map, depth_map
 
+
 # -------------------------------------------------------------------------------
 
 @njit(cache=True, nogil=True)
@@ -440,6 +441,8 @@ def compute_projection(
         xyz_to_img,
         indices,
         img_opk,
+        linearity=None,
+        planarity=None,
         scattering=None,
         normals=None,
         img_mask=None,
@@ -459,6 +462,20 @@ def compute_projection(
     if num_points >= 9223372036854775807:
         raise OverflowError
 
+    # Initialize pointwise geometric features to zero if not provided
+    if linearity is None:
+        linearity = np.zeros(xyz_to_img.shape[0], dtype=np.float32)
+    if planarity is None:
+        planarity = np.zeros(xyz_to_img.shape[0], dtype=np.float32)
+    if scattering is None:
+        scattering = np.zeros(xyz_to_img.shape[0], dtype=np.float32)
+    if normals is None:
+        normals = np.zeros((xyz_to_img.shape[0], 3), dtype=np.float32)
+    linearity = linearity.astype(np.float32)
+    planarity = planarity.astype(np.float32)
+    scattering = scattering.astype(np.float32)
+    normals = normals.astype(np.float32)
+
     # Rotation matrix from image Euler angle pose
     img_rotation = pose_to_rotation_matrix_numba(img_opk)
 
@@ -468,6 +485,8 @@ def compute_projection(
     xyz_to_img = xyz_to_img[in_range]
     distances = distances[in_range]
     indices = indices[in_range]
+    linearity = linearity[in_range]
+    planarity = planarity[in_range]
     scattering = scattering[in_range]
     normals = normals[in_range]
 
@@ -481,6 +500,8 @@ def compute_projection(
     xyz_to_img = xyz_to_img[in_fov]
     distances = distances[in_fov]
     indices = indices[in_fov]
+    linearity = linearity[in_fov]
+    planarity = planarity[in_fov]
     scattering = scattering[in_fov]
     normals = normals[in_fov]
     x_pix = x_pix[in_fov]
@@ -496,6 +517,8 @@ def compute_projection(
 
     # Compute the N x F array of pointwise projection features carrying:
     #     - normalized depth
+    #     - linearity
+    #     - planarity
     #     - scattering
     #     - orientation to the surface
     #     - normalized pixel height
@@ -504,14 +527,13 @@ def compute_projection(
         xyz_to_img / (distances + 1e-4).reshape((-1, 1)),
         normals)
     height = normalize_height_numba(y_pix, proj_size[1])
-    scattering = scattering.astype(np.float32) \
-        if scattering is not None \
-        else np.zeros(y_pix.shape[0], dtype=np.float32)
     features = np.column_stack((
         depth,
+        linearity,
+        planarity,
+        scattering,
         orientation,
-        height,
-        scattering))
+        height))
     n_feat = features.shape[1]
 
     # Cropped depth map initialization
