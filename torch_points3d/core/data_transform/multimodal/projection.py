@@ -165,8 +165,8 @@ def orientation_numba(u, v, requires_scaling=False):
         v = v / (norms_numba(v) + 1e-4).reshape((-1, 1)).astype(np.float32)
 
     orientation = np.abs((u * v).sum(axis=1))
-    idx = np.where(orientation > 1)[0]
-    orientation[idx] = 0
+    # idx = np.where(orientation > 1)[0]
+    # orientation[idx] = 0
 
     return orientation
 
@@ -478,6 +478,7 @@ def compute_projection(
     # Remove points outside of camera field of view
     in_fov = field_of_view(x_pix, y_pix, crop_top, proj_size[1] - crop_bottom,
         mask=img_mask)
+    xyz_to_img = xyz_to_img[in_fov]
     distances = distances[in_fov]
     indices = indices[in_fov]
     scattering = scattering[in_fov]
@@ -499,7 +500,9 @@ def compute_projection(
     #     - orientation to the surface
     #     - normalized pixel height
     depth = normalize_distance_numba(distances, low=r_min, high=r_max)
-    orientation = orientation_numba(xyz_to_img, normals)
+    orientation = orientation_numba(
+        xyz_to_img / (distances + 1e-4).reshape((-1, 1)),
+        normals)
     height = normalize_height_numba(y_pix, proj_size[1])
     scattering = scattering.astype(np.float32) \
         if scattering is not None \
