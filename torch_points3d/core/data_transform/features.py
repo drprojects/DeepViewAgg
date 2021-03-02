@@ -510,21 +510,6 @@ class EigenFeatures(object):
         v0 = data.eigenvalues[:, 0].sqrt().squeeze()
         v1 = data.eigenvalues[:, 1].sqrt().squeeze()
         v2 = data.eigenvalues[:, 2].sqrt().squeeze() + 1e-6
-        
-        if torch.any(torch.isnan(data.eigenvalues[:, 0])):
-            print("Nan values in l0")
-        if torch.any(torch.isnan(data.eigenvalues[:, 1])):
-            print("Nan values in l1")
-        if torch.any(torch.isnan(data.eigenvalues[:, 2])):
-            print("Nan values in l2")
-            
-        if torch.any(torch.isnan(data.eigenvectors[:, 0:3])):
-            print("Nan values in ev0")
-        if torch.any(torch.isnan(data.eigenvectors[:, 3:6])):
-            print("Nan values in ev1")
-        if torch.any(torch.isnan(data.eigenvectors[:, 6:9])):
-            print("Nan values in ev2")
-            
 
         if self._linearity:
             data.linearity = (v2 - v1) / v2
@@ -534,19 +519,6 @@ class EigenFeatures(object):
 
         if self._scattering:
             data.scattering = v0 / v2
-        
-        if torch.any(torch.isnan(data.linearity)):
-            print("Nan values in linearity")
-            idx = torch.where(torch.isnan(data.linearity))
-            print(data.eigenvalues[idx])
-        if torch.any(torch.isnan(data.planarity)):
-            print("Nan values in planarity")
-            idx = torch.where(torch.isnan(data.planarity))
-            print(data.eigenvalues[idx])
-        if torch.any(torch.isnan(data.scattering)):
-            print("Nan values in scattering")
-            idx = torch.where(torch.isnan(data.scattering))
-            print(data.eigenvalues[idx])
 
         return data
 

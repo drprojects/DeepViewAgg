@@ -1288,7 +1288,7 @@ class ImageMapping(CSRData):
             'point_ids and image_ids must have the same shape'
         assert point_ids.shape[0] == pixels.shape[0], \
             'pixels and indices must have the same shape'
-        assert features is None or point_ids.shape == features.shape, \
+        assert features is None or point_ids.shape[0] == features.shape[0], \
             'point_ids and features must have the same shape'
 
         # Sort by point_ids first, image_ids second
@@ -1625,7 +1625,8 @@ class ImageMapping(CSRData):
             if self.has_features:
                 features = torch.repeat_interleave(
                     self.features,
-                    self.values[1].pointers[1:] - self.values[1].pointers[:-1])
+                    self.values[1].pointers[1:] - self.values[1].pointers[:-1],
+                    dim=0)
             else:
                 features = None
             pixels = self.pixels
@@ -1701,7 +1702,8 @@ class ImageMapping(CSRData):
         if self.has_features:
             features = torch.repeat_interleave(
                 self.features,
-                self.values[1].pointers[1:] - self.values[1].pointers[:-1])
+                self.values[1].pointers[1:] - self.values[1].pointers[:-1],
+                dim=0)
         else:
             features = None
 
