@@ -174,9 +174,8 @@ def orientation_numba(u, v, requires_scaling=False):
 # -------------------------------------------------------------------------------
 
 @njit(cache=True, nogil=True)
-def distortion_numba(pixel_height, height):
-    """Distortion is estimated as 2 * |pixel_height/height - 1/2|."""
-    return (np.abs(pixel_height / height - 0.5) * 2).astype(np.float32)
+def normalize_height_numba(pixel_height, height):
+    return (pixel_height / height).astype(np.float32)
 
 
 # -------------------------------------------------------------------------------
@@ -498,17 +497,17 @@ def compute_projection(
     #     - normalized depth
     #     - scattering
     #     - orientation to the surface
-    #     - distortion
+    #     - normalized pixel height
     depth = normalize_distance_numba(distances, low=r_min, high=r_max)
     orientation = orientation_numba(xyz_to_img, normals)
-    distortion = distortion_numba(y_pix, proj_size[1])
+    height = normalize_height_numba(y_pix, proj_size[1])
     scattering = scattering.astype(np.float32) \
         if scattering is not None \
         else np.zeros(y_pix.shape[0], dtype=np.float32)
     features = np.column_stack((
         depth,
         orientation,
-        distortion,
+        height,
         scattering))
     n_feat = features.shape[1]
 
@@ -565,9 +564,6 @@ def compute_projection(
         axis=1)
 
     return idx_map, depth_map, feat_map
-
-# TODO : projection features construction and extraction (depth, normal
-#  orientation, distortion level, ...)
 
 # TODO : all-torch GPU-parallelized projection ? Rather than iteratively
 #  populating the depth map, create a set of target pixel coordinates and
