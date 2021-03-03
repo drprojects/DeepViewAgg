@@ -8,7 +8,7 @@ from torch_points3d.core.multimodal.image import SameSettingImageData, \
     ImageMapping, ImageData
 from torch_points3d.utils.multimodal import lexunique, lexargunique
 import torchvision.transforms as T
-from .projection import compute_index_map
+from .projection import compute_projection
 from tqdm.auto import tqdm as tq
 from typing import TypeVar, Union
 
@@ -221,22 +221,44 @@ class MapImages(ImageTransform):
             data_sample = sampler(data)
             t_sphere_sampling += time() - start
 
-            # Projection to build the index map
+            # Prepare the projection input parameters
+            xyz_to_img = (data_sample.pos - image.pos.squeeze()).float().numpy()
+            indices = getattr(data_sample, self.key).numpy()
+            img_opk = image.opk.squeeze().float().numpy()
+            linearity = data_sample.linearity.numpy() \
+                if getattr(data, 'linearity', None) is not None \
+                else None
+            planarity = data_sample.planarity.numpy() \
+                if getattr(data, 'planarity', None) is not None \
+                else None
+            scattering = data_sample.scattering.numpy() \
+                if getattr(data, 'scattering', None) is not None \
+                else None
+            normals = data_sample.norm.numpy() \
+                if getattr(data, 'norm', None) is not None \
+                else None
+            img_mask = image.mask.numpy() if image.mask is not None else None
+            empty = self.empty if self.empty is not None else image.r_max + 1
+
+            # Projection to build the index, depth and feature maps
             start = time()
-            id_map, depth_map = compute_index_map(
-                (data_sample.pos - image.pos.squeeze()).numpy(),
-                getattr(data_sample, self.key).numpy(),
-                np.array(image.opk.squeeze()),
-                img_mask=image.mask.numpy() if image.mask is not None else None,
+            id_map, depth_map, feat_map = compute_projection(
+                xyz_to_img,
+                indices,
+                img_opk,
+                linearity=linearity,
+                planarity=planarity,
+                scattering=scattering,
+                normals=normals,
+                img_mask=img_mask,
                 proj_size=image.proj_size,
                 voxel=image.voxel,
                 r_max=image.r_max,
                 r_min=image.r_min,
                 growth_k=image.growth_k,
                 growth_r=image.growth_r,
-                empty=self.empty if self.empty is not None else image.r_max+1,
-                no_id=self.no_id,
-            )
+                empty=empty,
+                no_id=self.no_id)
             t_projection += time() - start
 
             # Convert the id_map to id-xy coordinate soup
@@ -247,10 +269,10 @@ class MapImages(ImageTransform):
             # NB: no_id pixels are ignored
             start = time()
             id_map = torch.from_numpy(id_map)
-            depth_map = torch.from_numpy(depth_map)
+            feat_map = torch.from_numpy(feat_map)
             pix_x_, pix_y_ = torch.where(id_map != self.no_id)
             point_ids_ = id_map[(pix_x_, pix_y_)]
-            features_ = depth_map[(pix_x_, pix_y_)]
+            features_ = feat_map[(pix_x_, pix_y_)]
 
             # Skip image if no mapping was found
             if point_ids_.shape[0] == 0:
@@ -472,7 +494,7 @@ class PickImagesFromMemoryCredit(ImageTransform):
         # list of masks for easier popping
         if self.use_coverage:
             img_unseen_points = torch.zeros(images.num_views, data.num_nodes,
-                                    dtype=torch.bool)
+                                            dtype=torch.bool)
             i_offset = 0
             for im in images:
                 mappings = im.mappings
@@ -494,11 +516,11 @@ class PickImagesFromMemoryCredit(ImageTransform):
         while credit > 0 and len(img_indices) > 0 and credit >= min(img_sizes):
             # Drop images that are too large to fit the remaining credit
             for idx in range(len(img_indices), 0, -1):
-                if img_sizes[idx-1] > credit:
-                    img_indices.pop(idx-1)
-                    img_sizes.pop(idx-1)
+                if img_sizes[idx - 1] > credit:
+                    img_indices.pop(idx - 1)
+                    img_sizes.pop(idx - 1)
                     if self.use_coverage:
-                        img_unseen_points.pop(idx-1)
+                        img_unseen_points.pop(idx - 1)
 
             # Compute the coverage factor for each image, defined as
             # the normalized number of yet-unseen points each image
@@ -685,7 +707,7 @@ class CropImageGroups(ImageTransform):
 
             # Discard selected image ids
             # Compute the next the size
-            size = (size[0] * 2**((i_crop + 1) % 2), size[1] * 2**(i_crop % 2))
+            size = (size[0] * 2 ** ((i_crop + 1) % 2), size[1] * 2 ** (i_crop % 2))
             i_crop += 1
 
         # Make sure the last crop size is the full image
@@ -731,6 +753,7 @@ class PadImages(ImageTransform):
 
 class AddPixelHeightFeature(ImageTransform):
     """Transform to add the pixel height to the image features."""
+
     # TODO: take crop and roll into account to call anytime
     def _process(self, data: Data, images: SameSettingImageData):
         if images.x is None:
@@ -743,9 +766,10 @@ class AddPixelHeightFeature(ImageTransform):
 
         return data, images
 
-    
+
 class AddPixelWidthFeature(ImageTransform):
     """Transform to add the pixel width to the image features."""
+
     # TODO: take crop and roll into account to call anytime
     def _process(self, data: Data, images: SameSettingImageData):
         if images.x is None:
@@ -785,6 +809,7 @@ class RandomHorizontalFlip(ImageTransform):
 
 class ToFloatImage(ImageTransform):
     """Transform to convert [0, 255] uint8 images into [0, 1] float tensors."""
+
     def _process(self, data: Data, images: SameSettingImageData):
         if images.x is None:
             images.load()
@@ -808,7 +833,7 @@ class TorchvisionTransform(ImageTransform):
     def __repr__(self):
         return self.transform.__repr__()
 
-    
+
 class ColorJitter(TorchvisionTransform):
     """Randomly change the brightness, contrast and saturation of an image."""
 
