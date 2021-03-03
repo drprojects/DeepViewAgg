@@ -485,14 +485,19 @@ class EigenFeatures(object):
         If True, the local planarity will be computed.
     scattering: bool, optional
         If True, the local scattering will be computed.
+    temperature: float, optional
+        If set to a float value, the returned features will be run
+        through a scaled softmax with temperature being the scale. Set
+        to None by default.
     """
 
     def __init__(self, norm=True, linearity=True, planarity=True,
-                 scattering=True):
+                 scattering=True, temperature=None):
         self._norm = norm
         self._linearity = linearity
         self._planarity = planarity
         self._scattering = scattering
+        self._temperature = temperature
 
     def _process(self, data: Data):
         assert getattr(data, 'eigenvalues', None) is not None, \
@@ -505,48 +510,38 @@ class EigenFeatures(object):
             # eigenvalue
             data.norm = data.eigenvectors[:, :3]
 
-        # Eigenvalues: 0 < l0 <= l1 <= l2
+        # Eigenvalues: 0 <= l0 <= l1 <= l2
         # Following, [Yang et al. 2015] we use the sqrt of eigenvalues
         v0 = data.eigenvalues[:, 0].sqrt().squeeze()
         v1 = data.eigenvalues[:, 1].sqrt().squeeze()
         v2 = data.eigenvalues[:, 2].sqrt().squeeze() + 1e-6
-        
-        if torch.any(torch.isnan(data.eigenvalues[:, 0])):
-            print("Nan values in l0")
-        if torch.any(torch.isnan(data.eigenvalues[:, 1])):
-            print("Nan values in l1")
-        if torch.any(torch.isnan(data.eigenvalues[:, 2])):
-            print("Nan values in l2")
-            
-        if torch.any(torch.isnan(data.eigenvectors[:, 0:3])):
-            print("Nan values in ev0")
-        if torch.any(torch.isnan(data.eigenvectors[:, 3:6])):
-            print("Nan values in ev1")
-        if torch.any(torch.isnan(data.eigenvectors[:, 6:9])):
-            print("Nan values in ev2")
-            
+
+        # Compute the eigen features
+        linearity = (v2 - v1) / v2
+        planarity = (v1 - v0) / v2
+        scattering = v0 / v2
+
+        # Compute the softmax version of the features, for more
+        # opinionated geometric information. As a heuristic, set
+        # temperature=5 for clouds of 30 points or more.
+        if self._temperature:
+            values = (self._temperature * torch.cat([
+                linearity.view(-1, 1),
+                planarity.view(-1, 1),
+                scattering.view(-1, 1)], dim=1)).exp()
+            values = values / values.sum(dim=1).view(-1, 1)
+            linearity = values[:, 0]
+            planarity = values[:, 1]
+            scattering = values[:, 2]
 
         if self._linearity:
-            data.linearity = (v2 - v1) / v2
+            data.linearity = linearity
 
         if self._planarity:
-            data.planarity = (v1 - v0) / v2
+            data.planarity = planarity
 
         if self._scattering:
-            data.scattering = v0 / v2
-        
-        if torch.any(torch.isnan(data.linearity)):
-            print("Nan values in linearity")
-            idx = torch.where(torch.isnan(data.linearity))
-            print(data.eigenvalues[idx])
-        if torch.any(torch.isnan(data.planarity)):
-            print("Nan values in planarity")
-            idx = torch.where(torch.isnan(data.planarity))
-            print(data.eigenvalues[idx])
-        if torch.any(torch.isnan(data.scattering)):
-            print("Nan values in scattering")
-            idx = torch.where(torch.isnan(data.scattering))
-            print(data.eigenvalues[idx])
+            data.scattering = scattering
 
         return data
 
