@@ -18,8 +18,8 @@ data:
                 key: ${data.multimodal.settings.mapping_key}
         - transform: PCAComputePointwise
           params:
-                num_neighbors: 30
-                r: 0.04
+                num_neighbors: 30  # heuristic: at least 30
+                r: 0.08  # heuristic: 1.5 * voxel
                 use_full_pos: True
                 workers: 6
         - transform: EigenFeatures
@@ -28,6 +28,7 @@ data:
                 linearity: True
                 planarity: True
                 scattering: True
+                temperature: 5  # heuristic: set to 5 with 30 neighbors for opinionated geometric features
         - transform: RemoveAttributes
           params:
                 attr_names: [full_pos, eigenvalues, eigenvectors]
