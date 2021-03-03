@@ -1331,11 +1331,7 @@ class ImageMapping(CSRData):
         image_ids = image_ids[image_pixel_mappings.pointers[1:] - 1]
         point_ids = point_ids[image_pixel_mappings.pointers[1:] - 1]
         if features is not None:
-            if torch.cuda.is_available():
-                features = torch_scatter.segment_csr(features.cuda(),
-                    image_pixel_mappings.pointers.cuda(), reduce='mean').cpu()
-            else:
-                features = torch_scatter.segment_csr(features,
+            features = torch_scatter.segment_csr(features,
                     image_pixel_mappings.pointers, reduce='mean')
 
         # Instantiate the main CSRData object
