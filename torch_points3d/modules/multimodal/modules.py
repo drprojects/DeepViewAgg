@@ -6,6 +6,7 @@ from torch_points3d.core.multimodal.data import MODALITY_NAMES
 from torch_points3d.core.common_modules.base_modules import Identity
 from torchsparse.nn.functional import sphash, sphashquery
 import torch_scatter
+
 try:
     import MinkowskiEngine as me
 except:
@@ -16,7 +17,6 @@ except:
     ts = None
 
 
-
 class MultimodalBlockDown(nn.Module, ABC):
     """Multimodal block with downsampling that looks like:
 
@@ -25,6 +25,7 @@ class MultimodalBlockDown(nn.Module, ABC):
                  -- Mod i Conv --|--------------------
                        ...
     """
+
     def __init__(self, down_block, conv_block, **kwargs):
         """Build the Multimodal module from already-instantiated
         modules. Modality-specific modules are expected to be passed in
@@ -48,8 +49,6 @@ class MultimodalBlockDown(nn.Module, ABC):
         #  needed at all ?
         self.sampler = [getattr(self.down_block, "sampler", None),
                         getattr(self.conv_block, "sampler", None)]
-
-        # TODO : check layers compatibility
 
     def _init_from_kwargs(self, **kwargs):
         """Kwargs are expected to carry fully-fledged modality-specific
@@ -254,7 +253,7 @@ class UnimodalBranch(nn.Module, ABC):
         # data holder, to be later used in potential downstream
         # modules.
         if has_multi_setting:
-            for i in range(len(mod_data)):                
+            for i in range(len(mod_data)):
                 mod_data[i].update_features_and_scale(self.conv(mod_data[i].x))
         else:
             mod_data = mod_data.update_features_and_scale(
@@ -272,27 +271,28 @@ class UnimodalBranch(nn.Module, ABC):
         # Atomic pooling of the modality features on each
         # separate setting
         if has_multi_setting:
-            x_mod = [self.atomic_pool(x_3d, x, a_idx)[0]
+            x_mod = [self.atomic_pool(x_3d, x, None, a_idx)[0]
                      for x, a_idx
                      in zip(x_mod, mod_data.atomic_csr_indexing)]
         else:
-            x_mod = self.atomic_pool(x_3d, x_mod,
+            x_mod = self.atomic_pool(x_3d, x_mod, None,
                                      mod_data.atomic_csr_indexing)[0]
 
         # For multi-setting data, concatenate view-level features from
         # each input modality setting and sort them to a CSR-friendly
         # order wrt 3D points features
         if has_multi_setting:
-            x_mod = torch.cat(x_mod, dim=0)
-            x_mod = x_mod[mod_data.view_cat_sorting]
+            idx_sorting = mod_data.view_cat_sorting
+            x_mod = torch.cat(x_mod, dim=0)[idx_sorting]
+            x_proj = torch.cat(mod_data.projection_features, dim=0)[idx_sorting]
 
         # View pooling of the atomic-pooled modality features
         if has_multi_setting:
             x_mod, x_seen = self.view_pool(
-                x_3d, x_mod, mod_data.view_cat_csr_indexing)
+                x_3d, x_mod, x_proj, mod_data.view_cat_csr_indexing)
         else:
             x_mod, x_seen = self.view_pool(
-                x_3d, x_mod, mod_data.view_csr_indexing)
+                x_3d, x_mod, x_proj, mod_data.view_csr_indexing)
 
         # Fuse the modality features into the 3D points features
         x_3d = self.fusion(x_3d, x_mod)

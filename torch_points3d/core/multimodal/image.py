@@ -886,6 +886,13 @@ class SameSettingImageData(object):
             return self.mappings.view_csr_indexing
         return None
 
+    @property
+    def projection_features(self):
+        """
+        Return the projection features carried by the mappings.
+        """
+        return self.mappings.features
+
 
 class SameSettingImageBatch(SameSettingImageData):
     """
@@ -1163,6 +1170,15 @@ class ImageData:
             im.view_csr_indexing.unsqueeze(dim=1)
             for im in self], dim=1).sum(dim=1)
         return view_csr_idx
+
+    @property
+    def projection_features(self):
+        """
+        Return the projection features carried by the mappings of each
+        SameSettingImageData.
+        """
+        return [im.projection_features for im in self]
+
 
 
 class ImageBatch(ImageData):
