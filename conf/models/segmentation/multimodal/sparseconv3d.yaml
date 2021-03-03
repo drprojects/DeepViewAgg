@@ -1264,7 +1264,7 @@ models:
                 down_conv_nn:
                   [
                       [ FEAT, in_feat ],
-                      [ in_feat, in_feat ],
+                      [ in_feat + in_feat, in_feat ],
 
                       [ in_feat, in_feat ],
                       [ in_feat, in_feat ],
@@ -1276,7 +1276,7 @@ models:
                       [ 4*in_feat, 4*in_feat ],
 
                       [ 4*in_feat, 8*in_feat ],
-                      [ 8*in_feat + in_feat, 8*in_feat ],
+                      [ 8*in_feat, 8*in_feat ],
                   ]
 
                 image:
@@ -1302,7 +1302,7 @@ models:
                     fusion:
                         module_name: BimodalFusion
                         mode: concatenation
-                    branching_index: 5
+                    branching_index: 1
 
             up_conv:
                 block: block

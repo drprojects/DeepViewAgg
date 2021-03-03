@@ -86,7 +86,11 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
         K = self.K(x_proj)
 
         # Compute pointwise queries : N x D
-        Q = self.Q(x_main)
+        if isinstance(x_main, torch.Tensor):
+            Q = self.Q(x_main)
+        else:
+            # For MinkowskiEngine and TorchSparse SparseTensors
+            Q = self.Q(x_main.F)
 
         # Expand queries to views : V x D
         Q = torch.repeat_interleave(Q, csr_idx[1:] - csr_idx[:-1], dim=0)
