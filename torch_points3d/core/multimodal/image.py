@@ -817,16 +817,17 @@ class SameSettingImageData(object):
 
     def to(self, device):
         """Set torch.Tensor attributes device."""
-        self.pos = self.pos.to(device)
-        self.opk = self.opk.to(device)
-        self._crop_offsets = self.crop_offsets.to(device)
-        self._x = self.x.to(device) if self.x is not None \
+        out = self.clone()
+        out.pos = out.pos.to(device)
+        out.opk = out.opk.to(device)
+        out._crop_offsets = out.crop_offsets.to(device)
+        out._x = out.x.to(device) if out.x is not None \
             else None
-        self._mappings = self.mappings.to(device) if self.mappings is not None \
+        out._mappings = out.mappings.to(device) if out.mappings is not None \
             else None
-        self._mask = self.mask.to(device) if self.mask is not None \
+        out._mask = out.mask.to(device) if out.mask is not None \
             else None
-        return self
+        return out
 
     @property
     def device(self):
@@ -884,6 +885,13 @@ class SameSettingImageData(object):
         if self.mappings is not None:
             return self.mappings.view_csr_indexing
         return None
+
+    @property
+    def projection_features(self):
+        """
+        Return the projection features carried by the mappings.
+        """
+        return self.mappings.features
 
 
 class SameSettingImageBatch(SameSettingImageData):
@@ -1094,8 +1102,9 @@ class ImageData:
         return self.__class__([im.clone() for im in self])
 
     def to(self, device):
-        self._list = [im.to(device) for im in self]
-        return self
+        out = self.clone()
+        out._list = [im.to(device) for im in out]
+        return out
 
     @property
     def device(self):
@@ -1161,6 +1170,15 @@ class ImageData:
             im.view_csr_indexing.unsqueeze(dim=1)
             for im in self], dim=1).sum(dim=1)
         return view_csr_idx
+
+    @property
+    def projection_features(self):
+        """
+        Return the projection features carried by the mappings of each
+        SameSettingImageData.
+        """
+        return [im.projection_features for im in self]
+
 
 
 class ImageBatch(ImageData):
@@ -1286,7 +1304,7 @@ class ImageMapping(CSRData):
             'point_ids and image_ids must have the same shape'
         assert point_ids.shape[0] == pixels.shape[0], \
             'pixels and indices must have the same shape'
-        assert features is None or point_ids.shape == features.shape, \
+        assert features is None or point_ids.shape[0] == features.shape[0], \
             'point_ids and features must have the same shape'
 
         # Sort by point_ids first, image_ids second
@@ -1623,7 +1641,8 @@ class ImageMapping(CSRData):
             if self.has_features:
                 features = torch.repeat_interleave(
                     self.features,
-                    self.values[1].pointers[1:] - self.values[1].pointers[:-1])
+                    self.values[1].pointers[1:] - self.values[1].pointers[:-1],
+                    dim=0)
             else:
                 features = None
             pixels = self.pixels
@@ -1699,7 +1718,8 @@ class ImageMapping(CSRData):
         if self.has_features:
             features = torch.repeat_interleave(
                 self.features,
-                self.values[1].pointers[1:] - self.values[1].pointers[:-1])
+                self.values[1].pointers[1:] - self.values[1].pointers[:-1],
+                dim=0)
         else:
             features = None
 

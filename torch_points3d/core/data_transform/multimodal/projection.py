@@ -16,15 +16,15 @@ def pose_to_rotation_matrix_numba(opk):
     # Omega, Phi, Kappa inverse rotation matries
     M_o = np.array([[1.0, 0.0, 0.0],
                     [0.0, co, -so],
-                    [0.0, so, co]], dtype=np.float64)
+                    [0.0, so, co]], dtype=np.float32)
 
     M_p = np.array([[cp, 0.0, sp],
                     [0.0, 1.0, 0.0],
-                    [-sp, 0.0, cp]], dtype=np.float64)
+                    [-sp, 0.0, cp]], dtype=np.float32)
 
     M_k = np.array([[ck, -sk, 0.0],
                     [sk, ck, 0.0],
-                    [0.0, 0.0, 1.0]], dtype=np.float64)
+                    [0.0, 0.0, 1.0]], dtype=np.float32)
 
     # Global inverse rotation matrix to go from cartesian to
     # camera-system spherical coordinates
@@ -78,7 +78,8 @@ def field_of_view(x_pix, y_pix, crop_top, crop_bottom, mask=None):
 # -------------------------------------------------------------------------------
 
 @njit(cache=True, nogil=True)
-def array_pixel_width_numba(y_pix, dist, img_shape=(1024, 512), voxel=0.03, k=0.2, d=10):
+def array_pixel_width_numba(y_pix, dist, img_shape=(1024, 512), voxel=0.03,
+        k=0.2, d=10):
     # Compute angular width
     # Pixel are grown based on their distance
     # Small angular widths assumption: tan(x)~x
@@ -133,6 +134,53 @@ def border_pixel_masks_numba(pix_masks, x_min, x_max, y_min, y_max):
 # -------------------------------------------------------------------------------
 
 @njit(cache=True, nogil=True)
+def normalize_distance_numba(dist, low=None, high=None):
+    d_min = low
+    d_max = high
+    dist = dist.astype(np.float32)
+    if low is None:
+        d_min = dist.min()
+    if high is None:
+        d_max = dist.max()
+    return ((dist - d_min) / (d_max + 1e-4)).astype(np.float32)
+
+
+# -------------------------------------------------------------------------------
+
+@njit(cache=True, nogil=True)
+def orientation_numba(u, v, requires_scaling=False):
+    """Orientation is defined as |cos(theta)| with theta the angle
+    between the u and v. By default, u and v are assumed to be already
+    unit-scaled, use 'requires_scaling' if that is not the case.
+    """
+    orientation = np.zeros(u.shape[0], dtype=np.float32)
+    u = u.astype(np.float32)
+    v = v.astype(np.float32)
+
+    if v is None:
+        return orientation
+
+    if requires_scaling:
+        u = u / (norms_numba(u) + 1e-4).reshape((-1, 1)).astype(np.float32)
+        v = v / (norms_numba(v) + 1e-4).reshape((-1, 1)).astype(np.float32)
+
+    orientation = np.abs((u * v).sum(axis=1))
+    # idx = np.where(orientation > 1)[0]
+    # orientation[idx] = 0
+
+    return orientation
+
+
+# -------------------------------------------------------------------------------
+
+@njit(cache=True, nogil=True)
+def normalize_height_numba(pixel_height, height):
+    return (pixel_height / height).astype(np.float32)
+
+
+# -------------------------------------------------------------------------------
+
+@njit(cache=True, nogil=True)
 def compute_depth_map(
         xyz_to_img,
         img_opk,
@@ -154,25 +202,27 @@ def compute_depth_map(
     in_range = np.where(np.logical_and(r_min < distances, distances < r_max))[0]
 
     # Project points to float pixel coordinates
-    x_pix, y_pix = float_pixels_numba(xyz_to_img[in_range], distances[in_range], img_rotation,
-                                      proj_size)
+    x_pix, y_pix = float_pixels_numba(xyz_to_img[in_range], distances[in_range],
+        img_rotation, proj_size)
 
     # Remove points outside of camera field of view
-    in_fov = field_of_view(x_pix, y_pix, crop_top, proj_size[1] - crop_bottom, mask=img_mask)
+    in_fov = field_of_view(x_pix, y_pix, crop_top, proj_size[1] - crop_bottom,
+        mask=img_mask)
 
     # Compute projection pixel patches sizes 
-    width_pix = array_pixel_width_numba(y_pix[in_fov], distances[in_range][in_fov],
-                                        img_shape=proj_size, voxel=voxel, k=growth_k, d=growth_r)
+    width_pix = array_pixel_width_numba(y_pix[in_fov],
+        distances[in_range][in_fov], img_shape=proj_size, voxel=voxel,
+        k=growth_k, d=growth_r)
     pix_masks = pixel_masks_numba(x_pix[in_fov], y_pix[in_fov], width_pix)
     pix_masks = border_pixel_masks_numba(pix_masks, 0, proj_size[0], crop_top,
-                                         proj_size[1] - crop_bottom)
+        proj_size[1] - crop_bottom)
     pix_masks[:, 2:] -= crop_top  # Remove y-crop offset
 
     # Cropped maps initialization
     cropped_img_size = (proj_size[0], proj_size[1] - crop_bottom - crop_top)
     depth_map = np.full(cropped_img_size, r_max + 1, np.float32)
     undistort = np.sin(np.pi * np.arange(crop_top,
-                                         proj_size[1] - crop_bottom) / proj_size[1]) + 0.001
+        proj_size[1] - crop_bottom) / proj_size[1]) + 0.001
 
     # Loop through indices for points in range and in FOV
     distances = distances[in_range][in_fov]
@@ -197,7 +247,8 @@ def compute_depth_map(
     # Restore the cropped areas
     cropped_map_top = np.full((proj_size[0], crop_top), empty, np.float32)
     cropped_map_bottom = np.full((proj_size[0], crop_bottom), empty, np.float32)
-    depth_map = np.concatenate((cropped_map_top, depth_map, cropped_map_bottom), axis=1)
+    depth_map = np.concatenate((cropped_map_top, depth_map, cropped_map_bottom),
+        axis=1)
 
     return depth_map
 
@@ -231,11 +282,13 @@ def compute_rgb_map(
                                       img_rotation, proj_size)
 
     # Remove points outside of camera field of view
-    in_fov = field_of_view(x_pix, y_pix, crop_top, proj_size[1] - crop_bottom, mask=img_mask)
+    in_fov = field_of_view(x_pix, y_pix, crop_top, proj_size[1] - crop_bottom,
+        mask=img_mask)
 
     # Compute projection pixel patches sizes 
-    width_pix = array_pixel_width_numba(y_pix[in_fov], distances[in_range][in_fov],
-                                        img_shape=proj_size, voxel=voxel, k=growth_k, d=growth_r)
+    width_pix = array_pixel_width_numba(y_pix[in_fov],
+        distances[in_range][in_fov], img_shape=proj_size, voxel=voxel,
+        k=growth_k, d=growth_r)
     pix_masks = pixel_masks_numba(x_pix[in_fov], y_pix[in_fov], width_pix)
     pix_masks = border_pixel_masks_numba(pix_masks, 0, proj_size[0], crop_top,
                                          proj_size[1] - crop_bottom)
@@ -246,7 +299,7 @@ def compute_rgb_map(
     depth_map = np.full(cropped_img_size, r_max + 1, np.float32)
     rgb_map = np.zeros((*cropped_img_size, 3), dtype=np.int16)
     undistort = np.sin(np.pi * np.arange(crop_top,
-                                         proj_size[1] - crop_bottom) / proj_size[1]) + 0.001
+        proj_size[1] - crop_bottom) / proj_size[1]) + 0.001
 
     # Loop through indices for points in range and in FOV
     distances = distances[in_range][in_fov]
@@ -274,11 +327,14 @@ def compute_rgb_map(
     # Restore the cropped areas
     cropped_map_top = np.full((proj_size[0], crop_top), empty, np.float32)
     cropped_map_bottom = np.full((proj_size[0], crop_bottom), empty, np.float32)
-    depth_map = np.concatenate((cropped_map_top, depth_map, cropped_map_bottom), axis=1)
+    depth_map = np.concatenate((cropped_map_top, depth_map, cropped_map_bottom),
+        axis=1)
 
     cropped_map_top = np.zeros((proj_size[0], crop_top, 3), dtype=np.uint8)
-    cropped_map_bottom = np.zeros((proj_size[0], crop_bottom, 3), dtype=np.uint8)
-    rgb_map = np.concatenate((cropped_map_top, rgb_map, cropped_map_bottom), axis=1)
+    cropped_map_bottom = np.zeros((proj_size[0], crop_bottom, 3),
+        dtype=np.uint8)
+    rgb_map = np.concatenate((cropped_map_top, rgb_map, cropped_map_bottom),
+        axis=1)
 
     return rgb_map, depth_map
 
@@ -301,7 +357,7 @@ def compute_index_map(
         growth_r=10,
         empty=0,
         no_id=-1):
-    # We store indices in int64 format so we only accept indices up to 
+    # We store indices in int64 format so we only accept indices up to
     # np.iinfo(np.int64).max
     num_points = xyz_to_img.shape[0]
     if num_points >= 9223372036854775807:
@@ -319,14 +375,16 @@ def compute_index_map(
                                       img_rotation, proj_size)
 
     # Remove points outside of camera field of view
-    in_fov = field_of_view(x_pix, y_pix, crop_top, proj_size[1] - crop_bottom, mask=img_mask)
+    in_fov = field_of_view(x_pix, y_pix, crop_top, proj_size[1] - crop_bottom,
+        mask=img_mask)
 
-    # Compute projection pixel patches sizes 
-    width_pix = array_pixel_width_numba(y_pix[in_fov], distances[in_range][in_fov],
-                                        img_shape=proj_size, voxel=voxel, k=growth_k, d=growth_r)
+    # Compute projection pixel patches sizes
+    width_pix = array_pixel_width_numba(y_pix[in_fov],
+        distances[in_range][in_fov], img_shape=proj_size, voxel=voxel,
+        k=growth_k, d=growth_r)
     pix_masks = pixel_masks_numba(x_pix[in_fov], y_pix[in_fov], width_pix)
     pix_masks = border_pixel_masks_numba(pix_masks, 0, proj_size[0], crop_top,
-                                         proj_size[1] - crop_bottom)
+         proj_size[1] - crop_bottom)
     pix_masks[:, 2:] -= crop_top  # Remove y-crop offset
 
     # Cropped depth map initialization
@@ -365,16 +423,172 @@ def compute_index_map(
     # Restore the cropped areas
     cropped_map_top = np.full((proj_size[0], crop_top), empty, np.float32)
     cropped_map_bottom = np.full((proj_size[0], crop_bottom), empty, np.float32)
-    depth_map = np.concatenate((cropped_map_top, depth_map, cropped_map_bottom), axis=1)
+    depth_map = np.concatenate((cropped_map_top, depth_map, cropped_map_bottom),
+                               axis=1)
 
     cropped_map_top = np.full((proj_size[0], crop_top), no_id, np.int64)
     cropped_map_bottom = np.full((proj_size[0], crop_bottom), no_id, np.int64)
-    idx_map = np.concatenate((cropped_map_top, idx_map, cropped_map_bottom), axis=1)
+    idx_map = np.concatenate((cropped_map_top, idx_map, cropped_map_bottom),
+                             axis=1)
 
     return idx_map, depth_map
 
-# TODO : projection features construction and extraction (depth, normal
-#  orientation, distortion level, ...)
+
+# -------------------------------------------------------------------------------
+
+@njit(cache=True, nogil=True)
+def compute_projection(
+        xyz_to_img,
+        indices,
+        img_opk,
+        linearity=None,
+        planarity=None,
+        scattering=None,
+        normals=None,
+        img_mask=None,
+        proj_size=(1024, 512),
+        crop_top=0,
+        crop_bottom=0,
+        voxel=0.1,
+        r_max=30,
+        r_min=0.5,
+        growth_k=0.2,
+        growth_r=10,
+        empty=0,
+        no_id=-1):
+    # We store indices in int64 format so we only accept indices up to
+    # np.iinfo(np.int64).max
+    num_points = xyz_to_img.shape[0]
+    if num_points >= 9223372036854775807:
+        raise OverflowError
+
+    # Initialize pointwise geometric features to zero if not provided
+    if linearity is None:
+        linearity = np.zeros(xyz_to_img.shape[0], dtype=np.float32)
+    if planarity is None:
+        planarity = np.zeros(xyz_to_img.shape[0], dtype=np.float32)
+    if scattering is None:
+        scattering = np.zeros(xyz_to_img.shape[0], dtype=np.float32)
+    if normals is None:
+        normals = np.zeros((xyz_to_img.shape[0], 3), dtype=np.float32)
+    linearity = linearity.astype(np.float32)
+    planarity = planarity.astype(np.float32)
+    scattering = scattering.astype(np.float32)
+    normals = normals.astype(np.float32)
+
+    # Rotation matrix from image Euler angle pose
+    img_rotation = pose_to_rotation_matrix_numba(img_opk)
+
+    # Remove points outside of image range
+    distances = norms_numba(xyz_to_img)
+    in_range = np.where(np.logical_and(r_min < distances, distances < r_max))[0]
+    xyz_to_img = xyz_to_img[in_range]
+    distances = distances[in_range]
+    indices = indices[in_range]
+    linearity = linearity[in_range]
+    planarity = planarity[in_range]
+    scattering = scattering[in_range]
+    normals = normals[in_range]
+
+    # Project points to float pixel coordinates
+    x_pix, y_pix = float_pixels_numba(xyz_to_img, distances, img_rotation,
+        proj_size)
+
+    # Remove points outside of camera field of view
+    in_fov = field_of_view(x_pix, y_pix, crop_top, proj_size[1] - crop_bottom,
+        mask=img_mask)
+    xyz_to_img = xyz_to_img[in_fov]
+    distances = distances[in_fov]
+    indices = indices[in_fov]
+    linearity = linearity[in_fov]
+    planarity = planarity[in_fov]
+    scattering = scattering[in_fov]
+    normals = normals[in_fov]
+    x_pix = x_pix[in_fov]
+    y_pix = y_pix[in_fov]
+
+    # Compute projection pixel patches sizes
+    width_pix = array_pixel_width_numba(y_pix, distances, img_shape=proj_size,
+        voxel=voxel, k=growth_k, d=growth_r)
+    pix_masks = pixel_masks_numba(x_pix, y_pix, width_pix)
+    pix_masks = border_pixel_masks_numba(pix_masks, 0, proj_size[0], crop_top,
+         proj_size[1] - crop_bottom)
+    pix_masks[:, 2:] -= crop_top  # Remove y-crop offset
+
+    # Compute the N x F array of pointwise projection features carrying:
+    #     - normalized depth
+    #     - linearity
+    #     - planarity
+    #     - scattering
+    #     - orientation to the surface
+    #     - normalized pixel height
+    depth = normalize_distance_numba(distances, low=r_min, high=r_max)
+    orientation = orientation_numba(
+        xyz_to_img / (distances + 1e-4).reshape((-1, 1)),
+        normals)
+    height = normalize_height_numba(y_pix, proj_size[1])
+    features = np.column_stack((
+        depth,
+        linearity,
+        planarity,
+        scattering,
+        orientation,
+        height))
+    n_feat = features.shape[1]
+
+    # Cropped depth map initialization
+    cropped_img_size = (proj_size[0], proj_size[1] - crop_bottom - crop_top)
+    depth_map = np.full(cropped_img_size, r_max + 1, dtype=np.float32)
+
+    # Cropped indices map initialization
+    # We store indices in int64 so we assumes point indices are lower
+    # than max int64 ~ 2.14 x 10^9.
+    # We need the negative for empty pixels
+    idx_map = np.full(cropped_img_size, no_id, dtype=np.int64)
+
+    # Cropped feature map initialization
+    feat_map = np.zeros((*cropped_img_size, n_feat), dtype=np.float32)
+
+    # Loop through indices for points in range and in FOV
+    for i_point in range(distances.shape[0]):
+
+        point_dist = distances[i_point]
+        point_idx = indices[i_point]
+        point_pix_mask = pix_masks[i_point]
+        point_feat = features[i_point]
+
+        # Update maps where point is closest recorded
+        x_a, x_b, y_a, y_b = point_pix_mask
+        for x in range(x_a, x_b):
+            for y in range(y_a, y_b):
+                if point_dist < depth_map[x, y]:
+                    depth_map[x, y] = point_dist
+                    idx_map[x, y] = point_idx
+                    feat_map[x, y] = point_feat
+
+    # Set empty pixels to default empty value
+    for x in range(depth_map.shape[0]):
+        for y in range(depth_map.shape[1]):
+            if depth_map[x, y] > r_max:
+                depth_map[x, y] = empty
+
+    # Restore the cropped areas
+    cropped_map_top = np.full((proj_size[0], crop_top), empty, np.float32)
+    cropped_map_bottom = np.full((proj_size[0], crop_bottom), empty, np.float32)
+    depth_map = np.concatenate((cropped_map_top, depth_map, cropped_map_bottom),
+        axis=1)
+
+    cropped_map_top = np.full((proj_size[0], crop_top), no_id, np.int64)
+    cropped_map_bottom = np.full((proj_size[0], crop_bottom), no_id, np.int64)
+    idx_map = np.concatenate((cropped_map_top, idx_map, cropped_map_bottom),
+        axis=1)
+
+    cropped_map_top = np.zeros((proj_size[0], crop_top, n_feat), np.float32)
+    cropped_map_bottom = np.zeros((proj_size[0], crop_bottom, n_feat), np.float32)
+    feat_map = np.concatenate((cropped_map_top, feat_map, cropped_map_bottom),
+        axis=1)
+
+    return idx_map, depth_map, feat_map
 
 # TODO : all-torch GPU-parallelized projection ? Rather than iteratively
 #  populating the depth map, create a set of target pixel coordinates and

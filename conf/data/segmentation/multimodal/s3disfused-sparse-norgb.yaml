@@ -12,9 +12,26 @@ data:
         - transform: GridSampling3D    # Samples on a grid
           params:
                 size: ${data.first_subsampling}
+                setattr_full_pos: True  # Required to keep the full-resolution points for later local features computation
         - transform: SaveOriginalPosId    # Required so that one can recover the multimodal mappings after the transforms
           params:
                 key: ${data.multimodal.settings.mapping_key}
+        - transform: PCAComputePointwise
+          params:
+                num_neighbors: 50  # heuristic: at least 30
+                r: 0.1  # heuristic: 2 * voxel
+                use_full_pos: True
+                workers: 6
+        - transform: EigenFeatures
+          params:
+                norm: True
+                linearity: True
+                planarity: True
+                scattering: True
+        - transform: RemoveAttributes
+          params:
+                attr_names: [full_pos, eigenvalues, eigenvectors]
+
     multimodal:    # Each modality must be inserted in a dedicated 'multimodal' section
         modality: image
         settings:
@@ -95,6 +112,7 @@ data:
                     n_img: ${data.multimodal.settings.test_pixel_credit}
                     k_coverage: ${data.multimodal.settings.k_coverage}
         val_transforms: ${data.multimodal.test_transforms}
+
     train_transforms:
         - transform: RandomNoise
           params:
@@ -130,6 +148,7 @@ data:
                 quantize_coords: True
                 mode: "last"
         - transform: ShiftVoxels
+
     test_transform:
         - transform: XYZFeature
           params:
@@ -147,4 +166,5 @@ data:
                 size: ${data.first_subsampling}
                 quantize_coords: True
                 mode: "last"
+
     val_transform: ${data.test_transform}

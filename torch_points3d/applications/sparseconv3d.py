@@ -235,11 +235,15 @@ class SparseConv3dUnet(BaseSparseConv3d):
 
         # Last down conv module
         data = self.down_modules[-1](data)
-
-        # Discard the modalities used in the down modules, only
-        # pointwise features are used in subsequent modules.
+        
         if self.is_multimodal:
+            # Discard the modalities used in the down modules, only
+            # pointwise features are used in subsequent modules.
             data = data[0]
+            
+            # First down module of multimodal model operates on raw data, 
+            # its output is not 'skipped'
+            stack_down.pop(0)
 
         # TODO : Manage the inner module
 

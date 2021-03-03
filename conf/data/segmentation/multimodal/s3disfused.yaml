@@ -7,14 +7,30 @@ data:
     use_category: False
     sample_per_epoch: 3000
     pre_collate_transform:
-        - transform: PointCloudFusion  # One point cloud per area
-        - transform: SaveOriginalPosId  # Required so that one can recover the original point in the fused point cloud
-        - transform: GridSampling3D  # Samples on a grid
+        - transform: PointCloudFusion    # One point cloud per area
+        - transform: SaveOriginalPosId    # Required so that one can recover the original point in the fused point cloud
+        - transform: GridSampling3D    # Samples on a grid
           params:
                 size: ${data.first_subsampling}
-        - transform: SaveOriginalPosId  # Required so that one can recover the multimodal mappings after the transforms
+                setattr_full_pos: True  # Required to keep the full-resolution points for later local features computation
+        - transform: SaveOriginalPosId    # Required so that one can recover the multimodal mappings after the transforms
           params:
                 key: ${data.multimodal.settings.mapping_key}
+        - transform: PCAComputePointwise
+          params:
+                num_neighbors: 50  # heuristic: at least 30
+                r: 0.1  # heuristic: 2 * voxel
+                use_full_pos: True
+                workers: 6  # careful with your RAM usage
+        - transform: EigenFeatures
+          params:
+                norm: True
+                linearity: True
+                planarity: True
+                scattering: True
+        - transform: RemoveAttributes
+          params:
+                attr_names: [full_pos, eigenvalues, eigenvectors]
     multimodal:  # Each modality must be inserted in a dedicated 'multimodal' section
         modality: image
         settings:
