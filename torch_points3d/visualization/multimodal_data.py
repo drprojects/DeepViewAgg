@@ -58,11 +58,13 @@ def feats_to_rgb(feats):
         cov_matrix = x_centered.T.mm(x_centered) / len(x_centered)
         _, eigenvectors = torch.symeig(cov_matrix, eigenvectors=True)
         color = x_centered.mm(eigenvectors[:, -3:])
-        
+
     # Unit-normalize the features in a hypercube of shared scale
     # for nicer visualizations
-    color = color - color.min() if color.max() != color.min() else color
-    color = color / (color.max() + 1e-6)
+    color = color - color.min(dim=0).values.view(1, -1) \
+        if color.max() != color.min()\
+        else color
+    color = color / (color.max(dim=0).values.view(1, -1) + 1e-6)
     
     return color
 

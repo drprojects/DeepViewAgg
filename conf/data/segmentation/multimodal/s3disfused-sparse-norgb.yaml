@@ -18,8 +18,8 @@ data:
                 key: ${data.multimodal.settings.mapping_key}
         - transform: PCAComputePointwise
           params:
-                num_neighbors: 30
-                r: 0.04
+                num_neighbors: 50  # heuristic: at least 30
+                r: 0.1  # heuristic: 2 * voxel
                 use_full_pos: True
                 workers: 6
         - transform: EigenFeatures
