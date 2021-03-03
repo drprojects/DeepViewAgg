@@ -1321,7 +1321,8 @@ class ImageMapping(CSRData):
         # NB: The pointers are marked by non-successive point-image ids.
         #     Watch out for overflow in case the point_ids and
         #     image_ids are too large and stored in 32 bits.
-        composite_ids = CompositeTensor(point_ids, image_ids)
+        composite_ids = CompositeTensor(point_ids, image_ids, 
+                                        device=point_ids.device)
         image_pixel_mappings = CSRData(composite_ids.data, pixels, dense=True)
         del composite_ids
 

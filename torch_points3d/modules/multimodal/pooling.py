@@ -153,7 +153,7 @@ def segment_csr_softmax(src: torch.Tensor, csr_idx: torch.Tensor,
 
     if scaling:
         num_per_index = (csr_idx[1:] - csr_idx[:-1])
-        num_per_src_element = torch.repeat_interleave(num_per_index.sqrt(),
+        num_per_src_element = torch.repeat_interleave(num_per_index.float().sqrt(),
                                                       num_per_index)
         if src.dim() > 1:
             num_per_src_element = num_per_src_element.view(-1, 1).repeat(1,
