@@ -1321,7 +1321,8 @@ class ImageMapping(CSRData):
         # NB: The pointers are marked by non-successive point-image ids.
         #     Watch out for overflow in case the point_ids and
         #     image_ids are too large and stored in 32 bits.
-        composite_ids = CompositeTensor(point_ids, image_ids)
+        composite_ids = CompositeTensor(point_ids, image_ids, 
+                                        device=point_ids.device)
         image_pixel_mappings = CSRData(composite_ids.data, pixels, dense=True)
         del composite_ids
 
@@ -1331,11 +1332,7 @@ class ImageMapping(CSRData):
         image_ids = image_ids[image_pixel_mappings.pointers[1:] - 1]
         point_ids = point_ids[image_pixel_mappings.pointers[1:] - 1]
         if features is not None:
-            if torch.cuda.is_available():
-                features = torch_scatter.segment_csr(features.cuda(),
-                    image_pixel_mappings.pointers.cuda(), reduce='mean').cpu()
-            else:
-                features = torch_scatter.segment_csr(features,
+            features = torch_scatter.segment_csr(features,
                     image_pixel_mappings.pointers, reduce='mean')
 
         # Instantiate the main CSRData object
