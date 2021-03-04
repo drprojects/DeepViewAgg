@@ -4,6 +4,7 @@ data:
   dataroot: data
   fold: 5
   first_subsampling: 0.04
+  sample_per_epoch: 3000
   use_category: False
   pre_collate_transform:
       - transform: PointCloudFusion   # One point cloud per area
