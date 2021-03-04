@@ -1295,8 +1295,8 @@ models:
                         mode: max
                     view_pooling:
                         module_name: AttentiveBimodalCSRPool
-                        in_query: in_feat
-                        in_key: in_feat_proj
+                        in_main: in_feat
+                        in_proj: in_feat_proj
                         in_score: in_feat_attention
                         gating: True
                     fusion:
@@ -1372,8 +1372,8 @@ models:
                         mode: max
                     view_pooling:
                         module_name: AttentiveBimodalCSRPool
-                        in_query: in_feat
-                        in_key: in_feat_proj
+                        in_main: in_feat
+                        in_proj: in_feat_proj
                         in_score: in_feat_attention
                         gating: True
                     fusion:
@@ -1453,8 +1453,8 @@ models:
                         mode: max
                     view_pooling:
                         module_name: AttentiveBimodalCSRPool
-                        in_query: [ in_feat, in_feat ]
-                        in_key: in_feat_proj
+                        in_main: [ in_feat, in_feat ]
+                        in_proj: in_feat_proj
                         in_score: in_feat_attention
                         gating: True
                     fusion:
@@ -1535,8 +1535,8 @@ models:
                         mode: max
                     view_pooling:
                         module_name: AttentiveBimodalCSRPool
-                        in_query: [ in_feat, in_feat, 2*in_feat ]
-                        in_key: in_feat_proj
+                        in_main: [ in_feat, in_feat, 2*in_feat ]
+                        in_proj: in_feat_proj
                         in_score: in_feat_attention
                         gating: True
                     fusion:
