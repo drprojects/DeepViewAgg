@@ -3,6 +3,7 @@ from abc import ABC
 import torch
 import torch.nn as nn
 from torch_scatter import segment_csr
+from torch_points3d.core.common_modules import Seq
 
 
 class BimodalCSRPool(nn.Module, ABC):
@@ -67,12 +68,35 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
     points must be performed prior to the multimodal pooling.
     """
 
-    def __init__(self, in_query=None, in_key=None, in_score=None, gating=True,
-                 **kwargs):
+    def __init__(self, in_main=None, in_proj=None, in_mod=None,
+                 in_score=None, gating=True, **kwargs):
         super(AttentiveBimodalCSRPool, self).__init__()
-        self.Q = torch.nn.Linear(in_query, in_score, bias=True)
-        self.K = torch.nn.Linear(in_key, in_score, bias=True)
+
+        # Optional gating mechanism
         self.gating = gating
+
+        # Queries computation module
+        self.Q = nn.Linear(in_main, in_score, bias=True)
+
+        # Raw handcrafted projection features are fed to this module, we
+        # let the network preprocess them to its liking before computing
+        # the keys
+        in_proj_1 = nearest_power_of_2((in_proj + in_score) / 2, min_power=16)
+        in_proj_2 = nearest_power_of_2(in_score, min_power=16)
+        self.MLP_proj = (
+            Seq().append(nn.Linear(in_proj, in_proj_1, bias=True))
+                .append(nn.BatchNorm1d(in_proj_1))
+                .append(nn.ReLU())
+                .append(nn.Linear(in_proj_1, in_proj_2, bias=True))
+                .append(nn.BatchNorm1d(in_proj_2))
+                .append(nn.ReLU()))
+
+        # Keys computation module
+        self.mod_in_key = in_mod is not None
+        if self.mod_in_key:
+            self.K = nn.Linear(in_proj_2 + in_mod, in_score, bias=True)
+        else:
+            self.K = nn.Linear(in_proj_2, in_score, bias=True)
 
     def forward(self, x_main, x_mod, x_proj, csr_idx):
         """
@@ -83,7 +107,10 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
         :return: x_pool, x_seen
         """
         # Compute keys : V x D
-        K = self.K(x_proj)
+        if self.mod_in_key:
+            K = self.K(torch.cat([self.MLP_proj(x_proj), x_mod], dim=1))
+        else:
+            K = self.K(self.MLP_proj(x_proj))
 
         # Compute pointwise queries : N x D
         if isinstance(x_main, torch.Tensor):
@@ -116,6 +143,23 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
         x_seen = csr_idx[1:] > csr_idx[:-1]
 
         return x_pool, x_seen
+
+
+def nearest_power_of_2(x, min_power=16):
+    """Local helper to find the nearest power of 2 of a given number.
+    The `min_power` parameter puts a minimum threshold for the returned
+    power.
+    """
+    if x < min_power:
+        return min_power
+
+    previous_power = 2 ** ((x - 1).bit_length() - 1)
+    next_power = 2 ** (x - 1).bit_length()
+
+    if x - previous_power < next_power - x:
+        return previous_power
+    else:
+        return next_power
 
 
 @torch.jit.script
