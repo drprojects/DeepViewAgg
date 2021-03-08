@@ -12,7 +12,6 @@
 
 I_GPU=1
 
-
 CONDA_ENV=tp3d
 
 PROJECT_DIR=~/projects/torch-points3d
