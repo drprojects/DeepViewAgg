@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 from torch_scatter import segment_csr
 from torch_points3d.core.common_modules import Seq
+import math
 
 
 class BimodalCSRPool(nn.Module, ABC):
@@ -69,11 +70,16 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
     """
 
     def __init__(self, in_main=None, in_proj=None, in_mod=None,
-                 in_score=None, gating=True, **kwargs):
+                 in_score=None, gating=True, dim_scaling=True,
+                 group_scaling=False, **kwargs):
         super(AttentiveBimodalCSRPool, self).__init__()
 
         # Optional gating mechanism
         self.gating = gating
+
+        # Optional compatibilities scaling mechanism
+        self.dim_scaling = dim_scaling
+        self.group_scaling = group_scaling
 
         # Queries computation module
         self.Q = nn.Linear(in_main, in_score, bias=True)
@@ -123,18 +129,25 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
         Q = torch.repeat_interleave(Q, csr_idx[1:] - csr_idx[:-1], dim=0)
 
         # Compute compatibility scores : V
-        X = (K * Q).sum(dim=1)
+        C = (K * Q).sum(dim=1)
+
+        # Optionally scale compatibilities by the number of key features
+        if self.dim_scaling:
+            C = C / math.sqrt(K.shape[1])
+        # self._last_C = C
 
         # Compute attentions : V
-        A = segment_csr_softmax(X, csr_idx, scaling=True)
+        A = segment_csr_softmax(C, csr_idx, scaling=self.group_scaling)
+        # self._last_A = A
 
         # Compute attention-weighted modality features : P x F_mod
-        x_pool = segment_csr(x_mod * A.view(-1, 1), csr_idx, reduce='max')
+        x_pool = segment_csr(x_mod * A.view(-1, 1), csr_idx, reduce='sum')
 
         if self.gating:
             # Compute pointwise gating : P
-            G = segment_csr(X, csr_idx, reduce='max')
+            G = segment_csr(C, csr_idx, reduce='max')
             G = torch.tanh(torch.relu(G))
+            # self._last_G = G
 
             # Apply gating to the features : P x F_mod
             x_pool = x_pool * G.view(-1, 1)
@@ -169,7 +182,7 @@ def segment_csr_softmax(src: torch.Tensor, csr_idx: torch.Tensor,
     Based on: torch_scatter/composite/softmax.py
 
     The `scaling` option allows for scaled softmax computation, where
-    values are scaled by the number of items in each index group.
+    `scaling='True'` scales by the number of items in each index group.
     """
     if not torch.is_floating_point(src):
         raise ValueError(
@@ -183,21 +196,23 @@ def segment_csr_softmax(src: torch.Tensor, csr_idx: torch.Tensor,
             '`segment_csr_softmax` can only be computed over 1D or 2D source '
             'tensors.')
 
+    # Compute dense indices from CSR indices
     n_groups = csr_idx.shape[0] - 1
-
     dense_idx = torch.arange(n_groups).repeat_interleave(
         csr_idx[1:] - csr_idx[:-1])
     if src.dim() > 1:
         dense_idx = dense_idx.view(-1, 1).repeat(1, src.shape[1])
 
+    # Center scores maxima near 1 for computation precision
     max_value_per_index = segment_csr(src, csr_idx, reduce='max')
     max_per_src_element = max_value_per_index.gather(0, dense_idx)
-
     centered_scores = src - max_per_src_element
 
+    # Optionally scale scores by the sqrt of index group sizes
     if scaling:
         num_per_index = (csr_idx[1:] - csr_idx[:-1])
-        num_per_src_element = torch.repeat_interleave(num_per_index.float().sqrt(),
+        sqrt_num_per_index = num_per_index.float().sqrt()
+        num_per_src_element = torch.repeat_interleave(sqrt_num_per_index,
                                                       num_per_index)
         if src.dim() > 1:
             num_per_src_element = num_per_src_element.view(-1, 1).repeat(1,
@@ -205,8 +220,10 @@ def segment_csr_softmax(src: torch.Tensor, csr_idx: torch.Tensor,
 
         centered_scores = centered_scores / num_per_src_element
 
+    # Compute the numerators
     centered_scores_exp = centered_scores.exp()
 
+    # Compute the denominators
     sum_per_index = segment_csr(centered_scores_exp, csr_idx, reduce='sum')
     normalizing_constants = sum_per_index.add_(eps).gather(0, dense_idx)
 
