@@ -12,7 +12,6 @@
 
 I_GPU=1
 
-
 CONDA_ENV=tp3d
 
 PROJECT_DIR=~/projects/torch-points3d
@@ -33,16 +32,18 @@ MACHINE_DATA_ROOT='/media/drobert-admin/DATA2/datasets/s3dis'  # IGN DATA2
 
 #DATA_ROOT=${MACHINE_DATA_ROOT}/2cm
 #DATA_ROOT=${MACHINE_DATA_ROOT}/3cm
-DATA_ROOT=${MACHINE_DATA_ROOT}/5cm
-#DATA_ROOT=${MACHINE_DATA_ROOT}/5cm_256x128
+# DATA_ROOT=${MACHINE_DATA_ROOT}/5cm
+DATA_ROOT=${MACHINE_DATA_ROOT}/5cm_256x128
 #DATA_ROOT=${MACHINE_DATA_ROOT}/5cm_512x256
 
 ### XYZRGB and XYZ
-MODEL_NAME=Res16UNet21-15
+# MODEL_NAME=Res16UNet21-15
+# MODEL_NAME=Res16UNet21-15_light
 
 ### XYZ+RGB
-MODEL_NAME=Res16UNet21-15_Res16Image21_encoder_mean
-MODEL_NAME=Res16UNet21-15_Res16Image21_encoder_max
+# MODEL_NAME=Res16UNet21-15_Res16Image21_encoder_mean
+# MODEL_NAME=Res16UNet21-15_Res16Image21_encoder_max
+MODEL_NAME=Res16UNet21-15_ResImage3_light_1_a4_concatenation
 
 ### RGB
 #MODEL_NAME=Res16UNet21-15_GN_WS
@@ -55,28 +56,27 @@ MODEL_TYPE=sparseconv3d
 export SPARSE_BACKEND=torchsparse
 # export SPARSE_BACKEND=minkowski
 
-# TASK=segmentation/multimodal
-TASK=segmentation
+TASK=segmentation/multimodal
+# TASK=segmentation
 
 #DATASET=s3disfused
 #DATASET=s3disfused-no3d
-DATASET=s3disfused-sparse
-#DATASET=s3disfused-sparse-norgb
+# DATASET=s3disfused-sparse
+DATASET=s3disfused-sparse-norgb
 
 TRAINING=s3dis_benchmark/sparseconv3d
 #TRAINING=s3dis_benchmark/sparseconv3d_adam
 
-CHECKPOINT_DIR=""
+# CHECKPOINT_DIR=""
 
 EPOCHS=200
 
-SPHERE_SAMPLES=3000
-#SPHERE_SAMPLES=2000
+# SPHERE_SAMPLES=3000
+SPHERE_SAMPLES=2000
 
-WORKERS=2
+WORKERS=4
 
-BATCH_SIZE=8
-#BATCH_SIZE=4
+BATCH_SIZE=4
 
 BASE_LR=0.1
 
