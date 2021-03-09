@@ -123,18 +123,21 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
         Q = torch.repeat_interleave(Q, csr_idx[1:] - csr_idx[:-1], dim=0)
 
         # Compute compatibility scores : V
-        X = (K * Q).sum(dim=1)
+        C = (K * Q).sum(dim=1)
+        # self._last_C = C
 
         # Compute attentions : V
-        A = segment_csr_softmax(X, csr_idx, scaling=True)
+        A = segment_csr_softmax(C, csr_idx, scaling=True)
+        # self._last_A = A
 
         # Compute attention-weighted modality features : P x F_mod
-        x_pool = segment_csr(x_mod * A.view(-1, 1), csr_idx, reduce='max')
+        x_pool = segment_csr(x_mod * A.view(-1, 1), csr_idx, reduce='sum')
 
         if self.gating:
             # Compute pointwise gating : P
-            G = segment_csr(X, csr_idx, reduce='max')
+            G = segment_csr(C, csr_idx, reduce='max')
             G = torch.tanh(torch.relu(G))
+            # self._last_G = G
 
             # Apply gating to the features : P x F_mod
             x_pool = x_pool * G.view(-1, 1)
