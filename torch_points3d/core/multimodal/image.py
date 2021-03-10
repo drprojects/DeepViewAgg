@@ -1626,7 +1626,30 @@ class ImageMapping(CSRData):
                 "Merge correspondences must map to a compact set of " \
                 "indices."
 
-            # Expand to dense format
+            # Expand to dense view-level format
+            point_ids = torch.repeat_interleave(
+                idx, self.pointers[1:] - self.pointers[:-1])
+            image_ids = self.images
+
+            # Merge view-level projection features
+            if self.has_features:
+                # Compute composite point-image views ids
+                view_ids = CompositeTensor(point_ids, image_ids,
+                                                device=point_ids.device)
+                view_ids = view_ids.data.squeeze()
+                # Average the features per view
+                features = torch_scatter.scatter_mean(self.features,
+                                                      view_ids, 0)
+                # Prepare view indices for torch.gather
+                if features.dim() > 1:
+                    view_ids = view_ids.view(-1, 1).repeat(1, features.shape[1])
+                # Redistribute mean features to source indices
+                features = features.gather(0, view_ids)
+                del view_ids
+            else:
+                features = None
+
+            # Expand to dense atomic-level format
             point_ids = torch.repeat_interleave(
                 idx, self.pointers[1:] - self.pointers[:-1])
             point_ids = torch.repeat_interleave(
@@ -1637,20 +1660,18 @@ class ImageMapping(CSRData):
                 self.values[1].pointers[1:] - self.values[1].pointers[:-1])
             if self.has_features:
                 features = torch.repeat_interleave(
-                    self.features,
+                    features,
                     self.values[1].pointers[1:] - self.values[1].pointers[:-1],
                     dim=0)
-            else:
-                features = None
             pixels = self.pixels
 
-            # Remove duplicates and aggregate projection features
+            # Remove duplicate pixel mappings and aggregate projection
             idx_unique = lexargunique(point_ids, image_ids, pixels[:, 0],
                                       pixels[:, 1])
             point_ids = point_ids[idx_unique]
             image_ids = image_ids[idx_unique]
-            features = features[idx_unique] if features is not None else None
             pixels = pixels[idx_unique]
+            features = features[idx_unique] if features is not None else None
 
             # Convert to CSR format
             out = ImageMapping.from_dense(point_ids, image_ids, pixels,
