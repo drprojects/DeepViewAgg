@@ -11,6 +11,7 @@ import torchvision.transforms as T
 from .projection import compute_projection
 from tqdm.auto import tqdm as tq
 from typing import TypeVar, Union
+from pykeops.torch import LazyTensor
 
 """
 Image-based transforms for multimodal data processing. Inspired by 
@@ -381,6 +382,124 @@ class MapImages(ImageTransform):
 
         # Save the mapping in the SameSettingImageData
         images.mappings = mappings
+
+        return data, images
+
+
+class NeighborhoodBasedProjectionFeatures(ImageTransform):
+    """
+    Transform-like structure. Intended to be called on data and
+    images_data.
+
+    Populate the mappings with neighborhood-based projection features:
+        - density: estimated with the volume of the K-NN sphere
+        - occlusion: estimated as the ratio of k-NN seen by the image at
+        hand
+
+    The indices in data are expected to be included in those in
+    mappings. The CSRData format implicitly holds values for all
+    self.key in [0, ..., len(mappings)].
+
+    Parameters
+    ----------
+    k: int or List
+        Controls the number of neighbors on which to compute the
+        features. If a List is passed, the features will be computed for
+        each value of k.
+    density: bool, optional
+        Whether the local densities should be computed.
+    occlusion: bool, optional
+        Whether the local occlusions should be computed.
+    """
+
+    def __init__(self, k=20, density=True, occlusion=True, use_cuda=False):
+        self.k = sorted(k) if isinstance(k, list) else [k]
+        self.compute_density = density
+        self.compute_occlusion = occlusion
+        self.use_cuda = use_cuda and torch.cuda.is_available()
+        assert density or occlusion, \
+            "At least one of `density` or `occlusion` must be True."
+
+    def _process(self, data: Data, images):
+        assert isinstance(data, Data)
+        assert images.mappings is not None
+
+        # Recover 3D points positions
+        xyz = data.pos
+
+        # Move computation to CUDA if required
+        restore_input_cpu = False
+        if self.use_cuda and xyz.device.type != 'cuda':
+            restore_input_cpu = True
+            xyz = xyz.cuda()
+
+        # K-NN search with KeOps
+        xyz_query_keops = LazyTensor(xyz[:, None, :])
+        xyz_search_keops = LazyTensor(xyz[None, :, :])
+        d_keops = ((xyz_query_keops - xyz_search_keops) ** 2).sum(dim=2)
+        neighbors = d_keops.argKmin(self.k, dim=1)
+
+        # TODO: support for list of K
+
+        # TODO: see if KeOps can help with occlusion computation on sparse tensors
+
+        # Density computation
+        if self.compute_density:
+            # Compute the farthest distance in each neighborhood
+            d_max = ((xyz - xyz[neighbors[:, -1]])**2).sum(dim=1).sqrt()
+            v_sphere = 4 / 3 * 3.1416 * d_max**3
+            density = self.k / v_sphere
+
+            # Restore CPU input if need be
+            if restore_input_cpu:
+                density = density.cpu()
+
+            # Expand to view-level features
+            density = torch.repeat_interleave(density,
+                images.mappings.pointers[1:] - images.values.pointers[:-1])
+
+            # Append density to the image mapping features
+            density = density.view(-1, 1)
+            if not images.mappings.has_features:
+                images.mappings.features = density
+            else:
+                images.mappings.features = torch.cat(
+                    [images.mappings.features, density], dim=1)
+
+        # Occlusion computation
+        if self.compute_occlusion:
+            # Expand to view-level indices
+            n_points = data.num_nodes
+            n_images = torch.max(images.mappings.images) + 1
+            pointers = images.mappings.pointers
+            point_ids = torch.repeat_interleave(torch.arange(n_points),
+                pointers[1:] - pointers[:-1])
+            image_ids = images.mappings.images
+
+            # Compute the (very large) dense boolean 2D tensor of views
+            views = torch.zeros((n_points, n_images), dtype=torch.bool,
+                                  device='cuda' if self.use_cuda else 'cpu')
+            views[point_ids, image_ids] = True
+
+            # Compute the number of views for each view's neighbors
+            views = views[neighbors].sum(dim=1)
+
+            # Recover the occlusion ratio for each view
+            occlusion = (views[point_ids, image_ids] + 1).float() / (self.k + 1)
+
+            # Restore CPU input if need be
+            if restore_input_cpu:
+                occlusion = occlusion.cpu()
+
+            # Append occlusion to the image mapping features
+            occlusion = occlusion.view(-1, 1)
+            if not images.mappings.has_features:
+                images.mappings.features = occlusion
+            else:
+                images.mappings.features = torch.cat(
+                    [images.mappings.features, occlusion], dim=1)
+
+
 
         return data, images
 
