@@ -70,9 +70,14 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
     """
 
     def __init__(self, in_main=None, in_proj=None, in_mod=None,
-                 in_score=None, gating=True, dim_scaling=True,
-                 group_scaling=False, **kwargs):
+                 in_score=None, proj_min=False, proj_max=False,
+                 gating=True, dim_scaling=True, group_scaling=False,
+                 **kwargs):
         super(AttentiveBimodalCSRPool, self).__init__()
+
+        # Optional key computation mechanisms
+        self.proj_min = proj_min
+        self.proj_max = proj_max
 
         # Optional gating mechanism
         self.gating = gating
@@ -87,10 +92,11 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
         # Raw handcrafted projection features are fed to this module, we
         # let the network preprocess them to its liking before computing
         # the keys
-        in_proj_1 = nearest_power_of_2((in_proj + in_score) / 2, min_power=16)
+        in_proj_0 = in_proj * (1 + self.proj_min + self.proj_max)
+        in_proj_1 = nearest_power_of_2((in_proj_0 + in_score) / 2, min_power=16)
         in_proj_2 = nearest_power_of_2(in_score, min_power=16)
         self.MLP_proj = (
-            Seq().append(nn.Linear(in_proj, in_proj_1, bias=True))
+            Seq().append(nn.Linear(in_proj_0, in_proj_1, bias=True))
                 .append(nn.BatchNorm1d(in_proj_1))
                 .append(nn.ReLU())
                 .append(nn.Linear(in_proj_1, in_proj_2, bias=True))
@@ -112,6 +118,18 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
         :param csr_idx:
         :return: x_pool, x_seen
         """
+        # Optionally expand x_proj with difference-to_min or
+        # difference-to_max group features
+        if self.proj_min:
+            x_proj_min = segment_csr_diff(x_proj, csr_idx, reduce='min')
+        else:
+            x_proj_min = torch.empty(0, device=x_proj.device)
+        if self.proj_max:
+            x_proj_max = segment_csr_diff(x_proj, csr_idx, reduce='max')
+        else:
+            x_proj_max = torch.empty(0, device=x_proj.device)
+        x_proj = torch.cat([x_proj, x_proj_min, x_proj_max], dim=1)
+
         # Compute keys : V x D
         if self.mod_in_key:
             K = self.K(torch.cat([self.MLP_proj(x_proj), x_mod], dim=1))
@@ -228,6 +246,37 @@ def segment_csr_softmax(src: torch.Tensor, csr_idx: torch.Tensor,
     normalizing_constants = sum_per_index.add_(eps).gather(0, dense_idx)
 
     return centered_scores_exp.div(normalizing_constants)
+
+
+@torch.jit.script
+def segment_csr_diff(src: torch.Tensor, csr_idx: torch.Tensor,
+        reduce: str = 'sum') -> torch.Tensor:
+    """Compute the difference to the reduced value between same-index
+    elements, for CSR indices.
+    """
+    if not torch.is_floating_point(src):
+        raise ValueError(
+            '`segment_csr_diff` can only be computed over tensors with '
+            'floating point data types.')
+    if csr_idx.dim() != 1:
+        raise ValueError(
+            '`segment_csr_diff can only be computed over 1D CSR indices.')
+    if src.dim() > 2:
+        raise NotImplementedError(
+            '`segment_csr_diff` can only be computed over 1D or 2D source '
+            'tensors.')
+
+    # Compute dense indices from CSR indices
+    n_groups = csr_idx.shape[0] - 1
+    dense_idx = torch.arange(n_groups).repeat_interleave(
+        csr_idx[1:] - csr_idx[:-1])
+    if src.dim() > 1:
+        dense_idx = dense_idx.view(-1, 1).repeat(1, src.shape[1])
+
+    # Center scores maxima near 1 for computation precision
+    reduced_value_per_index = segment_csr(src, csr_idx, reduce=reduce)
+    reduced_value_per_src_element = reduced_value_per_index.gather(0, dense_idx)
+    return src - reduced_value_per_src_element
 
 
 """
