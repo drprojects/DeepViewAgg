@@ -64,7 +64,7 @@ data:
                     growth_k: ${data.multimodal.settings.growth_k}
                     growth_r: ${data.multimodal.settings.growth_r}
             - transform: NeighborhoodBasedProjectionFeatures  # Compute local density and occlusion
-                params:
+              params:
                     k: 50  # empirically-chosen heuristic [30-100] is fine
                     voxel: ${data.first_subsampling}
                     density: True
