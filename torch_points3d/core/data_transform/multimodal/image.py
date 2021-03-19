@@ -406,14 +406,26 @@ class NeighborhoodBasedProjectionFeatures(ImageTransform):
         Controls the number of neighbors on which to compute the
         features. If a List is passed, the features will be computed for
         each value of k.
+    voxel: float, optional
+        Voxel resolution of the cloud. If provided and `density=True`,
+        will be used to normalize the density. Because the surface
+        density is approximated based on manifoldness assumptions, no
+        guarantees can be claimed for normalized densities to be in
+        [0, 1]. However, this scaling ensures the densities live in a
+        "reasonable-enough" range to be subsequently fed to a neural
+        network.
     density: bool, optional
         Whether the local densities should be computed.
     occlusion: bool, optional
         Whether the local occlusions should be computed.
+    use_cuda: bool, optional
+        If True, the computation will be carried on CUDA.
     """
 
-    def __init__(self, k=20, density=True, occlusion=True, use_cuda=False):
-        self.k = sorted(k) if isinstance(k, list) else [k]
+    def __init__(self, k=20, voxel=None, density=True, occlusion=True,
+                 use_cuda=False):
+        self.k_list = sorted(k) if isinstance(k, list) else [k]
+        self.voxel = voxel if voxel is not None else 1
         self.compute_density = density
         self.compute_occlusion = occlusion
         self.use_cuda = use_cuda and torch.cuda.is_available()
@@ -437,69 +449,93 @@ class NeighborhoodBasedProjectionFeatures(ImageTransform):
         xyz_query_keops = LazyTensor(xyz[:, None, :])
         xyz_search_keops = LazyTensor(xyz[None, :, :])
         d_keops = ((xyz_query_keops - xyz_search_keops) ** 2).sum(dim=2)
-        neighbors = d_keops.argKmin(self.k, dim=1)
-
-        # TODO: support for list of K
-
-        # TODO: see if KeOps can help with occlusion computation on sparse tensors
+        neighbors = d_keops.argKmin(self.k_list[-1], dim=1)
+        del xyz_query_keops, xyz_search_keops, d_keops
 
         # Density computation
+        # TODO: density is sensitive to noise level in the dataset, may affect
+        #  generalization to other datasets if sensors differ. Investigating the
+        #  effect of local noise may help compute a better density heuristic.
         if self.compute_density:
-            # Compute the farthest distance in each neighborhood
-            d_max = ((xyz - xyz[neighbors[:, -1]])**2).sum(dim=1).sqrt()
-            v_sphere = 4 / 3 * 3.1416 * d_max**3
-            density = self.k / v_sphere
+            densities = []
+            for k in self.k_list:
+                # Compute the farthest distance in each neighborhood
+                d_max = ((xyz - xyz[neighbors[:, k - 1]])**2).sum(dim=1).sqrt()
 
-            # Restore CPU input if need be
-            if restore_input_cpu:
-                density = density.cpu()
+                # Estimate the surface density. Points are assumed to
+                # lie on a 2D manifold in 3D, so we roughly estimate the
+                # 2D density based on the disk of radius d_max.
+                v_sphere = 3.1416 * d_max**2
+                voxel_density = 1 / self.voxel**2
+                density = ((k + 1) / v_sphere) / voxel_density
+
+                # Restore CPU input if need be
+                if restore_input_cpu:
+                    density = density.cpu()
+
+                densities.append(density.view(-1, 1))
+
+            # Concatenate k-based densities column-wise
+            densities = torch.cat(densities, dim=1)
 
             # Expand to view-level features
-            density = torch.repeat_interleave(density,
-                images.mappings.pointers[1:] - images.values.pointers[:-1])
+            densities = torch.repeat_interleave(densities,
+                images.mappings.pointers[1:] - images.mappings.pointers[:-1], 0)
 
-            # Append density to the image mapping features
-            density = density.view(-1, 1)
+            # Append densities to the image mapping features
             if not images.mappings.has_features:
-                images.mappings.features = density
+                images.mappings.features = densities
             else:
                 images.mappings.features = torch.cat(
-                    [images.mappings.features, density], dim=1)
+                    [images.mappings.features, densities], dim=1)
 
         # Occlusion computation
         if self.compute_occlusion:
-            # Expand to view-level indices
+
+            # Expand to view-level
+            device = 'cuda' if self.use_cuda else images.mappings.device
             n_points = data.num_nodes
             n_images = torch.max(images.mappings.images) + 1
-            pointers = images.mappings.pointers
-            point_ids = torch.repeat_interleave(torch.arange(n_points),
+            pointers = images.mappings.pointers.to(device)
+            point_ids = torch.repeat_interleave(
+                torch.arange(n_points, device=device),
                 pointers[1:] - pointers[:-1])
-            image_ids = images.mappings.images
+            image_ids = images.mappings.images.to(device)
 
             # Compute the (very large) dense boolean 2D tensor of views
             views = torch.zeros((n_points, n_images), dtype=torch.bool,
-                                  device='cuda' if self.use_cuda else 'cpu')
+                                device=device)
             views[point_ids, image_ids] = True
 
-            # Compute the number of views for each view's neighbors
-            views = views[neighbors].sum(dim=1)
+            occlusions = []
+            for k in self.k_list:
+                # Accumulate the number of seen neighbors each view
+                views_neigh_seen = torch.ones_like(image_ids, dtype=torch.float)
+                for i in range(k):
+                    # Expand i-th neighbors to view-level
+                    views_neigh = torch.repeat_interleave(neighbors[:, i],
+                        pointers[1:] - pointers[:-1])
+                    views_neigh_seen += views[(views_neigh, image_ids)]
 
-            # Recover the occlusion ratio for each view
-            occlusion = (views[point_ids, image_ids] + 1).float() / (self.k + 1)
+                # Recover the occlusion ratio for each view while
+                # accounting for the contribution of the point itself
+                occlusion = views_neigh_seen / (k + 1)
 
-            # Restore CPU input if need be
-            if restore_input_cpu:
-                occlusion = occlusion.cpu()
+                # Restore CPU input if need be
+                if restore_input_cpu:
+                    occlusion = occlusion.cpu()
 
-            # Append occlusion to the image mapping features
-            occlusion = occlusion.view(-1, 1)
+                occlusions.append(occlusion.view(-1, 1))
+
+            # Concatenate k-based occlusions column-wise
+            occlusions = torch.cat(occlusions, dim=1)
+
+            # Append occlusions to the image mapping features
             if not images.mappings.has_features:
-                images.mappings.features = occlusion
+                images.mappings.features = occlusions
             else:
                 images.mappings.features = torch.cat(
-                    [images.mappings.features, occlusion], dim=1)
-
-
+                    [images.mappings.features, occlusions], dim=1)
 
         return data, images
 

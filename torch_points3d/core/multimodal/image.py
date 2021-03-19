@@ -1402,10 +1402,14 @@ class ImageMapping(CSRData):
     @features.setter
     def features(self, features):
         if self.has_features:
-            self.values[2] = features.to(self.device)
+            if features is None:
+                self.values.pop(-1)
+            else:
+                self.values[2] = features.to(self.device)
         else:
-            self.values.append(features.to(self.device))
-            self.debug()
+            if features is not None:
+                self.values.append(features.to(self.device))
+                self.debug()
 
     @property
     def pixels(self):
