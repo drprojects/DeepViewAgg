@@ -11,6 +11,7 @@ from functools import partial
 from joblib import Parallel, delayed
 import math
 import functools
+from pykeops.torch import LazyTensor
 
 from torch_geometric.nn import fps, radius, knn, voxel_grid
 from torch_geometric.nn.pool.consecutive import consecutive_cluster
@@ -392,15 +393,21 @@ class PCAComputePointwise(object):
         if data carries no such attribute. See `GridSampling3D` for
         producing `data.full_pos`.
         If False, the neighbor search will be computed on `data.pos`.
+    use_cuda: bool, optional
+        If True, the computation will be carried on CUDA.
+    workers: int, optional
+        If not `None`, the features computation will be distributed
+        across the provided number of workers.
     """
 
     def __init__(self, num_neighbors=40, r=None, use_full_pos=False,
-                 workers=None):
+                 use_cuda=False, workers=None):
         self._num_neighbors = num_neighbors
         self._r = r
         self._use_full_pos = use_full_pos
         self._workers = int(workers) if workers is not None and workers >= 2 \
             else 0
+        self._use_cuda = use_cuda and torch.cuda.is_available()
 
     def _process(self, data: Data):
         assert getattr(data, 'pos', None) is not None, \
@@ -413,21 +420,33 @@ class PCAComputePointwise(object):
         xyz_query = data.pos
         xyz_search = data.full_pos if self._use_full_pos else data.pos
 
+        # Move computation to CUDA if required
+        restore_input_cpu = False
+        if self._use_cuda and xyz_query.device.type != 'cuda':
+            restore_input_cpu = True
+            xyz_query = xyz_query.cuda()
+            xyz_search = xyz_search.cuda()
+
         # Compute the neighborhoods
         if self._r is None:
-            raise NotImplementedError(
-                "Fast K-NN search has not been implemented yet. Please "
-                "consider using radius search instead.")
+            # K-NN search with KeOps
+            xyz_query_keops = LazyTensor(xyz_query[:, None, :])
+            xyz_search_keops = LazyTensor(xyz_search[None, :, :])
+            d_keops = ((xyz_query_keops - xyz_search_keops) ** 2).sum(dim=2)
+            neighbors = d_keops.argKmin(self._num_neighbors, dim=1)
+            # raise NotImplementedError(
+            #     "Fast K-NN search has not been implemented yet. Please "
+            #     "consider using radius search instead.")
         else:
+            # Radius-NN search with torch_points_kernel
             sampler = RadiusNeighbourFinder(self._r, self._num_neighbors,
                                             conv_type='DENSE')
-        neighbors = sampler.find_neighbours(xyz_search.unsqueeze(0),
+            neighbors = sampler.find_neighbours(xyz_search.unsqueeze(0),
                                             xyz_query.unsqueeze(0))[0]
 
         # Compute PCA for each neighborhood
         if self._workers < 2:
-            data.eigenvalues, data.eigenvectors = run_pca(neighbors, 
-                xyz=xyz_search)
+            eigenvalues, eigenvectors = run_pca(neighbors, xyz=xyz_search)
 
         else:
             parallel_pca = functools.partial(run_pca, xyz=xyz_search)
@@ -437,9 +456,17 @@ class PCAComputePointwise(object):
                       for i in range(self._workers)]
             out = Parallel(n_jobs=self._workers)(delayed(parallel_pca)(chunk)
                                                  for chunk in chunks)
-            eigenvalues, eigenvectors = list(zip(*out))
-            data.eigenvalues = torch.cat(eigenvalues, dim=0)
-            data.eigenvectors = torch.cat(eigenvectors, dim=0)
+            eigenvalues, eigenvectors = [torch.cat(x, dim=0)
+                                         for x in list(zip(*out))]
+
+        # Restore to CPU if need be
+        if restore_input_cpu:
+            eigenvalues = eigenvalues.cpu()
+            eigenvectors = eigenvectors.cpu()
+
+        # Save eigendecomposition results in data attributes
+        data.eigenvalues = eigenvalues
+        data.eigenvectors = eigenvectors
 
         return data
 
