@@ -413,7 +413,7 @@ class UnwrappedUnetBasedModel(BaseModel, ABC):
         # Factories for creating modules for additional modalities
         if self.is_multimodal:
             for m in self.modalities:
-                mod_opt = getattr(opt.down_conv, m)
+                mod_opt = opt.down_conv[m]
                 self._module_factories[m] = ModalityFactory(
                     m,
                     mod_opt.down_conv.module_name,
@@ -455,12 +455,12 @@ class UnwrappedUnetBasedModel(BaseModel, ABC):
 
             for m in self.modalities:
                 # Get the branching indices
-                b_idx = getattr(opt.down_conv, m).branching_index
+                b_idx = opt.down_conv[m].branching_index
                 b_idx = [b_idx] if not is_list(b_idx) else b_idx
 
                 # Check whether the modality module is a UNet
-                is_unet = hasattr(getattr(opt.down_conv, m), 'up_conv') \
-                          and getattr(opt.down_conv, m).up_conv is not None
+                is_unet = hasattr(opt.down_conv[m], 'up_conv') \
+                          and opt.down_conv[m].up_conv is not None
                 assert not is_unet or len(b_idx) == 1, \
                     f"Cannot build a {m}-specific UNet with multiple " \
                     f"branching indices. Consider removing the 'up_conv' " \
@@ -471,24 +471,26 @@ class UnwrappedUnetBasedModel(BaseModel, ABC):
                 for i, idx in enumerate(b_idx):
                     if is_unet:
                         unet_cls = self._module_factories[m].get_module('UNET')
-                        conv = unet_cls(getattr(opt.down_conv, m))
+                        conv = unet_cls(opt.down_conv[m])
                     else:
                         conv = self._build_module(
-                            getattr(opt.down_conv, m).down_conv, i, modality=m)
+                            opt.down_conv[m].down_conv, i, modality=m)
                     atomic_pool = self._build_module(
-                        getattr(opt.down_conv, m).atomic_pooling, i, modality=m,
+                        opt.down_conv[m].atomic_pooling, i, modality=m,
                         flow='ATOMIC')
                     view_pool = self._build_module(
-                        getattr(opt.down_conv, m).view_pooling, i, modality=m,
+                        opt.down_conv[m].view_pooling, i, modality=m,
                         flow='VIEW')
                     fusion = self._build_module(
-                        getattr(opt.down_conv, m).fusion, i, modality=m,
+                        opt.down_conv[m].fusion, i, modality=m,
                         flow='FUSION')
+                    drop_3d = getattr(opt.down_conv[m], 'drop_3d', 0)
+                    drop_mod = getattr(opt.down_conv[m], 'drop_mod', 0)
 
                     # Group modules into a UnimodalBranch and update the
                     # branches at the proper branching point
                     branches[idx][m] = UnimodalBranch(conv, atomic_pool,
-                                                      view_pool, fusion)
+                      view_pool, fusion, drop_3d=drop_3d, drop_mod=drop_mod)
 
             # Update the down_modules list
             down_modules = [

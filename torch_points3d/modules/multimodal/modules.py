@@ -220,23 +220,26 @@ class MultimodalBlockDown(nn.Module, ABC):
 class UnimodalBranch(nn.Module, ABC):
     """Unimodal block with downsampling that looks like:
 
-    IN 3D    ------------------------------------
-                                    \            \
-    IN Mod   -- Conv -- Atomic Pool -- View Pool -- Fusion --    OUT 3D
+    IN 3D    ------------------------------------           --   OUT 3D
+                                    \            \         /
+    IN Mod   -- Conv -- Atomic Pool -- View Pool -- Fusion
                       \
-                       --------------------------------------    OUT Mod
+                       ---------------------------------------   OUT Mod
 
     The convolution may be a down-convolution or preserve input shape.
     However, up-convolutions are not supported, because reliable the
     mappings cannot be inferred when increasing resolution.
     """
 
-    def __init__(self, conv, atomic_pool, view_pool, fusion):
+    def __init__(self, conv, atomic_pool, view_pool, fusion, drop_3d=0,
+            drop_mod=0):
         super(UnimodalBranch, self).__init__()
         self.conv = conv if conv is not None else Identity()
         self.atomic_pool = atomic_pool
         self.view_pool = view_pool
         self.fusion = fusion
+        self.drop_3d = nn.Dropout(p=drop_3d) if drop_3d > 0 else nn.Identity()
+        self.drop_mod = nn.Dropout(p=drop_mod) if drop_mod > 0 else nn.Identity()
 
     def forward(self, mm_data_tuple):
         # Unpack the multimodal data tuple
@@ -293,6 +296,22 @@ class UnimodalBranch(nn.Module, ABC):
         else:
             x_mod, x_seen = self.view_pool(
                 x_3d, x_mod, x_proj, mod_data.view_csr_indexing)
+
+        # Dropout 3D or modality features
+        if isinstance(x_3d, torch.Tensor):
+            x_3d = self.drop_3d(x_3d)
+        else:
+            x_3d.F = self.drop_3d(x_3d.F)
+        x_mod = self.drop_mod(x_mod)
+
+        # drop = 0.3  # probability to apply dropout on either 3D or modality
+        # drop_3d = 0.  # probability that 3D is the one dropped over modality
+        #
+        # idx_drop = torch.where(torch.rand(x_3d.shape[0], device=x_3d.device) < drop)[0]
+        # subidx_drop = torch.rand(idx_drop.shape[0], device=x_3d.device) < drop_3d
+        #
+        # x_3d[idx_drop[subidx_drop]] *= 0
+        # x_mod[idx_drop[~subidx_drop]] *= 0
 
         # Fuse the modality features into the 3D points features
         x_3d = self.fusion(x_3d, x_mod)

@@ -72,15 +72,26 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
     def __init__(self, in_main=None, in_proj=None, in_mod=None,
                  in_score=None, proj_min=False, proj_max=False,
                  gating=True, dim_scaling=True, group_scaling=False,
-                 **kwargs):
+                 debug=False, save_last=False, **kwargs):
         super(AttentiveBimodalCSRPool, self).__init__()
+
+        self.save_last = save_last
+        self.debug = debug
+        if debug:
+            proj_min = False
+            proj_max = False
+            group_scaling = False
+            dim_scaling = True
+            in_score = 1
+            in_proj = 1
+            in_mod = None
 
         # Optional key computation mechanisms
         self.proj_min = proj_min
         self.proj_max = proj_max
 
         # Optional gating mechanism
-        self.gating = gating
+        self.Gating = Gating(bias=True) if gating else None
 
         # Optional compatibilities scaling mechanism
         self.dim_scaling = dim_scaling
@@ -95,6 +106,9 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
         in_proj_0 = in_proj * (1 + self.proj_min + self.proj_max)
         in_proj_1 = nearest_power_of_2((in_proj_0 + in_score) / 2, min_power=16)
         in_proj_2 = nearest_power_of_2(in_score, min_power=16)
+        if self.debug:
+            in_proj_1 = 2
+            in_proj_2 = 2
         self.MLP_proj = (
             Seq().append(nn.Linear(in_proj_0, in_proj_1, bias=True))
                 .append(nn.BatchNorm1d(in_proj_1))
@@ -118,23 +132,38 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
         :param csr_idx:
         :return: x_pool, x_seen
         """
+        # Artificial x_proj and x_mod
+        if self.debug:
+            device = x_proj.device
+            x_proj = torch.rand((x_proj.shape[0], 1), device=device)
+            idx_destroyed = torch.where(x_proj < 0.3)[0]
+            x_mod[idx_destroyed] = torch.rand((idx_destroyed.shape[0], *(x_mod.shape[1:])), device=device)
+
         # Optionally expand x_proj with difference-to_min or
         # difference-to_max group features
-        if self.proj_min:
-            x_proj_min = segment_csr_diff(x_proj, csr_idx, reduce='min')
-        else:
-            x_proj_min = torch.empty(0, device=x_proj.device)
-        if self.proj_max:
-            x_proj_max = segment_csr_diff(x_proj, csr_idx, reduce='max')
-        else:
-            x_proj_max = torch.empty(0, device=x_proj.device)
-        x_proj = torch.cat([x_proj, x_proj_min, x_proj_max], dim=1)
+        # if self.proj_min:
+        #     x_proj_min = segment_csr_diff(x_proj, csr_idx, reduce='min')
+        # else:
+        #     x_proj_min = torch.empty(0, device=x_proj.device)
+        # if self.proj_max:
+        #     x_proj_max = segment_csr_diff(x_proj, csr_idx, reduce='max')
+        # else:
+        #     x_proj_max = torch.empty(0, device=x_proj.device)
+        # x_proj = torch.cat([x_proj, x_proj_min, x_proj_max], dim=1)
+        if self.save_last:
+            self._last_x_proj = x_proj
+            self._last_x_mod = x_mod
+            self._last_idx = torch.arange(csr_idx.shape[0] - 1, device=x_proj.device
+                ).repeat_interleave(csr_idx[1:] - csr_idx[:-1])
+            self._last_view_num = csr_idx[1:] - csr_idx[:-1]
 
         # Compute keys : V x D
         if self.mod_in_key:
             K = self.K(torch.cat([self.MLP_proj(x_proj), x_mod], dim=1))
         else:
             K = self.K(self.MLP_proj(x_proj))
+        if self.save_last:
+            self._last_K = K
 
         # Compute pointwise queries : N x D
         if isinstance(x_main, torch.Tensor):
@@ -145,6 +174,8 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
 
         # Expand queries to views : V x D
         Q = torch.repeat_interleave(Q, csr_idx[1:] - csr_idx[:-1], dim=0)
+        if self.save_last:
+            self._last_Q = Q
 
         # Compute compatibility scores : V
         C = (K * Q).sum(dim=1)
@@ -152,20 +183,22 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
         # Optionally scale compatibilities by the number of key features
         if self.dim_scaling:
             C = C / math.sqrt(K.shape[1])
-        # self._last_C = C
+        if self.save_last:
+            self._last_C = C
 
         # Compute attentions : V
         A = segment_csr_softmax(C, csr_idx, scaling=self.group_scaling)
-        # self._last_A = A
+        if self.save_last:
+            self._last_A = A
 
         # Compute attention-weighted modality features : P x F_mod
         x_pool = segment_csr(x_mod * A.view(-1, 1), csr_idx, reduce='sum')
 
-        if self.gating:
+        if self.Gating:
             # Compute pointwise gating : P
-            G = segment_csr(C, csr_idx, reduce='max')
-            G = torch.tanh(torch.relu(G))
-            # self._last_G = G
+            G = self.Gating(segment_csr(C, csr_idx, reduce='max'))
+            if self.save_last:
+                self._last_G = G
 
             # Apply gating to the features : P x F_mod
             x_pool = x_pool * G.view(-1, 1)
@@ -174,6 +207,21 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
         x_seen = csr_idx[1:] > csr_idx[:-1]
 
         return x_pool, x_seen
+
+
+class Gating(nn.Module):
+    """Rectified-tanh gating mechanism with learnable bias."""
+    def __init__(self, bias=True):
+        super(Gating, self).__init__()
+        self.bias = nn.Parameter(torch.zeros(1)) if bias else None
+
+    def forward(self, x):
+        if self.bias:
+            x = x + self.bias
+        return torch.tanh(torch.relu(x))
+
+    def extra_repr(self) -> str:
+        return 'bias={}'.format(self.bias is not None)
 
 
 def nearest_power_of_2(x, min_power=16):
