@@ -238,8 +238,8 @@ class UnimodalBranch(nn.Module, ABC):
         self.atomic_pool = atomic_pool
         self.view_pool = view_pool
         self.fusion = fusion
-        self.drop_3d = nn.Dropout(p=drop_3d) if drop_3d > 0 else nn.Identity()
-        self.drop_mod = nn.Dropout(p=drop_mod) if drop_mod > 0 else nn.Identity()
+        self.drop_3d = nn.Dropout(p=drop_3d) if drop_3d is not None and drop_3d > 0 else nn.Identity()
+        self.drop_mod = nn.Dropout(p=drop_mod) if drop_mod is not None and drop_mod > 0 else nn.Identity()
 
     def forward(self, mm_data_tuple):
         # Unpack the multimodal data tuple
