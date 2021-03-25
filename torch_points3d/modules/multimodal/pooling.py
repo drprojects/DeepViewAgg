@@ -71,8 +71,9 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
 
     def __init__(self, in_main=None, in_proj=None, in_mod=None,
                  in_score=None, proj_min=False, proj_max=False,
-                 gating=True, dim_scaling=True, group_scaling=False,
-                 debug=False, save_last=False, **kwargs):
+                 proj_num=False, gating=True, dim_scaling=True, 
+                 group_scaling=False, debug=False, save_last=False,
+                 **kwargs):
         super(AttentiveBimodalCSRPool, self).__init__()
 
         self.save_last = save_last
@@ -80,6 +81,7 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
         if debug:
             proj_min = False
             proj_max = False
+            proj_num = False
             group_scaling = False
             dim_scaling = True
             in_score = 1
@@ -89,6 +91,7 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
         # Optional key computation mechanisms
         self.proj_min = proj_min
         self.proj_max = proj_max
+        self.proj_num = proj_num
 
         # Optional gating mechanism
         self.Gating = Gating(weight=True, bias=True) if gating else None
@@ -103,7 +106,7 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
         # Raw handcrafted projection features are fed to this module, we
         # let the network preprocess them to its liking before computing
         # the keys
-        in_proj_0 = in_proj * (1 + self.proj_min + self.proj_max)
+        in_proj_0 = in_proj * (1 + proj_min + proj_max) + proj_num
         in_proj_1 = nearest_power_of_2((in_proj_0 + in_score) / 2, min_power=16)
         in_proj_2 = nearest_power_of_2(in_score, min_power=16)
         if self.debug:
@@ -139,17 +142,23 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
             idx_destroyed = torch.where(x_proj < 0.3)[0]
             x_mod[idx_destroyed] = torch.rand((idx_destroyed.shape[0], *(x_mod.shape[1:])), device=device)
 
-        # Optionally expand x_proj with difference-to_min or
-        # difference-to_max group features
-        # if self.proj_min:
-        #     x_proj_min = segment_csr_diff(x_proj, csr_idx, reduce='min')
-        # else:
-        #     x_proj_min = torch.empty(0, device=x_proj.device)
-        # if self.proj_max:
-        #     x_proj_max = segment_csr_diff(x_proj, csr_idx, reduce='max')
-        # else:
-        #     x_proj_max = torch.empty(0, device=x_proj.device)
-        # x_proj = torch.cat([x_proj, x_proj_min, x_proj_max], dim=1)
+        # Optionally expand x_proj with difference-to-min or
+        # difference-to-max or group size features
+        if self.proj_min:
+            x_proj_min = x_proj - segment_csr_gather(x_proj, csr_idx, reduce='min')
+        else:
+            x_proj_min = torch.empty(0, device=x_proj.device)
+        if self.proj_max:
+            x_proj_max = x_proj - segment_csr_gather(x_proj, csr_idx, reduce='max')
+        else:
+            x_proj_max = torch.empty(0, device=x_proj.device)
+        if self.proj_num:
+            # Heuristic to normalize in [0,1]
+            x_proj_num = torch.sqrt(1 / (csr_idx[1:] - csr_idx[:-1]).float()
+                ).repeat_interleave(csr_idx[1:] - csr_idx[:-1]).view(-1, 1)
+        else:
+            x_proj_num = torch.empty(0, device=x_proj.device)
+        x_proj = torch.cat([x_proj, x_proj_min, x_proj_max, x_proj_num], dim=1)
         if self.save_last:
             self._last_x_proj = x_proj
             self._last_x_mod = x_mod
@@ -300,21 +309,21 @@ def segment_csr_softmax(src: torch.Tensor, csr_idx: torch.Tensor,
 
 
 @torch.jit.script
-def segment_csr_diff(src: torch.Tensor, csr_idx: torch.Tensor,
+def segment_csr_gather(src: torch.Tensor, csr_idx: torch.Tensor,
         reduce: str = 'sum') -> torch.Tensor:
-    """Compute the difference to the reduced value between same-index
-    elements, for CSR indices.
+    """Compute the reduced value between same-index elements, for CSR 
+    indices, and redistribute them to input elements.
     """
     if not torch.is_floating_point(src):
         raise ValueError(
-            '`segment_csr_diff` can only be computed over tensors with '
+            '`segment_csr_gather` can only be computed over tensors with '
             'floating point data types.')
     if csr_idx.dim() != 1:
         raise ValueError(
-            '`segment_csr_diff can only be computed over 1D CSR indices.')
+            '`segment_csr_gather can only be computed over 1D CSR indices.')
     if src.dim() > 2:
         raise NotImplementedError(
-            '`segment_csr_diff` can only be computed over 1D or 2D source '
+            '`segment_csr_gather` can only be computed over 1D or 2D source '
             'tensors.')
 
     # Compute dense indices from CSR indices
@@ -327,7 +336,7 @@ def segment_csr_diff(src: torch.Tensor, csr_idx: torch.Tensor,
     # Center scores maxima near 1 for computation precision
     reduced_value_per_index = segment_csr(src, csr_idx, reduce=reduce)
     reduced_value_per_src_element = reduced_value_per_index.gather(0, dense_idx)
-    return src - reduced_value_per_src_element
+    return reduced_value_per_src_element
 
 
 """
