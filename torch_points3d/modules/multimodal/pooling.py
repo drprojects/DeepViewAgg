@@ -91,7 +91,7 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
         self.proj_max = proj_max
 
         # Optional gating mechanism
-        self.Gating = Gating(bias=True) if gating else None
+        self.Gating = Gating(weight=True, bias=True) if gating else None
 
         # Optional compatibilities scaling mechanism
         self.dim_scaling = dim_scaling
@@ -210,13 +210,16 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
 
 
 class Gating(nn.Module):
-    """Rectified-tanh gating mechanism with learnable bias."""
-    def __init__(self, bias=True):
+    """Rectified-tanh gating mechanism with learnable linear correction."""
+    def __init__(self, weight=True, bias=True):
         super(Gating, self).__init__()
+        self.weight = nn.Parameter(torch.ones(1)) if weight else None
         self.bias = nn.Parameter(torch.zeros(1)) if bias else None
 
     def forward(self, x):
-        if self.bias:
+        if self.weight is not None:
+            x = self.weight * x
+        if self.bias is not None:
             x = x + self.bias
         return torch.tanh(torch.relu(x))
 
