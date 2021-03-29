@@ -3,6 +3,8 @@ from abc import ABC
 import torch
 import torch.nn as nn
 from torch_scatter import segment_csr
+from torch_points3d.core.common_modules import Seq
+import math
 
 
 class BimodalCSRPool(nn.Module, ABC):
@@ -67,12 +69,63 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
     points must be performed prior to the multimodal pooling.
     """
 
-    def __init__(self, in_query=None, in_key=None, in_score=None, gating=True,
+    def __init__(self, in_main=None, in_proj=None, in_mod=None,
+                 in_score=None, proj_min=False, proj_max=False,
+                 proj_num=False, gating=True, dim_scaling=True, 
+                 group_scaling=False, debug=False, save_last=False,
                  **kwargs):
         super(AttentiveBimodalCSRPool, self).__init__()
-        self.Q = torch.nn.Linear(in_query, in_score, bias=True)
-        self.K = torch.nn.Linear(in_key, in_score, bias=True)
-        self.gating = gating
+
+        self.save_last = save_last
+        self.debug = debug
+        if debug:
+            proj_min = False
+            proj_max = False
+            proj_num = False
+            group_scaling = False
+            dim_scaling = True
+            in_score = 1
+            in_proj = 1
+            in_mod = None
+
+        # Optional key computation mechanisms
+        self.proj_min = proj_min
+        self.proj_max = proj_max
+        self.proj_num = proj_num
+
+        # Optional gating mechanism
+        self.Gating = Gating(weight=True, bias=True) if gating else None
+
+        # Optional compatibilities scaling mechanism
+        self.dim_scaling = dim_scaling
+        self.group_scaling = group_scaling
+
+        # Queries computation module
+        self.Q = nn.Linear(in_main, in_score, bias=True)
+
+        # Raw handcrafted projection features are fed to this module, we
+        # let the network preprocess them to its liking before computing
+        # the keys
+        in_proj_0 = in_proj * (1 + proj_min + proj_max) + proj_num
+        in_proj_1 = nearest_power_of_2((in_proj_0 + in_score) / 2, min_power=16)
+        in_proj_2 = nearest_power_of_2(in_score, min_power=16)
+        if self.debug:
+            in_proj_1 = 2
+            in_proj_2 = 2
+        self.MLP_proj = (
+            Seq().append(nn.Linear(in_proj_0, in_proj_1, bias=True))
+                .append(nn.BatchNorm1d(in_proj_1))
+                .append(nn.ReLU())
+                .append(nn.Linear(in_proj_1, in_proj_2, bias=True))
+                .append(nn.BatchNorm1d(in_proj_2))
+                .append(nn.ReLU()))
+
+        # Keys computation module
+        self.mod_in_key = in_mod is not None
+        if self.mod_in_key:
+            self.K = nn.Linear(in_proj_2 + in_mod, in_score, bias=True)
+        else:
+            self.K = nn.Linear(in_proj_2, in_score, bias=True)
 
     def forward(self, x_main, x_mod, x_proj, csr_idx):
         """
@@ -82,8 +135,44 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
         :param csr_idx:
         :return: x_pool, x_seen
         """
+        # Artificial x_proj and x_mod
+        if self.debug:
+            device = x_proj.device
+            x_proj = torch.rand((x_proj.shape[0], 1), device=device)
+            idx_destroyed = torch.where(x_proj < 0.3)[0]
+            x_mod[idx_destroyed] = torch.rand((idx_destroyed.shape[0], *(x_mod.shape[1:])), device=device)
+
+        # Optionally expand x_proj with difference-to-min or
+        # difference-to-max or group size features
+        if self.proj_min:
+            x_proj_min = x_proj - segment_csr_gather(x_proj, csr_idx, reduce='min')
+        else:
+            x_proj_min = torch.empty(0, device=x_proj.device)
+        if self.proj_max:
+            x_proj_max = x_proj - segment_csr_gather(x_proj, csr_idx, reduce='max')
+        else:
+            x_proj_max = torch.empty(0, device=x_proj.device)
+        if self.proj_num:
+            # Heuristic to normalize in [0,1]
+            x_proj_num = torch.sqrt(1 / (csr_idx[1:] - csr_idx[:-1]).float()
+                ).repeat_interleave(csr_idx[1:] - csr_idx[:-1]).view(-1, 1)
+        else:
+            x_proj_num = torch.empty(0, device=x_proj.device)
+        x_proj = torch.cat([x_proj, x_proj_min, x_proj_max, x_proj_num], dim=1)
+        if self.save_last:
+            self._last_x_proj = x_proj
+            self._last_x_mod = x_mod
+            self._last_idx = torch.arange(csr_idx.shape[0] - 1, device=x_proj.device
+                ).repeat_interleave(csr_idx[1:] - csr_idx[:-1])
+            self._last_view_num = csr_idx[1:] - csr_idx[:-1]
+
         # Compute keys : V x D
-        K = self.K(x_proj)
+        if self.mod_in_key:
+            K = self.K(torch.cat([self.MLP_proj(x_proj), x_mod], dim=1))
+        else:
+            K = self.K(self.MLP_proj(x_proj))
+        if self.save_last:
+            self._last_K = K
 
         # Compute pointwise queries : N x D
         if isinstance(x_main, torch.Tensor):
@@ -94,20 +183,31 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
 
         # Expand queries to views : V x D
         Q = torch.repeat_interleave(Q, csr_idx[1:] - csr_idx[:-1], dim=0)
+        if self.save_last:
+            self._last_Q = Q
 
         # Compute compatibility scores : V
-        X = (K * Q).sum(dim=1)
+        C = (K * Q).sum(dim=1)
+
+        # Optionally scale compatibilities by the number of key features
+        if self.dim_scaling:
+            C = C / math.sqrt(K.shape[1])
+        if self.save_last:
+            self._last_C = C
 
         # Compute attentions : V
-        A = segment_csr_softmax(X, csr_idx, scaling=True)
+        A = segment_csr_softmax(C, csr_idx, scaling=self.group_scaling)
+        if self.save_last:
+            self._last_A = A
 
         # Compute attention-weighted modality features : P x F_mod
-        x_pool = segment_csr(x_mod * A.view(-1, 1), csr_idx, reduce='max')
+        x_pool = segment_csr(x_mod * A.view(-1, 1), csr_idx, reduce='sum')
 
-        if self.gating:
+        if self.Gating:
             # Compute pointwise gating : P
-            G = segment_csr(X, csr_idx, reduce='max')
-            G = torch.tanh(torch.relu(G))
+            G = self.Gating(segment_csr(C, csr_idx, reduce='max'))
+            if self.save_last:
+                self._last_G = G
 
             # Apply gating to the features : P x F_mod
             x_pool = x_pool * G.view(-1, 1)
@@ -118,6 +218,41 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
         return x_pool, x_seen
 
 
+class Gating(nn.Module):
+    """Rectified-tanh gating mechanism with learnable linear correction."""
+    def __init__(self, weight=True, bias=True):
+        super(Gating, self).__init__()
+        self.weight = nn.Parameter(torch.ones(1)) if weight else None
+        self.bias = nn.Parameter(torch.zeros(1)) if bias else None
+
+    def forward(self, x):
+        if self.weight is not None:
+            x = self.weight * x
+        if self.bias is not None:
+            x = x + self.bias
+        return torch.tanh(torch.relu(x))
+
+    def extra_repr(self) -> str:
+        return 'bias={}'.format(self.bias is not None)
+
+
+def nearest_power_of_2(x, min_power=16):
+    """Local helper to find the nearest power of 2 of a given number.
+    The `min_power` parameter puts a minimum threshold for the returned
+    power.
+    """
+    if x < min_power:
+        return min_power
+
+    previous_power = 2 ** ((x - 1).bit_length() - 1)
+    next_power = 2 ** (x - 1).bit_length()
+
+    if x - previous_power < next_power - x:
+        return previous_power
+    else:
+        return next_power
+
+
 @torch.jit.script
 def segment_csr_softmax(src: torch.Tensor, csr_idx: torch.Tensor,
         eps: float = 1e-12, scaling: bool = False) -> torch.Tensor:
@@ -125,7 +260,7 @@ def segment_csr_softmax(src: torch.Tensor, csr_idx: torch.Tensor,
     Based on: torch_scatter/composite/softmax.py
 
     The `scaling` option allows for scaled softmax computation, where
-    values are scaled by the number of items in each index group.
+    `scaling='True'` scales by the number of items in each index group.
     """
     if not torch.is_floating_point(src):
         raise ValueError(
@@ -139,21 +274,23 @@ def segment_csr_softmax(src: torch.Tensor, csr_idx: torch.Tensor,
             '`segment_csr_softmax` can only be computed over 1D or 2D source '
             'tensors.')
 
+    # Compute dense indices from CSR indices
     n_groups = csr_idx.shape[0] - 1
-
     dense_idx = torch.arange(n_groups).repeat_interleave(
         csr_idx[1:] - csr_idx[:-1])
     if src.dim() > 1:
         dense_idx = dense_idx.view(-1, 1).repeat(1, src.shape[1])
 
+    # Center scores maxima near 1 for computation precision
     max_value_per_index = segment_csr(src, csr_idx, reduce='max')
     max_per_src_element = max_value_per_index.gather(0, dense_idx)
-
     centered_scores = src - max_per_src_element
 
+    # Optionally scale scores by the sqrt of index group sizes
     if scaling:
         num_per_index = (csr_idx[1:] - csr_idx[:-1])
-        num_per_src_element = torch.repeat_interleave(num_per_index.float().sqrt(),
+        sqrt_num_per_index = num_per_index.float().sqrt()
+        num_per_src_element = torch.repeat_interleave(sqrt_num_per_index,
                                                       num_per_index)
         if src.dim() > 1:
             num_per_src_element = num_per_src_element.view(-1, 1).repeat(1,
@@ -161,12 +298,45 @@ def segment_csr_softmax(src: torch.Tensor, csr_idx: torch.Tensor,
 
         centered_scores = centered_scores / num_per_src_element
 
+    # Compute the numerators
     centered_scores_exp = centered_scores.exp()
 
+    # Compute the denominators
     sum_per_index = segment_csr(centered_scores_exp, csr_idx, reduce='sum')
     normalizing_constants = sum_per_index.add_(eps).gather(0, dense_idx)
 
     return centered_scores_exp.div(normalizing_constants)
+
+
+@torch.jit.script
+def segment_csr_gather(src: torch.Tensor, csr_idx: torch.Tensor,
+        reduce: str = 'sum') -> torch.Tensor:
+    """Compute the reduced value between same-index elements, for CSR 
+    indices, and redistribute them to input elements.
+    """
+    if not torch.is_floating_point(src):
+        raise ValueError(
+            '`segment_csr_gather` can only be computed over tensors with '
+            'floating point data types.')
+    if csr_idx.dim() != 1:
+        raise ValueError(
+            '`segment_csr_gather can only be computed over 1D CSR indices.')
+    if src.dim() > 2:
+        raise NotImplementedError(
+            '`segment_csr_gather` can only be computed over 1D or 2D source '
+            'tensors.')
+
+    # Compute dense indices from CSR indices
+    n_groups = csr_idx.shape[0] - 1
+    dense_idx = torch.arange(n_groups).repeat_interleave(
+        csr_idx[1:] - csr_idx[:-1])
+    if src.dim() > 1:
+        dense_idx = dense_idx.view(-1, 1).repeat(1, src.shape[1])
+
+    # Center scores maxima near 1 for computation precision
+    reduced_value_per_index = segment_csr(src, csr_idx, reduce=reduce)
+    reduced_value_per_src_element = reduced_value_per_index.gather(0, dense_idx)
+    return reduced_value_per_src_element
 
 
 """

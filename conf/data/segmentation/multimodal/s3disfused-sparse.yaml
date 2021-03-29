@@ -21,7 +21,8 @@ data:
                 num_neighbors: 50  # heuristic: at least 30
                 r: 0.1  # heuristic: 2 * voxel
                 use_full_pos: True
-                workers: 6
+                use_cuda: True
+#                workers: 6  # careful with your RAM usage
         - transform: EigenFeatures
           params:
                 norm: True
@@ -62,6 +63,13 @@ data:
                     r_min: ${data.multimodal.settings.r_min}
                     growth_k: ${data.multimodal.settings.growth_k}
                     growth_r: ${data.multimodal.settings.growth_r}
+            - transform: NeighborhoodBasedProjectionFeatures  # Compute local density and occlusion
+              params:
+                    k: 50  # empirically-chosen heuristic [30-100] is fine
+                    voxel: ${data.first_subsampling}
+                    density: True
+                    occlusion: True
+                    use_cuda: True
         train_transforms:
             - transform: SelectMappingFromPointId  # Select mappings after 3D points sampling
               params:
