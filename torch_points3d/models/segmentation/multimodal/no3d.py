@@ -60,12 +60,12 @@ class No3D(BaseModel, ABC):
         if not self.training:
             # If the module is in eval mode, propagate the output of the
             # nearest seen point to unseen points
-#             nn_search = NearestNeighbors(
-#                 n_neighbors=1, algorithm="kd_tree").fit(
-#                 data.pos[seen_mask].detach().cpu().numpy())
-#             _, nn_idx = nn_search.kneighbors(
-#                 data.pos[~seen_mask].detach().cpu().numpy())
-#             nn_idx = torch.LongTensor(nn_idx)
+            # nn_search = NearestNeighbors(
+            #     n_neighbors=1, algorithm="kd_tree").fit(
+            #     data.pos[seen_mask].detach().cpu().numpy())
+            # _, nn_idx = nn_search.kneighbors(
+            #     data.pos[~seen_mask].detach().cpu().numpy())
+            # nn_idx = torch.LongTensor(nn_idx)
             
             # If the module is in eval mode, propagate the output of the
             # nearest seen point to unseen points
