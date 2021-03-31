@@ -9,7 +9,8 @@ from torch_points3d.models.base_model import BaseModel
 from torch_points3d.datasets.segmentation import IGNORE_LABEL
 from torch_points3d.applications.multimodal.no3d import No3DEncoder
 
-from sklearn.neighbors import NearestNeighbors
+# from sklearn.neighbors import NearestNeighbors
+from pykeops.torch import LazyTensor
 
 log = logging.getLogger(__name__)
 
@@ -59,12 +60,22 @@ class No3D(BaseModel, ABC):
         if not self.training:
             # If the module is in eval mode, propagate the output of the
             # nearest seen point to unseen points
-            nn_search = NearestNeighbors(
-                n_neighbors=1, algorithm="kd_tree").fit(
-                data.pos[seen_mask].detach().cpu().numpy())
-            _, nn_idx = nn_search.kneighbors(
-                data.pos[~seen_mask].detach().cpu().numpy())
-            nn_idx = torch.LongTensor(nn_idx)
+#             nn_search = NearestNeighbors(
+#                 n_neighbors=1, algorithm="kd_tree").fit(
+#                 data.pos[seen_mask].detach().cpu().numpy())
+#             _, nn_idx = nn_search.kneighbors(
+#                 data.pos[~seen_mask].detach().cpu().numpy())
+#             nn_idx = torch.LongTensor(nn_idx)
+            
+            # If the module is in eval mode, propagate the output of the
+            # nearest seen point to unseen points
+            # K-NN search with KeOps
+            xyz_query_keops = LazyTensor(data.pos[~seen_mask][:, None, :])
+            xyz_search_keops = LazyTensor(data.pos[seen_mask][None, :, :])
+            d_keops = ((xyz_query_keops - xyz_search_keops) ** 2).sum(dim=2)
+            nn_idx = d_keops.argmin(dim=1)
+            del xyz_query_keops, xyz_search_keops, d_keops
+            
             self.output[~seen_mask] = self.output[seen_mask][nn_idx].squeeze()
 
         else:
