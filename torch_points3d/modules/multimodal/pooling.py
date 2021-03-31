@@ -31,17 +31,24 @@ class BimodalCSRPool(nn.Module, ABC):
 
     _POOLING_MODES = ['max', 'mean', 'min', 'sum']
 
-    def __init__(self, mode='max', **kwargs):
+    def __init__(self, mode='max', save_last=False, **kwargs):
         super(BimodalCSRPool, self).__init__()
         assert mode in self._POOLING_MODES, \
             f"Unsupported mode '{mode}'. Expected one of: {self._POOLING_MODES}"
         self._mode = mode
+        self.save_last = save_last
 
     def forward(self, x_main, x_mod, x_proj, csr_idx):
         # Segment_CSR is "the fastest method to apply for grouped
         # reductions."
         x_pool = segment_csr(x_mod, csr_idx, reduce=self._mode)
         x_seen = csr_idx[1:] > csr_idx[:-1]
+        if self.save_last:
+            self._last_x_proj = x_proj
+            self._last_x_mod = x_mod
+            self._last_idx = torch.arange(csr_idx.shape[0] - 1, device=x_mod.device
+                ).repeat_interleave(csr_idx[1:] - csr_idx[:-1])
+            self._last_view_num = csr_idx[1:] - csr_idx[:-1]
         return x_pool, x_seen
 
 

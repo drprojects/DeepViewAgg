@@ -292,7 +292,7 @@ class ResNetUp(ResNetDown, ABC):
                  weight_standardization=False, skip_first=False, **kwargs):
         self.skip_first = skip_first
         super().__init__(
-            down_conv_nn=[up_conv_nn], kernel_size=kernel_size,
+            down_conv_nn=up_conv_nn, kernel_size=kernel_size,
             dilation=dilation, stride=stride, N=N, padding=padding,
             padding_mode=padding_mode, normalization=normalization,
             weight_standardization=weight_standardization, **kwargs)

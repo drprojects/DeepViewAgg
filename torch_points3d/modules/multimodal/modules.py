@@ -300,7 +300,7 @@ class UnimodalBranch(nn.Module, ABC):
         # Dropout 3D or modality features
         if isinstance(x_3d, torch.Tensor):
             x_3d = self.drop_3d(x_3d)
-        else:
+        elif x_3d is not None:
             x_3d.F = self.drop_3d(x_3d.F)
         x_mod = self.drop_mod(x_mod)
 
