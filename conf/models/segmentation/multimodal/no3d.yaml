@@ -346,7 +346,7 @@ models:
                 view_pooling:
                     module_name: HeuristicBimodalCSRPool
                     mode: min
-                    feat: 'normalized depth'
+                    feat: 'normalized_depth'
                 fusion:
                     module_name: BimodalFusion
                     mode: residual
@@ -406,7 +406,7 @@ models:
                 view_pooling:
                     module_name: HeuristicBimodalCSRPool
                     mode: max
-                    feat: 'orientation to the surface'
+                    feat: 'orientation_to_the_surface'
                 fusion:
                     module_name: BimodalFusion
                     mode: residual

@@ -77,12 +77,12 @@ class HeuristicBimodalCSRPool(nn.Module, ABC):
 
     _MODES = ['max', 'min']
     _FEATURES = [
-        'normalized depth',
+        'normalized_depth',
         'linearity',
         'planarity',
         'scattering',
-        'orientation to the surface',
-        'normalized pixel height',
+        'orientation_to_the_surface',
+        'normalized_pixel_height',
         'density',
         'occlusion']
 
@@ -101,22 +101,20 @@ class HeuristicBimodalCSRPool(nn.Module, ABC):
         self.save_last = save_last
 
     def forward(self, x_main, x_mod, x_proj, csr_idx):
-        # Segment_CSR is "the fastest method to apply for grouped
-        # reductions."
-        x_pool = segment_csr(x_mod, csr_idx, reduce=self._mode)
-
         # Compute dense indices from CSR indices
         n_groups = csr_idx.shape[0] - 1
-        dense_idx = torch.arange(n_groups).repeat_interleave(
-            csr_idx[1:] - csr_idx[:-1])
+        dense_idx = torch.arange(n_groups, device=x_mod.device
+            ).repeat_interleave(csr_idx[1:] - csr_idx[:-1])
+        
 
         # Compute the arguments for the min/max heuristic
-        # NB: arg_idx will carry '-1' for unseen points
+        # NB: arg_idx will carry '-1' or 'n_points' for unseen points
         _, arg_idx = self._scatter(x_proj[:, self._feat], dense_idx)
 
         # Pool the modality features based on the heuristic
-        x_pool = x_mod[arg_idx]
-        x_pool[arg_idx == -1] = 0
+        # NB: append '0' to x_mod to distribute '0' to unseen points
+        x_mod_0 = torch.cat((x_mod, torch.zeros_like(x_mod[[0]])))
+        x_pool = x_mod_0[arg_idx]
 
         x_seen = csr_idx[1:] > csr_idx[:-1]
 
