@@ -19,10 +19,8 @@ SPECIAL_NAMES = ["radius", "max_num_neighbors", "block_names"]
 
 class BackboneBasedModel(BaseModel, ABC):
     """
-    create a backbone-based generator:
-    This is simply an encoder
-    (can be used in classification, regression, metric learning and so
-    one)
+    Create a backbone-based generator: this is simply an encoder (can be
+    used in classification, regression, metric learning and so on).
     """
 
     def __init__(self, opt, model_type, dataset: BaseDataset, modules_lib):
@@ -143,10 +141,13 @@ class BackboneBasedModel(BaseModel, ABC):
                         flow='FUSION')
                     drop_3d = getattr(opt.down_conv[m], 'drop_3d', 0)
                     drop_mod = getattr(opt.down_conv[m], 'drop_mod', 0)
+                    keep_last_view = getattr(opt.down_conv[m],
+                        'keep_last_view', False)
 
                     # Group modules into a UnimodalBranch
                     branch = UnimodalBranch(conv, atomic_pool, view_pool,
-                        fusion, drop_3d=drop_3d, drop_mod=drop_mod)
+                        fusion, drop_3d=drop_3d, drop_mod=drop_mod,
+                        keep_last_view=keep_last_view)
 
                     # Update the branches at the proper branching point
                     branches[idx][m] = branch

@@ -72,7 +72,7 @@ class MultimodalBlockDown(nn.Module, ABC):
     def num_modalities(self):
         return len(self.modalities) + 1
 
-    def forward(self, mm_data_tuple):
+    def forward(self, mm_data_dict):
         """
         Forward pass of the MultiModalBlockDown.
 
@@ -80,29 +80,33 @@ class MultimodalBlockDown(nn.Module, ABC):
         for the 3D convolutional modules, and a dictionary of
         modality-specific data equipped with corresponding mappings.
         """
-        # Unpack the multimodal data tuple
-        x_3d, x_seen, mod_dict = mm_data_tuple
+        # # Unpack the multimodal data tuple
+        # x_3d, x_seen, mod_dict = mm_data_tuple
 
         # Conv on the main 3D modality - assumed to reduce 3D resolution
-        x_3d, x_seen, mod_dict = self.forward_3d_block_down(
-            x_3d, x_seen, mod_dict, self.down_block)
+        mm_data_dict = self.forward_3d_block_down(mm_data_dict, self.down_block)
 
         for m in self.modalities:
+            # TODO: does the modality-driven sequence of updates on x_3d
+            #  and x_seen affect the modality behavior ? Should the shared
+            #  3D information only be updated once all modality branches
+            #  have been run on the same input ?
             mod_branch = getattr(self, m)
-            x_3d, x_seen_mod, mod_dict[m] = mod_branch((x_3d, x_seen, mod_dict[m]))
-            if x_seen is None:
-                x_seen = x_seen_mod
-            else:
-                x_seen = torch.logical_or(x_seen, x_seen_mod)
+            # x_3d, x_seen_mod, mod_dict[m] = mod_branch((x_3d, x_seen, mod_dict[m]))
+            # if x_seen is None:
+            #     x_seen = x_seen_mod
+            # else:
+            #     x_seen = torch.logical_or(x_seen, x_seen_mod)
+            mm_data_dict = mod_branch(mm_data_dict, m)
 
         # Conv on the main 3D modality
-        x_3d, x_seen, mod_dict = self.forward_3d_block_down(
-            x_3d, x_seen, mod_dict, self.conv_block)
+        mm_data_dict = self.forward_3d_block_down(mm_data_dict, self.conv_block)
 
-        return tuple((x_3d, x_seen, mod_dict))
+        # return tuple((x_3d, x_seen, mod_dict))
+        return mm_data_dict
 
     @staticmethod
-    def forward_3d_block_down(x_3d, x_seen, mod_dict, block):
+    def forward_3d_block_down(mm_data_dict, block):
         """
         Wrapper method to apply the forward pass on a 3D down conv
         block while preserving modality-specific mappings.
@@ -125,7 +129,11 @@ class MultimodalBlockDown(nn.Module, ABC):
         """
         # Leave the input untouched if the 3D conv block is Identity
         if isinstance(block, nn.Identity):
-            return x_3d, x_seen, mod_dict
+            return mm_data_dict
+
+        # Unpack the multimodal data dictionary
+        x_3d = mm_data_dict['x_3d']
+        x_seen = mm_data_dict['x_seen']
 
         # Initialize index and indexation mode
         idx = None
@@ -210,11 +218,16 @@ class MultimodalBlockDown(nn.Module, ABC):
             else:
                 x_seen = torch_scatter.scatter(x_seen, idx, reduce='sum')
 
-        # Update modality data and mappings wrt new point indexing
-        for m in mod_dict.keys():
-            mod_dict[m] = mod_dict[m].select_points(idx, mode=mode)
+        # Update the multimodal data dictionary
+        mm_data_dict['x_3d'] = x_3d
+        mm_data_dict['x_seen'] = x_seen
 
-        return x_3d, x_seen, mod_dict
+        # Update modality data and mappings wrt new point indexing
+        for m in mm_data_dict['modalities'].keys():
+            mm_data_dict['modalities'][m] = \
+                mm_data_dict['modalities'][m].select_points(idx, mode=mode)
+
+        return mm_data_dict
 
 
 class UnimodalBranch(nn.Module, ABC):
@@ -232,7 +245,7 @@ class UnimodalBranch(nn.Module, ABC):
     """
 
     def __init__(self, conv, atomic_pool, view_pool, fusion, drop_3d=0,
-            drop_mod=0):
+                 drop_mod=0, keep_last_view=False):
         super(UnimodalBranch, self).__init__()
         self.conv = conv if conv is not None else Identity()
         self.atomic_pool = atomic_pool
@@ -240,10 +253,12 @@ class UnimodalBranch(nn.Module, ABC):
         self.fusion = fusion
         self.drop_3d = nn.Dropout(p=drop_3d) if drop_3d is not None and drop_3d > 0 else nn.Identity()
         self.drop_mod = nn.Dropout(p=drop_mod) if drop_mod is not None and drop_mod > 0 else nn.Identity()
+        self.keep_last_view = keep_last_view
 
-    def forward(self, mm_data_tuple):
-        # Unpack the multimodal data tuple
-        x_3d, _, mod_data = mm_data_tuple
+    def forward(self, mm_data_dict, modality):
+        # Unpack the multimodal data dictionary
+        x_3d = mm_data_dict['x_3d']
+        mod_data = mm_data_dict['modalities'][modality]
 
         # Check whether the modality carries multi-setting data
         has_multi_setting = isinstance(mod_data.x, list)
@@ -290,12 +305,20 @@ class UnimodalBranch(nn.Module, ABC):
             x_proj = torch.cat(mod_data.projection_features, dim=0)[idx_sorting]
 
         # View pooling of the atomic-pooled modality features
+
         if has_multi_setting:
-            x_mod, x_seen = self.view_pool(
-                x_3d, x_mod, x_proj, mod_data.view_cat_csr_indexing)
+            csr_idx = mod_data.view_cat_csr_indexing
         else:
-            x_mod, x_seen = self.view_pool(
-                x_3d, x_mod, x_proj, mod_data.view_csr_indexing)
+            csr_idx = mod_data.view_csr_indexing
+        if self.keep_last_view:
+            # Here we keep track of the latest x_mod, x_proj and csr_idx
+            # in the modality data so as to recover it at the end of a
+            # multimodal encoder or UNet. This is necessary when
+            # training on a view-level loss.
+            mod_data.last_view_x_mod = x_mod
+            mod_data.last_view_x_proj = x_proj
+            mod_data.last_view_csr_idx = csr_idx
+        x_mod, x_seen = self.view_pool(x_3d, x_mod, x_proj, csr_idx)
 
         # Dropout 3D or modality features
         if isinstance(x_3d, torch.Tensor):
@@ -303,6 +326,8 @@ class UnimodalBranch(nn.Module, ABC):
         elif x_3d is not None:
             x_3d.F = self.drop_3d(x_3d.F)
         x_mod = self.drop_mod(x_mod)
+        if self.keep_last_view:
+            mod_data.last_view_x_mod = self.drop_mod(mod_data.last_view_x_mod)
 
         # drop = 0.3  # probability to apply dropout on either 3D or modality
         # drop_3d = 0.  # probability that 3D is the one dropped over modality
@@ -316,4 +341,17 @@ class UnimodalBranch(nn.Module, ABC):
         # Fuse the modality features into the 3D points features
         x_3d = self.fusion(x_3d, x_mod)
 
-        return x_3d, x_seen, mod_data
+        # Update the multimodal data dictionary
+        # TODO: does the modality-driven sequence of updates on x_3d
+        #  and x_seen affect the modality behavior ? Should the shared
+        #  3D information only be updated once all modality branches
+        #  have been run on the same input ?
+        mm_data_dict['x_3d'] = x_3d
+        mm_data_dict['modalities'][modality] = mod_data
+        if mm_data_dict['x_seen'] is None:
+            mm_data_dict['x_seen'] = x_seen
+        else:
+            mm_data_dict['x_seen'] = torch.logical_or(
+                x_seen, mm_data_dict['x_seen'])
+
+        return mm_data_dict

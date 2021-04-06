@@ -24,7 +24,7 @@ class No3DEncoder(BackboneBasedModel, ABC):
                                           modules)
 
         # Make sure the model is multimodal and has no 3D. Note that
-        # the UnwrappedUnetBasedModel carries most of the required
+        # the BackboneBasedModel carries most of the required
         # initialization.
         assert self.is_multimodal, \
             f"No3DUnet should carry at least one non-3D modality."
@@ -67,9 +67,12 @@ class No3DEncoder(BackboneBasedModel, ABC):
         -----------
         data: MMData object
         """
-        self.input = (None, None, data.to(self.device).modalities)
+        self.input = {
+            'x_3d': None,
+            'x_seen': None,
+            'modalities': data.to(self.device).modalities}
         if data.pos is not None:
-            self.xyz = data.pos
+            self.xyz = data.to(self.device).pos
 
     def forward(self, data, *args, **kwargs):
         """Run forward pass. Expects a MMData object for input, with
@@ -91,18 +94,30 @@ class No3DEncoder(BackboneBasedModel, ABC):
             - x [N, output_nc]
         """
         self._set_input(data)
-        data = self.input
+        mm_data_dict = self.input
         for i in range(len(self.down_modules)):
-            data = self.down_modules[i](data)
+            mm_data_dict = self.down_modules[i](mm_data_dict)
 
         # Discard the modalities used in the down modules, only
         # 3D point features are expected to be used in subsequent
         # modules. Restore the input Data object equipped with the
         # proper point positions and modality-generated features.
-        out = Batch(x=data[0], pos=self.xyz, seen=data[1]).to(self.device)
+        out = Batch(x=mm_data_dict['x_3d'], pos=self.xyz,
+                    seen=mm_data_dict['x_seen'])
+        # out = Batch(x=data[0], pos=self.xyz, seen=data[1]).to(self.device)
+
+        for m in self.modalities:
+            x_mod = getattr(mm_data_dict[m], 'last_view_x_mod', None)
+            if x_mod is not None:
+                out[m] = mm_data_dict['modalities'][m]
 
         # Apply the MLP head, if any
         if self.has_mlp_head:
+            # Apply to the 3D features
             out.x = self.mlp(out.x)
+
+            # Apply to the last modality-based view-level features
+            for m in [mod for mod in self.modalities if mod in out.keys]:
+                out[m]['last_view_x_mod'] = self.mlp(out[m]['last_view_x_mod'])
 
         return out

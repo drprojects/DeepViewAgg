@@ -149,10 +149,10 @@ class BaseSparseConv3d(UnwrappedUnetBasedModel):
             information.
         """
         if self.is_multimodal:
-            self.input = (
-                sp3d.nn.SparseTensor(data.x, data.coords, data.batch, self.device),
-                None,
-                data.to(self.device).modalities)
+            self.input = {
+                'x_3d': sp3d.nn.SparseTensor(data.x, data.coords, data.batch, self.device),
+                'x_seen': None,
+                'modalities': data.to(self.device).modalities}
         else:
             self.input = sp3d.nn.SparseTensor(data.x, data.coords, data.batch, self.device)
         if data.pos is not None:
@@ -176,9 +176,6 @@ class SparseConv3dEncoder(BaseSparseConv3d):
         data:
             - x [1, output_nc]
         """
-        # TODO:
-        #  set data input for basic 3D conv
-        #  set and pass multimodal input for multimodal module
         self._set_input(data)
         data = self.input
         for i in range(len(self.down_modules)):
@@ -187,7 +184,7 @@ class SparseConv3dEncoder(BaseSparseConv3d):
         # Discard the modalities used in the down modules, only
         # pointwise features are used in subsequent modules.
         if self.is_multimodal:
-            data = data[0]
+            data = data['x_3d']
 
         out = Batch(x=data.F, batch=data.C[:, 0].long().to(data.F.device))
         if not isinstance(self.inner_modules[0], Identity):
@@ -229,7 +226,7 @@ class SparseConv3dUnet(BaseSparseConv3d):
             # Append the 3D data features of each down module, the
             # modality features are discarded, if any.
             if self.is_multimodal:
-                stack_down.append(data[0])
+                stack_down.append(data['x_3d'])
             else:
                 stack_down.append(data)
 
@@ -239,7 +236,7 @@ class SparseConv3dUnet(BaseSparseConv3d):
         if self.is_multimodal:
             # Discard the modalities used in the down modules, only
             # pointwise features are used in subsequent modules.
-            data = data[0]
+            data = data['x_3d']
             
             # First down module of multimodal model operates on raw data, 
             # its output is not 'skipped'
