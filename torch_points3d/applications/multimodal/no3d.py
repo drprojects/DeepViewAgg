@@ -107,7 +107,7 @@ class No3DEncoder(BackboneBasedModel, ABC):
         # out = Batch(x=data[0], pos=self.xyz, seen=data[1]).to(self.device)
 
         for m in self.modalities:
-            x_mod = getattr(mm_data_dict[m], 'last_view_x_mod', None)
+            x_mod = getattr(mm_data_dict['modalities'][m], 'last_view_x_mod', None)
             if x_mod is not None:
                 out[m] = mm_data_dict['modalities'][m]
 
@@ -118,6 +118,6 @@ class No3DEncoder(BackboneBasedModel, ABC):
 
             # Apply to the last modality-based view-level features
             for m in [mod for mod in self.modalities if mod in out.keys]:
-                out[m]['last_view_x_mod'] = self.mlp(out[m]['last_view_x_mod'])
+                out[m].last_view_x_mod = self.mlp(out[m].last_view_x_mod)
 
         return out

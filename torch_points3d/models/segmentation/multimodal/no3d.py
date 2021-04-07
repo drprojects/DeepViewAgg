@@ -110,8 +110,8 @@ class No3D(BaseModel, ABC):
 
             # Based on a modality's view-wise predictions
             else:
-                view_features = data[self._MODALITY_VIEW_LOSS]['last_view_x_mod']
-                csr_idx = data[self._MODALITY_VIEW_LOSS]['last_view_csr_idx']
+                view_features = data[self._MODALITY_VIEW_LOSS].last_view_x_mod
+                csr_idx = data[self._MODALITY_VIEW_LOSS].last_view_csr_idx
                 view_logits = self.head(view_features) if self._HAS_HEAD \
                     else view_features
                 pred = F.log_softmax(view_logits, dim=-1)
