@@ -91,6 +91,7 @@ class HeuristicBimodalCSRPool(nn.Module, ABC):
 
         assert mode in self._MODES, \
             f"Unsupported mode '{mode}'. Expected one of: {self._MODES}."
+        self._mode = mode
         self._scatter = scatter_max if mode == 'max' else scatter_max
 
         feat = self._FEATURES.index(feat) if isinstance(feat, str) else feat
@@ -105,11 +106,10 @@ class HeuristicBimodalCSRPool(nn.Module, ABC):
         n_groups = csr_idx.shape[0] - 1
         dense_idx = torch.arange(n_groups, device=x_mod.device
             ).repeat_interleave(csr_idx[1:] - csr_idx[:-1])
-        
 
         # Compute the arguments for the min/max heuristic
         # NB: arg_idx will carry '-1' or 'n_points' for unseen points
-        _, arg_idx = self._scatter(x_proj[:, self._feat], dense_idx)
+        _, arg_idx = self._scatter(x_proj[:, self._feat], dense_idx, dim_size=n_groups)
 
         # Pool the modality features based on the heuristic
         # NB: append '0' to x_mod to distribute '0' to unseen points
@@ -125,6 +125,9 @@ class HeuristicBimodalCSRPool(nn.Module, ABC):
                 ).repeat_interleave(csr_idx[1:] - csr_idx[:-1])
             self._last_view_num = csr_idx[1:] - csr_idx[:-1]
         return x_pool, x_seen
+
+    def extra_repr(self) -> str:
+        return f'mode={self._mode}, feat={self._FEATURES[self._feat]}'
 
 
 class AttentiveBimodalCSRPool(nn.Module, ABC):

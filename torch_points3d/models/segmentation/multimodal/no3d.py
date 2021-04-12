@@ -92,7 +92,7 @@ class No3D(BaseModel, ABC):
             d_keops = ((xyz_query_keops - xyz_search_keops) ** 2).sum(dim=2)
             nn_idx = d_keops.argmin(dim=1)
             del xyz_query_keops, xyz_search_keops, d_keops
-            
+
             self.output[~seen_mask] = self.output[seen_mask][nn_idx].squeeze()
 
         else:
