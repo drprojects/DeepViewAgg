@@ -36,8 +36,8 @@ data:
         modality: image
         settings:
             mapping_key: mapping_index  # hardcoded key used to sync 3D points and modality mappings
-            ref_size: [ 256, 128 ]  # [512, 256]
-            proj_upscale: 4
+            ref_size: [512, 256]
+            proj_upscale: 2
             r_max: 8
             r_min: 0.05
             growth_k: 0.5

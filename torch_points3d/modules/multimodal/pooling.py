@@ -2,7 +2,7 @@ from abc import ABC
 
 import torch
 import torch.nn as nn
-from torch_scatter import segment_csr
+from torch_scatter import segment_csr, scatter_min, scatter_max
 from torch_points3d.core.common_modules import Seq
 import math
 
@@ -50,6 +50,84 @@ class BimodalCSRPool(nn.Module, ABC):
                 ).repeat_interleave(csr_idx[1:] - csr_idx[:-1])
             self._last_view_num = csr_idx[1:] - csr_idx[:-1]
         return x_pool, x_seen
+
+
+class HeuristicBimodalCSRPool(nn.Module, ABC):
+    """Bimodal pooling modules select and combine information from a
+    modality to prepare its fusion into the main modality.
+
+    The modality pooling may typically be used for atomic-level
+    aggregation or view-level aggregation. To illustrate, in the case of
+    image modality, where each 3D point may be mapped to multiple
+    pixels, in multiple images. The atomic-level corresponds to pixel-
+    level information, while view-level accounts for multi-image views.
+
+    HeuristicBimodalCSRPool selects modality features based on a
+    handcrafted heuristic on projection features.
+
+    For computation speed reasons, the data and pooling indices are
+    expected to be provided in a CSR format, where same-index rows are
+    consecutive and indices hold index-change pointers.
+
+    IMPORTANT: the order of 3D points in the main modality is expected
+    to match that of the indices in the mappings. Any update of the
+    mappings following a reindexing, reordering or sampling of the 3D
+    points must be performed prior to the multimodal pooling.
+    """
+
+    _MODES = ['max', 'min']
+    _FEATURES = [
+        'normalized_depth',
+        'linearity',
+        'planarity',
+        'scattering',
+        'orientation_to_the_surface',
+        'normalized_pixel_height',
+        'density',
+        'occlusion']
+
+    def __init__(self, mode='max', feat=0, save_last=False, **kwargs):
+        super(HeuristicBimodalCSRPool, self).__init__()
+
+        assert mode in self._MODES, \
+            f"Unsupported mode '{mode}'. Expected one of: {self._MODES}."
+        self._mode = mode
+        self._scatter = scatter_max if mode == 'max' else scatter_max
+
+        feat = self._FEATURES.index(feat) if isinstance(feat, str) else feat
+        assert feat < len(self._FEATURES), \
+            f"Feat={feat} is too large. Expected feat<{len(self._FEATURES)}."
+        self._feat = feat
+
+        self.save_last = save_last
+
+    def forward(self, x_main, x_mod, x_proj, csr_idx):
+        # Compute dense indices from CSR indices
+        n_groups = csr_idx.shape[0] - 1
+        dense_idx = torch.arange(n_groups, device=x_mod.device
+            ).repeat_interleave(csr_idx[1:] - csr_idx[:-1])
+
+        # Compute the arguments for the min/max heuristic
+        # NB: arg_idx will carry '-1' or 'n_points' for unseen points
+        _, arg_idx = self._scatter(x_proj[:, self._feat], dense_idx, dim_size=n_groups)
+
+        # Pool the modality features based on the heuristic
+        # NB: append '0' to x_mod to distribute '0' to unseen points
+        x_mod_0 = torch.cat((x_mod, torch.zeros_like(x_mod[[0]])))
+        x_pool = x_mod_0[arg_idx]
+
+        x_seen = csr_idx[1:] > csr_idx[:-1]
+
+        if self.save_last:
+            self._last_x_proj = x_proj
+            self._last_x_mod = x_mod
+            self._last_idx = torch.arange(csr_idx.shape[0] - 1, device=x_mod.device
+                ).repeat_interleave(csr_idx[1:] - csr_idx[:-1])
+            self._last_view_num = csr_idx[1:] - csr_idx[:-1]
+        return x_pool, x_seen
+
+    def extra_repr(self) -> str:
+        return f'mode={self._mode}, feat={self._FEATURES[self._feat]}'
 
 
 class AttentiveBimodalCSRPool(nn.Module, ABC):

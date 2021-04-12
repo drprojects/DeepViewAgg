@@ -21,7 +21,7 @@ data:
       params:
         degrees: 180
         axis: 2
-    - transform: RandomScaleAnisotropic
+    - transform: RndomScaleAnisotropic
       params:
         scales: [0.8, 1.2]
     - transform: RandomSymmetry

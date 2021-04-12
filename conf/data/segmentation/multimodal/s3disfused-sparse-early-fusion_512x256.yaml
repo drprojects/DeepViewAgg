@@ -32,12 +32,13 @@ data:
         - transform: RemoveAttributes
           params:
                 attr_names: [full_pos, eigenvalues, eigenvectors]
+
     multimodal:    # Each modality must be inserted in a dedicated 'multimodal' section
         modality: image
         settings:
             mapping_key: mapping_index  # hardcoded key used to sync 3D points and modality mappings
-            ref_size: [ 256, 128 ]  # [512, 256]
-            proj_upscale: 4
+            ref_size: [512, 256]
+            proj_upscale: 2
             r_max: 8
             r_min: 0.05
             growth_k: 0.5
@@ -85,7 +86,6 @@ data:
               params:
                     p: 0.5
             - transform: ToFloatImage  # Convert uint8 image to float
-            - transform: AddPixelHeightFeature  # Pixel height as image channel
             - transform: CenterRoll  # Roll images to center mappings
               params:
                     angular_res: 16
@@ -105,7 +105,6 @@ data:
               params:
                     area_ratio: 0.02
             - transform: ToFloatImage  # Convert uint8 image to float
-            - transform: AddPixelHeightFeature  # Pixel height as image channel
             - transform: CenterRoll  # Roll images to center mappings
               params:
                     angular_res: 16
@@ -119,3 +118,59 @@ data:
                     n_img: ${data.multimodal.settings.test_pixel_credit}
                     k_coverage: ${data.multimodal.settings.k_coverage}
         val_transforms: ${data.multimodal.test_transforms}
+
+    train_transforms:
+        - transform: RandomNoise
+          params:
+                sigma: 0.001
+        - transform: RandomRotate
+          params:
+                degrees: 180
+                axis: 2
+        - transform: RandomScaleAnisotropic
+          params:
+                scales: [0.8, 1.2]
+        - transform: RandomSymmetry
+          params:
+                axis: [True, False, False]
+        - transform: DropFeature
+          params:
+                drop_proba: 0.2
+                feature_name: rgb
+        - transform: XYZFeature
+          params:
+                add_x: False
+                add_y: False
+                add_z: True
+        - transform: AddFeatsByKeys
+          params:
+                list_add_to_x: [False, True]
+                feat_names: [rgb, pos_z]
+                delete_feats: [True, True]
+        - transform: Center
+        - transform: GridSampling3D
+          params:
+                size: ${data.first_subsampling}
+                quantize_coords: True
+                mode: "last"
+        - transform: ShiftVoxels
+
+    test_transform:
+        - transform: XYZFeature
+          params:
+                add_x: False
+                add_y: False
+                add_z: True
+        - transform: AddFeatsByKeys
+          params:
+                list_add_to_x: [False, True]
+                feat_names: [rgb, pos_z]
+                delete_feats: [True, True]
+        - transform: Center
+        - transform: GridSampling3D
+          params:
+                size: ${data.first_subsampling}
+                quantize_coords: True
+                mode: "last"
+
+    val_transform: ${data.test_transform}
