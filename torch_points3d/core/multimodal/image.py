@@ -141,10 +141,11 @@ class SameSettingImageData(object):
             assert (unique_idx == img_idx).all(), \
                 f"Image indices in the mappings do not match the " \
                 f"SameSettingImageData image indices."
-            w_max, h_max = self.mappings.pixels.max(dim=0).values
-            assert w_max < self.img_size[0] and h_max < self.img_size[1], \
-                f"Max pixel values should be smaller than ({self.img_size}) " \
-                f"but got ({w_max, h_max}) instead."
+            if self.mappings.num_items > 0:
+                w_max, h_max = self.mappings.pixels.max(dim=0).values
+                assert w_max < self.img_size[0] and h_max < self.img_size[1], \
+                    f"Max pixel values should be smaller than ({self.img_size}) " \
+                    f"but got ({w_max, h_max}) instead."
             assert self.device == self.mappings.device, \
                 f"Discrepancy in the devices of 'pos' and 'mappings' " \
                 f"attributes. Please use `SameSettingImageData.to()` to set " \
@@ -519,10 +520,11 @@ class SameSettingImageData(object):
             assert (unique_idx == img_idx).all(), \
                 f"Image indices in the mappings do not match the " \
                 f"SameSettingImageData image indices."
-            w_max, h_max = mappings.pixels.max(dim=0).values
-            assert w_max < self.img_size[0] and h_max < self.img_size[1], \
-                f"Max pixel values should be smaller than ({self.img_size}) " \
-                f"but got ({w_max, h_max}) instead."
+            if mappings.num_items > 0:
+                w_max, h_max = mappings.pixels.max(dim=0).values
+                assert w_max < self.img_size[0] and h_max < self.img_size[1], \
+                    f"Max pixel values should be smaller than ({self.img_size}) " \
+                    f"but got ({w_max, h_max}) instead."
             self._mappings = mappings.to(self.device)
 
     def select_points(self, idx, mode='pick'):
@@ -570,7 +572,8 @@ class SameSettingImageData(object):
             # image indices will also be updated to the new ones.
             # Mappings are temporarily removed from the images as they
             # will be affected by the indexing on images.
-            seen_image_idx = lexunique(mappings.images)
+            seen_image_idx = lexunique(mappings.images) \
+                if mappings.num_items > 0 else []
             images.mappings = None
             images = images[seen_image_idx]
             images.mappings = mappings.select_views(seen_image_idx)
@@ -1054,6 +1057,8 @@ class ImageData:
             f"{type(self._list)} instead."
         assert all(isinstance(im, SameSettingImageData) for im in self), \
             f"All list elements must be of type SameSettingImageData."
+        # Remove any empty SameSettingImageData from the list
+        self._list = [im for im in self._list if im.num_views > 0]
         assert all(im.num_points == self.num_points for im in self), \
             "All SameSettingImageData mappings must refer to the same Data. " \
             "Hence, all must have the same number of points in their mappings."
@@ -1291,7 +1296,26 @@ class ImageBatch(ImageData):
 
 
 class ImageMapping(CSRData):
-    """CSRData format for point-image-pixel mappings."""
+    """
+    CSRData format for point-image-pixel mappings.
+
+    Example
+    -------
+    import torch
+    from torch_points3d.core.multimodal.image import ImageMapping
+    from torch_points3d.core.multimodal.csr import CSRData
+
+    n_points = 3
+    n_views = 12
+    n_pixels = 1000
+
+    indices = torch.sort(torch.randint(0, size=(n_views,), high=n_points))[0]
+    float_values = torch.rand(n_views)
+    indices_nested = torch.sort(torch.randint(0, size=(n_pixels,), high=n_views))[0]
+    csr_nested = CSRData(indices_nested, torch.arange(indices_nested.shape[0]), dense=True)
+
+    ImageMapping(indices, float_values, csr_nested, dense=True)
+    """
 
     @staticmethod
     def from_dense(point_ids, image_ids, pixels, features, num_points=None):
@@ -1556,6 +1580,11 @@ class ImageMapping(CSRData):
 
         # Index the values
         out.values = [val[view_idx] for val in out.values]
+
+        # If idx is empty, return a mapping with empty no images
+        if idx.shape[0] == 0:
+            out.debug()
+            return out
 
         # Update the image indices. To do so, create a tensor of indices
         # idx_gen so that the desired output can be computed with simple
