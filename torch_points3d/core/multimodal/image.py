@@ -1074,9 +1074,13 @@ class ImageData:
         return len(self._list)
 
     def __getitem__(self, idx):
-        assert isinstance(idx, int)
-        assert idx < self.__len__()
-        return self._list[idx]
+        if isinstance(idx, int) and idx < self.__len__():
+            return self._list[idx]
+        elif isinstance(idx, slice):
+            return self.__class__(self._list[idx])
+        else:
+            raise NotImplementedError(
+                f'Indexing {self.__class__} with {type(idx)} is not supported.')
 
     def __iter__(self):
         for i in range(self.__len__()):
