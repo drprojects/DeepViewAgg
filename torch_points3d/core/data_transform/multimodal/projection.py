@@ -455,7 +455,8 @@ def compute_projection(
         growth_k=0.2,
         growth_r=10,
         empty=0,
-        no_id=-1):
+        no_id=-1,
+        exact=False):
     # We store indices in int64 format so we only accept indices up to
     # np.iinfo(np.int64).max
     num_points = xyz_to_img.shape[0]
@@ -549,6 +550,14 @@ def compute_projection(
     # Cropped feature map initialization
     feat_map = np.zeros((*cropped_img_size, n_feat), dtype=np.float32)
 
+    # Cropped local indices map initialization
+    # This map is useful when 'exact=True', to keep track of seen
+    # points' local indices. These indices can then be used to
+    # efficiently build the 'exact' maps without the need for 'np.isin',
+    # which is not supported un numba.
+    if exact:
+        local_idx_map = np.full(cropped_img_size, no_id, dtype=np.int64)
+
     # Loop through indices for points in range and in FOV
     for i_point in range(distances.shape[0]):
 
@@ -563,8 +572,48 @@ def compute_projection(
             for y in range(y_a, y_b):
                 if point_dist < depth_map[x, y]:
                     depth_map[x, y] = point_dist
-                    idx_map[x, y] = point_idx
-                    feat_map[x, y] = point_feat
+                    if exact:
+                        # Store the local indices if 'exact=True' mode.
+                        # These indices can then be used to efficiently
+                        # build the 'exact' maps without the need for
+                        # 'np.isin', which is not supported un numba.
+                        idx_map[x, y] = i_point
+                    else:
+                        # Store the real point indices otherwise
+                        idx_map[x, y] = point_idx
+                        feat_map[x, y] = point_feat
+
+    # When 'exact=True', we use the results from the previous projection
+    # to extract the seen points. The output maps are sparse, as points
+    # are only projected to their central pixel coordinates, without
+    # artificial growth masks.
+    if exact:
+        # Recover the local indices of seen points
+        idx_seen = np.unique(idx_map)
+
+        # Reinitialize the output maps
+        depth_map = np.full(cropped_img_size, r_max + 1, dtype=np.float32)
+        idx_map = np.full(cropped_img_size, no_id, dtype=np.int64)
+
+        # Convert the pixel projection coordinates to int
+        x_pix = x_pix.astype(np.int32)
+        y_pix = y_pix.astype(np.int32)
+
+        # Loop through the seen points only and populate the maps
+        # only at the central projection pixels (not the masks) and
+        # without checking distances anymore.
+        for i_point in idx_seen:
+
+            point_dist = distances[i_point]
+            point_idx = indices[i_point]
+            point_feat = features[i_point]
+            x = x_pix[i_point]
+            y = y_pix[i_point]
+
+            # Update maps without worrying about occlusions here
+            depth_map[x, y] = point_dist
+            idx_map[x, y] = point_idx
+            feat_map[x, y] = point_feat
 
     # Set empty pixels to default empty value
     for x in range(depth_map.shape[0]):
