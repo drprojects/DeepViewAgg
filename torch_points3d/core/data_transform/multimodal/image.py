@@ -159,7 +159,8 @@ class MapImages(ImageTransform):
     """
 
     def __init__(self, ref_size=None, proj_upscale=None, voxel=None, r_max=None,
-                 r_min=None, growth_k=None, growth_r=None, empty=None, no_id=-1):
+                 r_min=None, growth_k=None, growth_r=None, empty=None, no_id=-1,
+                 exact=False):
         self.key = MAPPING_KEY
         self.empty = empty
         self.no_id = no_id
@@ -172,6 +173,7 @@ class MapImages(ImageTransform):
         self.r_min = r_min
         self.growth_k = growth_k
         self.growth_r = growth_r
+        self.exact = exact
 
     def _process(self, data: Data, images: SameSettingImageData):
         assert hasattr(data, self.key)
@@ -259,7 +261,8 @@ class MapImages(ImageTransform):
                 growth_k=image.growth_k,
                 growth_r=image.growth_r,
                 empty=empty,
-                no_id=self.no_id)
+                no_id=self.no_id,
+                exact=self.exact)
             t_projection += time() - start
 
             # Convert the id_map to id-xy coordinate soup
