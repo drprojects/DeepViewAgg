@@ -74,7 +74,7 @@ class Trainer:
         self._checkpoint: ModelCheckpoint = ModelCheckpoint(
             self._cfg.training.checkpoint_dir,
             self._cfg.model_name,
-            self._cfg.training.weight_name,
+            "",
             run_config=self._cfg,
             resume=resume,
         )
