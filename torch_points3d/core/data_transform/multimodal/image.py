@@ -604,16 +604,15 @@ class PickImagesFromMappingArea(ImageTransform):
             areas = torch_scatter.scatter_add(
                 torch.ones(pixel_idx.shape[0]), pixel_idx, dim=0)
         else:
-
-            x_min = torch_scatter.scatter_min(
-                images.mappings.pixels[:, 0], pixel_idx, dim=0)
-            x_max = torch_scatter.scatter_max(
-                images.mappings.pixels[:, 0], pixel_idx, dim=0)
-            y_min = torch_scatter.scatter_max(
-                images.mappings.pixels[:, 1], pixel_idx, dim=0)
-            y_max = torch_scatter.scatter_min(
-                images.mappings.pixels[:, 1], pixel_idx, dim=0)
-            areas = (x_max - x_min) * [y_max - y_min]
+            xy_min = torch_scatter.scatter_min(
+                images.mappings.pixels, pixel_idx, dim=0)[0]
+            xy_max = torch_scatter.scatter_max(
+                images.mappings.pixels, pixel_idx, dim=0)[0]
+            x_min = xy_min[:, 0]
+            y_min = xy_min[:, 1]
+            x_max = xy_max[:, 0]
+            y_max = xy_max[:, 1]
+            areas = (x_max - x_min) * (y_max - y_min)
 
         # Compute the indices of image to keep
         idx = areas.argsort().flip(0)
