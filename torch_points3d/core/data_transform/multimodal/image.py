@@ -583,9 +583,10 @@ class PickImagesFromMappingArea(ImageTransform):
     of images to keep.
     """
 
-    def __init__(self, area_ratio=0.02, n_max=None):
+    def __init__(self, area_ratio=0.02, n_max=None, use_bbox=False):
         self.area_ratio = area_ratio
         self.n_max = n_max if n_max is not None and n_max >= 1 else -1
+        self.use_bbox = use_bbox
 
     def _process(self, data: Data, images: SameSettingImageData):
         assert images.mappings is not None, "No mappings found in images."
@@ -599,17 +600,29 @@ class PickImagesFromMappingArea(ImageTransform):
             images.mappings.images,
             images.mappings.values[1].pointers[1:]
             - images.mappings.values[1].pointers[:-1])
-        pixel_counts = torch_scatter.scatter_add(
-            torch.ones(pixel_idx.shape[0]), pixel_idx, dim=0)
+        if not self.use_bbox:
+            areas = torch_scatter.scatter_add(
+                torch.ones(pixel_idx.shape[0]), pixel_idx, dim=0)
+        else:
+
+            x_min = torch_scatter.scatter_min(
+                images.mappings.pixels[:, 0], pixel_idx, dim=0)
+            x_max = torch_scatter.scatter_max(
+                images.mappings.pixels[:, 0], pixel_idx, dim=0)
+            y_min = torch_scatter.scatter_max(
+                images.mappings.pixels[:, 1], pixel_idx, dim=0)
+            y_max = torch_scatter.scatter_min(
+                images.mappings.pixels[:, 1], pixel_idx, dim=0)
+            areas = (x_max - x_min) * [y_max - y_min]
 
         # Compute the indices of image to keep
-        idx = pixel_counts.argsort().flip(0)
-        idx = idx[pixel_counts[idx] > threshold][:self.n_max]
+        idx = areas.argsort().flip(0)
+        idx = idx[areas[idx] > threshold][:self.n_max]
 
         # In case no images meet the requirements, pick the one with
         # the largest mapping to avoid having an empty idx
         if idx.shape[0] == 0:
-            idx = pixel_counts.argmax().item()
+            idx = areas.argmax().item()
 
         # Select the images and mappings meeting the threshold
         return data, images[idx]
