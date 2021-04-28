@@ -585,7 +585,7 @@ class PickImagesFromMappingArea(ImageTransform):
 
     def __init__(self, area_ratio=0.02, n_max=None, use_bbox=False):
         self.area_ratio = area_ratio
-        self.n_max = n_max if n_max is not None and n_max >= 1 else -1
+        self.n_max = n_max if n_max is not None and n_max >= 1 else None
         self.use_bbox = use_bbox
 
     def _process(self, data: Data, images: SameSettingImageData):
@@ -600,14 +600,15 @@ class PickImagesFromMappingArea(ImageTransform):
             images.mappings.images,
             images.mappings.values[1].pointers[1:]
             - images.mappings.values[1].pointers[:-1])
+
         if not self.use_bbox:
             areas = torch_scatter.scatter_add(
                 torch.ones(pixel_idx.shape[0]), pixel_idx, dim=0)
         else:
             xy_min = torch_scatter.scatter_min(
-                images.mappings.pixels, pixel_idx, dim=0)[0]
+                images.mappings.pixels.int(), pixel_idx, dim=0)[0]
             xy_max = torch_scatter.scatter_max(
-                images.mappings.pixels, pixel_idx, dim=0)[0]
+                images.mappings.pixels.int(), pixel_idx, dim=0)[0]
             x_min = xy_min[:, 0]
             y_min = xy_min[:, 1]
             x_max = xy_max[:, 0]
@@ -615,8 +616,9 @@ class PickImagesFromMappingArea(ImageTransform):
             areas = (x_max - x_min) * (y_max - y_min)
 
         # Compute the indices of image to keep
+        n_max = images.num_views if self.n_max is None else self.n_max
         idx = areas.argsort().flip(0)
-        idx = idx[areas[idx] > threshold][:self.n_max]
+        idx = idx[areas[idx] > threshold][:n_max]
 
         # In case no images meet the requirements, pick the one with
         # the largest mapping to avoid having an empty idx
