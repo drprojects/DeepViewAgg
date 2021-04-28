@@ -72,26 +72,25 @@ data:
                     use_cuda: True
         train_transforms:
             - transform: SelectMappingFromPointId  # Select mappings after 3D points sampling
-              params:
-            - transform: PickImagesFromMappingArea  # Remove images with not enough mappings
-              params:
-                    area_ratio: 0.02
-            - transform: ColorJitter  # Radiometric augmentation
-              params:
-                    brightness: 0.3
-                    contrast: 0.3
-                    saturation: 0.5
-            - transform: RandomHorizontalFlip
-              params:
-                    p: 0.5
-            - transform: ToFloatImage  # Convert uint8 image to float
-            - transform: AddPixelHeightFeature  # Pixel height as image channel
             - transform: CenterRoll  # Roll images to center mappings
               params:
-                    angular_res: 16
+                  angular_res: 16
+            - transform: PickImagesFromMappingArea  # Remove images with not enough mappings
+              params:
+                      area_ratio: 0.02
+            - transform: ColorJitter  # Radiometric augmentation
+              params:
+                      brightness: 0.3
+                      contrast: 0.3
+                      saturation: 0.5
+            - transform: RandomHorizontalFlip
+              params:
+                      p: 0.5
+            - transform: ToFloatImage  # Convert uint8 image to float
+            - transform: AddPixelHeightFeature  # Pixel height as image channel
             - transform: CropImageGroups  # Compute cropping groups to minimize embedding cost
               params:
-                    padding: 2
+                    padding: 4
                     min_size: 32
             - transform: PickImagesFromMemoryCredit  # Pick images based on memory credit
               params:
@@ -100,18 +99,17 @@ data:
                     k_coverage: ${data.multimodal.settings.k_coverage}
         test_transforms:
             - transform: SelectMappingFromPointId  # Select mappings after 3D points sampling
-              params:
-            - transform: PickImagesFromMappingArea  # Remove images with not enough mappings
-              params:
-                    area_ratio: 0.02
-            - transform: ToFloatImage  # Convert uint8 image to float
-            - transform: AddPixelHeightFeature  # Pixel height as image channel
             - transform: CenterRoll  # Roll images to center mappings
               params:
-                    angular_res: 16
+                  angular_res: 16
+            - transform: PickImagesFromMappingArea  # Remove images with not enough mappings
+              params:
+                      area_ratio: 0.02
+            - transform: ToFloatImage  # Convert uint8 image to float
+            - transform: AddPixelHeightFeature  # Pixel height as image channel
             - transform: CropImageGroups  # Compute cropping groups to minimize embedding cost
               params:
-                    padding: 2
+                    padding: 4
                     min_size: 32
             - transform: PickImagesFromMemoryCredit  # Pick images based on memory credit
               params:

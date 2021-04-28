@@ -79,7 +79,7 @@ data:
             - transform: PickImagesFromMappingArea  # Remove images with not enough mappings
               params:
                     area_ratio: 0.02
-                    use_bbox: True
+                    use_bbox: True  # Required when using 'exact' mappings
             - transform: ColorJitter  # Radiometric augmentation
               params:
                     brightness: 0.3
@@ -92,7 +92,7 @@ data:
             - transform: AddPixelHeightFeature  # Pixel height as image channel
             - transform: CropImageGroups  # Compute cropping groups to minimize embedding cost
               params:
-                    padding: 2
+                    padding: 4
                     min_size: 32
             - transform: PickImagesFromMemoryCredit  # Pick images based on memory credit
               params:
@@ -107,12 +107,12 @@ data:
             - transform: PickImagesFromMappingArea  # Remove images with not enough mappings
               params:
                     area_ratio: 0.02
-                    use_bbox: True
+                    use_bbox: True  # Required when using 'exact' mappings
             - transform: ToFloatImage  # Convert uint8 image to float
             - transform: AddPixelHeightFeature  # Pixel height as image channel
             - transform: CropImageGroups  # Compute cropping groups to minimize embedding cost
               params:
-                    padding: 2
+                    padding: 4
                     min_size: 32
             - transform: PickImagesFromMemoryCredit  # Pick images based on memory credit
               params:

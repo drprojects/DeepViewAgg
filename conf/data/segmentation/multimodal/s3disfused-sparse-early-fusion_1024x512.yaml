@@ -73,7 +73,9 @@ data:
                     use_cuda: True
         train_transforms:
             - transform: SelectMappingFromPointId  # Select mappings after 3D points sampling
+            - transform: CenterRoll  # Roll images to center mappings
               params:
+                    angular_res: 16
             - transform: PickImagesFromMappingArea  # Remove images with not enough mappings
               params:
                     area_ratio: 0.02
@@ -84,15 +86,12 @@ data:
                     saturation: 0.5
             - transform: RandomHorizontalFlip
               params:
-                    p: 0.5
+                      p: 0.5
             - transform: ToFloatImage  # Convert uint8 image to float
-            - transform: CenterRoll  # Roll images to center mappings
-              params:
-                    angular_res: 16
             - transform: CropImageGroups  # Compute cropping groups to minimize embedding cost
               params:
-                    padding: 2
-                    min_size: 32
+                    padding: 8
+                    min_size: 64
             - transform: PickImagesFromMemoryCredit  # Pick images based on memory credit
               params:
                     img_size: ${data.multimodal.settings.ref_size}
@@ -100,18 +99,17 @@ data:
                     k_coverage: ${data.multimodal.settings.k_coverage}
         test_transforms:
             - transform: SelectMappingFromPointId  # Select mappings after 3D points sampling
+            - transform: CenterRoll  # Roll images to center mappings
               params:
+                    angular_res: 16
             - transform: PickImagesFromMappingArea  # Remove images with not enough mappings
               params:
                     area_ratio: 0.02
             - transform: ToFloatImage  # Convert uint8 image to float
-            - transform: CenterRoll  # Roll images to center mappings
-              params:
-                    angular_res: 16
             - transform: CropImageGroups  # Compute cropping groups to minimize embedding cost
               params:
-                    padding: 2
-                    min_size: 32
+                    padding: 8
+                    min_size: 64
             - transform: PickImagesFromMemoryCredit  # Pick images based on memory credit
               params:
                     img_size: ${data.multimodal.settings.ref_size}
