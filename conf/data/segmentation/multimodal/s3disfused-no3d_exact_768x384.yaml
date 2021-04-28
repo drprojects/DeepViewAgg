@@ -37,6 +37,7 @@ data:
         settings:
             mapping_key: mapping_index  # hardcoded key used to sync 3D points and modality mappings
             ref_size: [768, 384]
+            exact_splatting: True
             proj_upscale: 2
             r_max: 8
             r_min: 0.05
@@ -63,7 +64,7 @@ data:
                     r_min: ${data.multimodal.settings.r_min}
                     growth_k: ${data.multimodal.settings.growth_k}
                     growth_r: ${data.multimodal.settings.growth_r}
-                    exact: True
+                    exact: ${data.multimodal.settings.exact_splatting}
             - transform: NeighborhoodBasedProjectionFeatures  # Compute local density and occlusion
               params:
                     k: 50  # empirically-chosen heuristic [30-100] is fine
@@ -74,20 +75,15 @@ data:
         train_transforms:
             - transform: SelectMappingFromPointId  # Select mappings after 3D points sampling
             - transform: CenterRoll  # Roll images to center mappings
-              params:
-                  angular_res: 16
             - transform: PickImagesFromMappingArea  # Remove images with not enough mappings
               params:
-                    area_ratio: 0.02
-                    use_bbox: True  # Required when using 'exact' mappings
+                    use_bbox: ${data.multimodal.settings.exact_splatting}
             - transform: ColorJitter  # Radiometric augmentation
               params:
                       brightness: 0.3
                       contrast: 0.3
                       saturation: 0.5
             - transform: RandomHorizontalFlip
-              params:
-                      p: 0.5
             - transform: ToFloatImage  # Convert uint8 image to float
             - transform: AddPixelHeightFeature  # Pixel height as image channel
             - transform: CropImageGroups  # Compute cropping groups to minimize embedding cost
@@ -102,12 +98,9 @@ data:
         test_transforms:
             - transform: SelectMappingFromPointId  # Select mappings after 3D points sampling
             - transform: CenterRoll  # Roll images to center mappings
-              params:
-                    angular_res: 16
             - transform: PickImagesFromMappingArea  # Remove images with not enough mappings
               params:
-                    area_ratio: 0.02
-                    use_bbox: True  # Required when using 'exact' mappings
+                    use_bbox: ${data.multimodal.settings.exact_splatting}
             - transform: ToFloatImage  # Convert uint8 image to float
             - transform: AddPixelHeightFeature  # Pixel height as image channel
             - transform: CropImageGroups  # Compute cropping groups to minimize embedding cost
