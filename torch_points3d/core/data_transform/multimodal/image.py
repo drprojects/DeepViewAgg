@@ -159,7 +159,8 @@ class MapImages(ImageTransform):
     """
 
     def __init__(self, ref_size=None, proj_upscale=None, voxel=None, r_max=None,
-                 r_min=None, growth_k=None, growth_r=None, empty=None, no_id=-1):
+                 r_min=None, growth_k=None, growth_r=None, empty=None, no_id=-1,
+                 exact=False):
         self.key = MAPPING_KEY
         self.empty = empty
         self.no_id = no_id
@@ -172,6 +173,7 @@ class MapImages(ImageTransform):
         self.r_min = r_min
         self.growth_k = growth_k
         self.growth_r = growth_r
+        self.exact = exact
 
     def _process(self, data: Data, images: SameSettingImageData):
         assert hasattr(data, self.key)
@@ -259,7 +261,8 @@ class MapImages(ImageTransform):
                 growth_k=image.growth_k,
                 growth_r=image.growth_r,
                 empty=empty,
-                no_id=self.no_id)
+                no_id=self.no_id,
+                exact=self.exact)
             t_projection += time() - start
 
             # Convert the id_map to id-xy coordinate soup
@@ -580,9 +583,10 @@ class PickImagesFromMappingArea(ImageTransform):
     of images to keep.
     """
 
-    def __init__(self, area_ratio=0.02, n_max=None):
+    def __init__(self, area_ratio=0.02, n_max=None, use_bbox=False):
         self.area_ratio = area_ratio
-        self.n_max = n_max if n_max is not None and n_max >= 1 else -1
+        self.n_max = n_max if n_max is not None and n_max >= 1 else None
+        self.use_bbox = use_bbox
 
     def _process(self, data: Data, images: SameSettingImageData):
         assert images.mappings is not None, "No mappings found in images."
@@ -596,17 +600,30 @@ class PickImagesFromMappingArea(ImageTransform):
             images.mappings.images,
             images.mappings.values[1].pointers[1:]
             - images.mappings.values[1].pointers[:-1])
-        pixel_counts = torch_scatter.scatter_add(
-            torch.ones(pixel_idx.shape[0]), pixel_idx, dim=0)
+
+        if not self.use_bbox:
+            areas = torch_scatter.scatter_add(
+                torch.ones(pixel_idx.shape[0]), pixel_idx, dim=0)
+        else:
+            xy_min = torch_scatter.scatter_min(
+                images.mappings.pixels.int(), pixel_idx, dim=0)[0]
+            xy_max = torch_scatter.scatter_max(
+                images.mappings.pixels.int(), pixel_idx, dim=0)[0]
+            x_min = xy_min[:, 0]
+            y_min = xy_min[:, 1]
+            x_max = xy_max[:, 0]
+            y_max = xy_max[:, 1]
+            areas = (x_max - x_min) * (y_max - y_min)
 
         # Compute the indices of image to keep
-        idx = pixel_counts.argsort().flip(0)
-        idx = idx[pixel_counts[idx] > threshold][:self.n_max]
+        n_max = images.num_views if self.n_max is None else self.n_max
+        idx = areas.argsort().flip(0)
+        idx = idx[areas[idx] > threshold][:n_max]
 
         # In case no images meet the requirements, pick the one with
         # the largest mapping to avoid having an empty idx
         if idx.shape[0] == 0:
-            idx = pixel_counts.argmax().item()
+            idx = areas.argmax().item()
 
         # Select the images and mappings meeting the threshold
         return data, images[idx]

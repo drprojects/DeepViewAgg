@@ -36,8 +36,8 @@ data:
         modality: image
         settings:
             mapping_key: mapping_index  # hardcoded key used to sync 3D points and modality mappings
-            ref_size: [512, 256]
-            exact_splatting: False
+            ref_size: [768, 384]
+            exact_splatting: True
             proj_upscale: 2
             r_max: 8
             r_min: 0.05
@@ -77,7 +77,7 @@ data:
             - transform: CenterRoll  # Roll images to center mappings
             - transform: PickImagesFromMappingArea  # Remove images with not enough mappings
               params:
-                      use_bbox: ${data.multimodal.settings.exact_splatting}
+                    use_bbox: ${data.multimodal.settings.exact_splatting}
             - transform: ColorJitter  # Radiometric augmentation
               params:
                       brightness: 0.3
@@ -88,8 +88,8 @@ data:
             - transform: AddPixelHeightFeature  # Pixel height as image channel
             - transform: CropImageGroups  # Compute cropping groups to minimize embedding cost
               params:
-                    padding: 4
-                    min_size: 32
+                    padding: 6
+                    min_size: 64
             - transform: PickImagesFromMemoryCredit  # Pick images based on memory credit
               params:
                     img_size: ${data.multimodal.settings.ref_size}
@@ -105,64 +105,11 @@ data:
             - transform: AddPixelHeightFeature  # Pixel height as image channel
             - transform: CropImageGroups  # Compute cropping groups to minimize embedding cost
               params:
-                    padding: 4
-                    min_size: 32
+                    padding: 6
+                    min_size: 64
             - transform: PickImagesFromMemoryCredit  # Pick images based on memory credit
               params:
                     img_size: ${data.multimodal.settings.ref_size}
                     n_img: ${data.multimodal.settings.test_pixel_credit}
                     k_coverage: ${data.multimodal.settings.k_coverage}
         val_transforms: ${data.multimodal.test_transforms}
-    train_transforms:
-        - transform: RandomNoise
-          params:
-                sigma: 0.001
-        - transform: RandomRotate
-          params:
-                degrees: 180
-                axis: 2
-        - transform: RandomScaleAnisotropic
-          params:
-                scales: [0.8, 1.2]
-        - transform: RandomSymmetry
-          params:
-                axis: [True, False, False]
-        - transform: DropFeature
-          params:
-                drop_proba: 0.2
-                feature_name: rgb
-        - transform: XYZFeature
-          params:
-                add_x: False
-                add_y: False
-                add_z: True
-        - transform: AddFeatsByKeys
-          params:
-                list_add_to_x: [True, True]
-                feat_names: [rgb, pos_z]
-                delete_feats: [True, True]
-        - transform: Center
-        - transform: GridSampling3D
-          params:
-                size: ${data.first_subsampling}
-                quantize_coords: True
-                mode: "last"
-        - transform: ShiftVoxels
-    test_transform:
-        - transform: XYZFeature
-          params:
-                add_x: False
-                add_y: False
-                add_z: True
-        - transform: AddFeatsByKeys
-          params:
-                list_add_to_x: [True, True]
-                feat_names: [rgb, pos_z]
-                delete_feats: [True, True]
-        - transform: Center
-        - transform: GridSampling3D
-          params:
-                size: ${data.first_subsampling}
-                quantize_coords: True
-                mode: "last"
-    val_transform: ${data.test_transform}

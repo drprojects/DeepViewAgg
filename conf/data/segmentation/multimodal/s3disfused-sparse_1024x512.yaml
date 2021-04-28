@@ -36,7 +36,7 @@ data:
         modality: image
         settings:
             mapping_key: mapping_index  # hardcoded key used to sync 3D points and modality mappings
-            ref_size: [512, 256]
+            ref_size: [1024, 512]
             exact_splatting: False
             proj_upscale: 2
             r_max: 8
@@ -88,8 +88,8 @@ data:
             - transform: AddPixelHeightFeature  # Pixel height as image channel
             - transform: CropImageGroups  # Compute cropping groups to minimize embedding cost
               params:
-                    padding: 4
-                    min_size: 32
+                    padding: 8
+                    min_size: 64
             - transform: PickImagesFromMemoryCredit  # Pick images based on memory credit
               params:
                     img_size: ${data.multimodal.settings.ref_size}
@@ -105,8 +105,8 @@ data:
             - transform: AddPixelHeightFeature  # Pixel height as image channel
             - transform: CropImageGroups  # Compute cropping groups to minimize embedding cost
               params:
-                    padding: 4
-                    min_size: 32
+                    padding: 8
+                    min_size: 64
             - transform: PickImagesFromMemoryCredit  # Pick images based on memory credit
               params:
                     img_size: ${data.multimodal.settings.ref_size}

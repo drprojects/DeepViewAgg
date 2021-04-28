@@ -35,7 +35,7 @@ n_items_nested = 1000
 indices = torch.sort(torch.randint(0, size=(n_items,), high=n_groups))[0]
 float_values = torch.rand(n_items)
 indices_nested = torch.sort(torch.randint(0, size=(n_items_nested,), high=n_items))[0]
-csr_nested = CSRData(indices_nested, dense=True)
+csr_nested = CSRData(indices_nested, torch.arange(indices_nested.shape[0]), dense=True)
 
 CSRData(indices, float_values, csr_nested, dense=True)
 """
@@ -79,8 +79,8 @@ class CSRData(object):
         self.debug()
 
     def debug(self):
-        assert self.num_groups >= 1, \
-            "pointer indices must cover at least one group."
+        # assert self.num_groups >= 1, \
+        #     "pointer indices must cover at least one group."
         assert self.pointers[0] == 0, \
             "The first pointer element must always be 0."
         assert torch.all(self.pointers[1:] - self.pointers[:-1] >= 0), \
@@ -272,14 +272,23 @@ class CSRData(object):
         """
         idx = tensor_idx(idx).to(self.device)
 
-        # Select the pointers and prepare the values indexing
-        pointers, val_idx = CSRData._index_select_pointers(self.pointers, idx)
-
         # Shallow copy self and edit pointers and values. This
         # preserves the class for CSRData subclasses.
         out = self.clone()
-        out.pointers = pointers
-        out.values = [v[val_idx] for v in self.values]
+
+        # If idx is empty, return an empty CSRData with empty values
+        # of consistent type
+        if idx.shape[0] == 0:
+            out = self.clone()
+            out.pointers = torch.LongTensor([0])
+            out.values = [v[[]] for v in self.values]
+
+        else:
+            # Select the pointers and prepare the values indexing
+            pointers, val_idx = CSRData._index_select_pointers(self.pointers, idx)
+            out.pointers = pointers
+            out.values = [v[val_idx] for v in self.values]
+
         out.debug()
 
         return out

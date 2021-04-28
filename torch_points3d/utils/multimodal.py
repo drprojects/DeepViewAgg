@@ -19,8 +19,8 @@ def tensor_idx(idx):
         idx = torch.where(idx)[0]
     assert idx.dtype is torch.int64, \
         "Expected LongTensor but got {idx.type} instead."
-    assert idx.shape[0] > 0, \
-        "Expected non-empty indices. At least one index must be provided."
+    # assert idx.shape[0] > 0, \
+    #     "Expected non-empty indices. At least one index must be provided."
     return idx
 
 

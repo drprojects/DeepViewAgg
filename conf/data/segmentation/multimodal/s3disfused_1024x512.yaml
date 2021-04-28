@@ -32,11 +32,11 @@ data:
         - transform: RemoveAttributes
           params:
                 attr_names: [full_pos, eigenvalues, eigenvectors]
-    multimodal:    # Each modality must be inserted in a dedicated 'multimodal' section
+    multimodal:  # Each modality must be inserted in a dedicated 'multimodal' section
         modality: image
         settings:
             mapping_key: mapping_index  # hardcoded key used to sync 3D points and modality mappings
-            ref_size: [512, 256]
+            ref_size: [1024, 512]
             exact_splatting: False
             proj_upscale: 2
             r_max: 8
@@ -47,15 +47,15 @@ data:
             test_pixel_credit: 4
             k_coverage: 2
         pre_transform:
-            - transform: LoadImages    # Read images from disk
+            - transform: LoadImages  # Read images from disk
               params:
                     ref_size: ${data.multimodal.settings.ref_size}
-            - transform: NonStaticMask    # Compute acquisition mask
+            - transform: NonStaticMask  # Compute acquisition mask
               params:
                     ref_size: ${data.multimodal.settings.ref_size}
                     proj_upscale: ${data.multimodal.settings.proj_upscale}
                     n_sample: 5
-            - transform: MapImages    # Compute the 3D-2D mapping
+            - transform: MapImages  # Compute the 3D-2D mapping
               params:
                     ref_size: ${data.multimodal.settings.ref_size}
                     proj_upscale: ${data.multimodal.settings.proj_upscale}
@@ -77,7 +77,7 @@ data:
             - transform: CenterRoll  # Roll images to center mappings
             - transform: PickImagesFromMappingArea  # Remove images with not enough mappings
               params:
-                      use_bbox: ${data.multimodal.settings.exact_splatting}
+                    use_bbox: ${data.multimodal.settings.exact_splatting}
             - transform: ColorJitter  # Radiometric augmentation
               params:
                       brightness: 0.3
@@ -88,8 +88,8 @@ data:
             - transform: AddPixelHeightFeature  # Pixel height as image channel
             - transform: CropImageGroups  # Compute cropping groups to minimize embedding cost
               params:
-                    padding: 4
-                    min_size: 32
+                    padding: 8
+                    min_size: 64
             - transform: PickImagesFromMemoryCredit  # Pick images based on memory credit
               params:
                     img_size: ${data.multimodal.settings.ref_size}
@@ -105,8 +105,8 @@ data:
             - transform: AddPixelHeightFeature  # Pixel height as image channel
             - transform: CropImageGroups  # Compute cropping groups to minimize embedding cost
               params:
-                    padding: 4
-                    min_size: 32
+                    padding: 8
+                    min_size: 64
             - transform: PickImagesFromMemoryCredit  # Pick images based on memory credit
               params:
                     img_size: ${data.multimodal.settings.ref_size}
@@ -142,12 +142,6 @@ data:
                 feat_names: [rgb, pos_z]
                 delete_feats: [True, True]
         - transform: Center
-        - transform: GridSampling3D
-          params:
-                size: ${data.first_subsampling}
-                quantize_coords: True
-                mode: "last"
-        - transform: ShiftVoxels
     test_transform:
         - transform: XYZFeature
           params:
@@ -160,9 +154,4 @@ data:
                 feat_names: [rgb, pos_z]
                 delete_feats: [True, True]
         - transform: Center
-        - transform: GridSampling3D
-          params:
-                size: ${data.first_subsampling}
-                quantize_coords: True
-                mode: "last"
     val_transform: ${data.test_transform}
