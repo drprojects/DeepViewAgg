@@ -590,6 +590,7 @@ def compute_projection(
     if exact:
         # Recover the local indices of seen points
         idx_seen = np.unique(idx_map)
+        idx_seen = idx_seen[idx_seen != no_id]
 
         # Reinitialize the output maps
         depth_map = np.full(cropped_img_size, r_max + 1, dtype=np.float32)
@@ -602,18 +603,19 @@ def compute_projection(
         # Loop through the seen points only and populate the maps
         # only at the central projection pixels (not the masks) and
         # without checking distances anymore.
-        for i_point in idx_seen:
+        if idx_seen.shape[0] > 0:
+            for i_point in idx_seen:
 
-            point_dist = distances[i_point]
-            point_idx = indices[i_point]
-            point_feat = features[i_point]
-            x = x_pix[i_point]
-            y = y_pix[i_point]
+                point_dist = distances[i_point]
+                point_idx = indices[i_point]
+                point_feat = features[i_point]
+                x = x_pix[i_point]
+                y = y_pix[i_point]
 
-            # Update maps without worrying about occlusions here
-            depth_map[x, y] = point_dist
-            idx_map[x, y] = point_idx
-            feat_map[x, y] = point_feat
+                # Update maps without worrying about occlusions here
+                depth_map[x, y] = point_dist
+                idx_map[x, y] = point_idx
+                feat_map[x, y] = point_feat
 
     # Set empty pixels to default empty value
     for x in range(depth_map.shape[0]):
