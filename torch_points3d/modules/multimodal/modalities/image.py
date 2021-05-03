@@ -4,6 +4,7 @@ import torch.nn as nn
 import sys
 from torch_points3d.utils.config import *
 from torch_points3d.core.common_modules import Seq, Identity
+from math import pi, sqrt
 
 
 def standardize_weights(weight, scaled=False):
@@ -13,8 +14,8 @@ def standardize_weights(weight, scaled=False):
     std = weight.view(weight.size(0), -1).std(dim=1).view(-1, 1, 1, 1) + 1e-5
     fan_in = torch.Tensor([weight.shape[1]]).to(weight.device)
     if scaled:
+        # Goes hand-in-hand with ReLUWS to scale the activation output
         weight = weight / (std.expand_as(weight) * torch.sqrt(fan_in))
-        # ALSO ... scale ReLU by sqrt(2 / (1 - 1/pi)) ...
     else:
         weight = weight / std.expand_as(weight)
     return weight
@@ -26,11 +27,13 @@ class Conv2dWS(nn.Conv2d, ABC):
     Sources:
         - https://github.com/joe-siyuan-qiao/WeightStandardization
         - https://pytorch.org/docs/stable/_modules/torch/nn/modules/conv.html
+        - https://arxiv.org/pdf/2102.06171.pdf
+        - https://arxiv.org/pdf/1603.01431.pdf
     """
 
     def __init__(self, in_channels, out_channels, kernel_size, stride=1,
                  padding=0, dilation=1, groups=1, bias=True,
-                 padding_mode='zeros', scaled=False):
+                 padding_mode='zeros', scaled=True):
         super(Conv2dWS, self).__init__(in_channels, out_channels, kernel_size,
             stride=stride, padding=padding, dilation=dilation, groups=groups,
             bias=bias, padding_mode=padding_mode)
@@ -44,12 +47,16 @@ class Conv2dWS(nn.Conv2d, ABC):
 class ConvTranspose2dWS(nn.ConvTranspose2d, ABC):
     """Convd2 with weight standardization.
 
-    source: https://github.com/joe-siyuan-qiao/WeightStandardization
+    sources:
+        - https://github.com/joe-siyuan-qiao/WeightStandardization
+        - https://pytorch.org/docs/stable/_modules/torch/nn/modules/conv.html
+        - https://arxiv.org/pdf/2102.06171.pdf
+        - https://arxiv.org/pdf/1603.01431.pdf
     """
 
     def __init__(self, in_channels, out_channels, kernel_size, stride=1,
                  padding=0, output_padding=0, dilation=1, groups=1, bias=True,
-                 padding_mode='zeros', scaled=False):
+                 padding_mode='zeros', scaled=True):
         super(ConvTranspose2dWS, self).__init__(in_channels, out_channels,
             kernel_size, stride=stride, padding=padding,
             output_padding=output_padding, dilation=dilation, groups=groups,
@@ -66,9 +73,24 @@ class ConvTranspose2dWS(nn.ConvTranspose2d, ABC):
 
         weights = standardize_weights(self.weight, scaled=self.scaled)
 
-        return torch.nn.functional.conv_transpose2d(
+        return nn.functional.conv_transpose2d(
             x, weights, self.bias, self.stride, self.padding, output_padding,
             self.groups, self.dilation)
+
+
+class ReLUWS(nn.ReLU, ABC):
+    """ReLU with weight standardization.
+
+    sources:
+        - https://github.com/joe-siyuan-qiao/WeightStandardization
+        - https://pytorch.org/docs/stable/_modules/torch/nn/modules/activation.html
+        - https://arxiv.org/pdf/2102.06171.pdf
+        - https://arxiv.org/pdf/1603.01431.pdf
+    """
+    _SCALE = sqrt(2 / (1 - 1 / pi))
+
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        return nn.functional.relu(input, inplace=self.inplace) * self._SCALE
 
 
 class ResBlock(nn.Module, ABC):
@@ -87,7 +109,8 @@ class ResBlock(nn.Module, ABC):
 
     # TODO: extend to EquiConv https://github.com/palver7/EquiConvPytorch
 
-    def __init__(self, input_nc, output_nc, convolution, normalization):
+    def __init__(self, input_nc, output_nc, convolution, normalization,
+                 activation):
         if convolution in [nn.ConvTranspose2d, ConvTranspose2dWS]:
             padding_mode = 'zeros'
         else:
@@ -103,7 +126,7 @@ class ResBlock(nn.Module, ABC):
                 padding=1,
                 padding_mode=padding_mode))
             .append(normalization(output_nc))
-            .append(nn.ReLU())
+            .append(activation())
             .append(convolution(
                 output_nc,
                 output_nc,
@@ -112,7 +135,7 @@ class ResBlock(nn.Module, ABC):
                 padding=1,
                 padding_mode=padding_mode))
             .append(normalization(output_nc))
-            .append(nn.ReLU()))
+            .append(activation()))
 
         if input_nc != output_nc:
             self.downsample = (
@@ -138,7 +161,7 @@ class BottleneckBlock(nn.Module, ABC):
     """Bottleneck block with residual."""
 
     def __init__(self, input_nc, output_nc, convolution, normalization,
-                 reduction=4, **kwargs):
+                 activation, reduction=4, **kwargs):
         super().__init__()
 
         if convolution in [nn.ConvTranspose2d, ConvTranspose2dWS]:
@@ -147,13 +170,13 @@ class BottleneckBlock(nn.Module, ABC):
             padding_mode = 'reflect'
 
         self.block = (
-            Seq().append(nn.Conv2d(
+            Seq().append(convolution(
                 input_nc,
                 output_nc // reduction,
                 kernel_size=1,
                 stride=1))
             .append(normalization(output_nc // reduction))
-            .append(nn.ReLU())
+            .append(activation())
             .append(convolution(
                 output_nc // reduction,
                 output_nc // reduction,
@@ -162,13 +185,13 @@ class BottleneckBlock(nn.Module, ABC):
                 padding=1,
                 padding_mode=padding_mode))
             .append(normalization(output_nc // reduction))
-            .append(nn.ReLU())
-            .append(nn.Conv2d(
+            .append(activation())
+            .append(convolution(
                 output_nc // reduction,
                 output_nc,
                 kernel_size=1,))
             .append(normalization(output_nc))
-            .append(nn.ReLU()))
+            .append(activation()))
 
         if input_nc != output_nc:
             self.downsample = (
@@ -203,6 +226,7 @@ class ResNetDown(nn.Module, ABC):
     """
 
     CONVOLUTION = "Conv2d"
+    ACTIVATION = "ReLU"
 
     def __init__(
             self, down_conv_nn=[], kernel_size=2, dilation=1, stride=2, N=1,
@@ -226,11 +250,13 @@ class ResNetDown(nn.Module, ABC):
         nc_in, nc_stride_out, nc_block_in, nc_out = self._parse_conv_nn(
             down_conv_nn, stride, N)
 
-        # Recover the convolution module
+        # Recover the convolution and activation modules
         if weight_standardization:
             conv = getattr(_local_modules, self.CONVOLUTION + 'WS')
+            activation = getattr(_local_modules, self.ACTIVATION + 'WS')
         else:
             conv = getattr(nn, self.CONVOLUTION)
+            activation = getattr(nn, self.ACTIVATION)
 
         # Recover the normalization module from torch.nn, for GroupNorm
         # the number of groups is set to distribute ~16 channels per
@@ -251,14 +277,14 @@ class ResNetDown(nn.Module, ABC):
                 padding=padding,
                 padding_mode=padding_mode))
             .append(norm(nc_stride_out))
-            .append(nn.ReLU()))
+            .append(activation()))
 
         # Build the N subsequent blocks
         if N > 0:
             self.blocks = Seq()
             for _ in range(N):
                 self.blocks.append(block(nc_block_in, nc_out, conv,
-                     norm))
+                     norm, activation))
                 nc_block_in = nc_out
         else:
             self.blocks = None
@@ -355,15 +381,15 @@ class UnaryConv(nn.Module, ABC):
         else:
             self.norm = getattr(nn, normalization)
 
-        # Recover the activation module from torch.nn
-        self.activation = getattr(nn, activation) if activation is not None \
-            else activation
-
-        # Build the 1x1 convolution
+        # Build the 1x1 convolution and activation
         if weight_standardization:
             self.conv = Conv2dWS(input_nc, output_nc, stride=1, kernel_size=1)
+            self.activation = getattr(_local_modules, activation + 'WS') \
+                if activation is not None else None
         else:
             self.conv = nn.Conv2d(input_nc, output_nc, stride=1, kernel_size=1)
+            self.activation = getattr(nn, activation) \
+                if activation is not None else None
 
     def forward(self, x):
         x = self.conv(x)
