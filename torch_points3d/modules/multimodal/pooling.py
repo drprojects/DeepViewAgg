@@ -92,7 +92,7 @@ class HeuristicBimodalCSRPool(nn.Module, ABC):
         assert mode in self._MODES, \
             f"Unsupported mode '{mode}'. Expected one of: {self._MODES}."
         self._mode = mode
-        self._scatter = scatter_max if mode == 'max' else scatter_max
+        self._scatter = scatter_max if mode == 'max' else scatter_min
 
         feat = self._FEATURES.index(feat) if isinstance(feat, str) else feat
         assert feat < len(self._FEATURES), \
