@@ -835,4 +835,3 @@ models:
                 drop_mod: 0.5
                 keep_last_view: True
                 branching_index: 0
-                
