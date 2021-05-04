@@ -632,10 +632,9 @@ class SameSettingImageData(object):
         # image indices will also be updated to the new ones.
         # Mappings are temporarily removed from the images as they
         # will be affected by the indexing on images.
-        if seen_image_idx is None or mappings.num_items > 0:
-            seen_image_idx = []
-        images.mappings = None
-        images = images[seen_image_idx]
+        if seen_image_idx is not None:
+            images.mappings = None
+            images = images[seen_image_idx]
         images.mappings = mappings
 
         return images
@@ -1695,7 +1694,7 @@ class ImageMapping(CSRData):
         if not torch.any(view_mask):
             out.pointers = torch.zeros_like(out.pointers)
             out.debug()
-            return out, None
+            return out, torch.LongTensor([])
 
         # If need be, update the image indices. To do so, create a
         # tensor of indices idx_gen so that the desired output can be
