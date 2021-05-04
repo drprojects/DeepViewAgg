@@ -75,25 +75,30 @@ class No3D(BaseModel, ABC):
         self.output = F.log_softmax(logits, dim=-1)
 
         if not self.training:
-            # If the module is in eval mode, propagate the output of the
-            # nearest seen point to unseen points
-            # nn_search = NearestNeighbors(
-            #     n_neighbors=1, algorithm="kd_tree").fit(
-            #     data.pos[seen_mask].detach().cpu().numpy())
-            # _, nn_idx = nn_search.kneighbors(
-            #     data.pos[~seen_mask].detach().cpu().numpy())
-            # nn_idx = torch.LongTensor(nn_idx)
-            
-            # If the module is in eval mode, propagate the output of the
-            # nearest seen point to unseen points
-            # K-NN search with KeOps
-            xyz_query_keops = LazyTensor(data.pos[~seen_mask][:, None, :])
-            xyz_search_keops = LazyTensor(data.pos[seen_mask][None, :, :])
-            d_keops = ((xyz_query_keops - xyz_search_keops) ** 2).sum(dim=2)
-            nn_idx = d_keops.argmin(dim=1)
-            del xyz_query_keops, xyz_search_keops, d_keops
+            if torch.any(seen_mask):
+                # If the module is in eval mode, propagate the output of the
+                # nearest seen point to unseen points
+                # nn_search = NearestNeighbors(
+                #     n_neighbors=1, algorithm="kd_tree").fit(
+                #     data.pos[seen_mask].detach().cpu().numpy())
+                # _, nn_idx = nn_search.kneighbors(
+                #     data.pos[~seen_mask].detach().cpu().numpy())
+                # nn_idx = torch.LongTensor(nn_idx)
 
-            self.output[~seen_mask] = self.output[seen_mask][nn_idx].squeeze()
+                # If the module is in eval mode, propagate the output of the
+                # nearest seen point to unseen points
+                # K-NN search with KeOps
+                xyz_query_keops = LazyTensor(data.pos[~seen_mask][:, None, :])
+                xyz_search_keops = LazyTensor(data.pos[seen_mask][None, :, :])
+                d_keops = ((xyz_query_keops - xyz_search_keops) ** 2).sum(dim=2)
+                nn_idx = d_keops.argmin(dim=1)
+                del xyz_query_keops, xyz_search_keops, d_keops
+
+                self.output[~seen_mask] = self.output[seen_mask][nn_idx].squeeze()
+            else:
+                # If no points were seen, do not compute the loss on 
+                # unseen data points
+                self.labels[~seen_mask] = IGNORE_LABEL
 
         else:
             # If the module is in training mode, do not compute the loss

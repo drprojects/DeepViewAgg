@@ -12,6 +12,7 @@ from .projection import compute_projection
 from tqdm.auto import tqdm as tq
 from typing import TypeVar, Union
 from pykeops.torch import LazyTensor
+from collections.abc import Iterable
 
 """
 Image-based transforms for multimodal data processing. Inspired by 
@@ -493,6 +494,12 @@ class NeighborhoodBasedProjectionFeatures(ImageTransform):
                     [images.mappings.features, densities], dim=1)
 
         # Occlusion computation
+        # TODO: occlusion could benefit from being computed on a spherical
+        #  neighborhood rather than KNN. However, the density cannot be
+        #  computed on a spherical neighborhood (because the neighbors are
+        #  resampled to match a target number). This would mean computing
+        #  occlusion and density separately, with their dedicated transforms,
+        #  but this would also mean computing the neighbors twice...
         if self.compute_occlusion:
 
             # Expand to view-level
@@ -738,6 +745,64 @@ class PickImagesFromMemoryCredit(ImageTransform):
         return data, images
 
 
+class PickMappingsFromProjectionFeatures(ImageTransform):
+    """
+    Transform to drop mappings based on projection features upper or
+    lower thresholds.
+
+    Takes as input a list of int (or int) of projection feature indices,
+    optional lists of float (or float) for corresponding lower and upper
+    bounds.
+    """
+
+    def __init__(self, feat=None, lower=None, upper=None):
+        self.feat = self.sanitize(feat)
+        self.lower = self.sanitize(lower)
+        self.upper = self.sanitize(upper)
+
+        if len(self.lower) == 0:
+            self.lower = [None] * len(self.feat)
+        if len(self.upper) == 0:
+            self.upper = [None] * len(self.feat)
+
+        for x in [self.lower, self.upper]:
+            assert len(x) == len(self.feat), \
+                f"{x} has {len(x)} elements but {len(self.feat)} were expected."
+
+    @staticmethod
+    def sanitize(x):
+        if x is None:
+            x = []
+        elif not isinstance(x, Iterable):
+            x = [x]
+        return x
+
+    def _process(self, data: Data, images: SameSettingImageData):
+        # Skip if no mappings or no projection features found
+        if images.mappings is None or not images.mappings.has_features \
+                or len(self.feat) == 0:
+            return data, images
+
+        # Check feature indices validity
+        assert max(self.feat) == 0 \
+               or max(self.feat) < images.mappings.features.shape[1], \
+            f"Out of bounds feature id {max(self.feat)}."
+
+        # Iteratively update the view mask
+        view_mask = torch.ones(images.mappings.num_items, dtype=torch.bool)
+        features = images.mappings.features.view(images.mappings.num_items, -1)
+        for i_feat, lower, upper in zip(self.feat, self.lower, self.upper):
+            if lower is not None:
+                view_mask = view_mask & (features[:, i_feat] > lower)
+            if upper is not None:
+                view_mask = view_mask & (features[:, i_feat] < upper)
+
+        # Apply the view mask to the images and mappings
+        images = images.select_views(view_mask)
+
+        return data, images
+
+
 class CenterRoll(ImageTransform):
     """
     Transform to center the mappings along the width axis of spherical images.
@@ -953,11 +1018,6 @@ class AddPixelWidthFeature(ImageTransform):
         images.x = torch.cat((images.x, feat), 1)
 
         return data, images
-
-
-# TODO: AddProjectionFeatures
-class AddProjectionFeatures(ImageTransform):
-    pass
 
 
 class RandomHorizontalFlip(ImageTransform):

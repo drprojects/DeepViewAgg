@@ -7,7 +7,7 @@ from torch_points3d.core.common_modules import Seq, Identity
 from math import pi, sqrt
 
 
-def standardize_weights(weight, scaled=False):
+def standardize_weights(weight, scaled=True):
     weight_mean = weight.mean(dim=1, keepdim=True).mean(dim=2,
         keepdim=True).mean(dim=3, keepdim=True)
     weight = weight - weight_mean
