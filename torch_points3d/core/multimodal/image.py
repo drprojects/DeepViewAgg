@@ -1097,7 +1097,7 @@ class ImageData:
         assert all(isinstance(im, SameSettingImageData) for im in self), \
             f"All list elements must be of type SameSettingImageData."
         # Remove any empty SameSettingImageData from the list
-        self._list = [im for im in self._list if im.num_views > 0]
+#         self._list = [im for im in self._list if im.num_views > 0]
         assert all(im.num_points == self.num_points for im in self), \
             "All SameSettingImageData mappings must refer to the same Data. " \
             "Hence, all must have the same number of points in their mappings."
