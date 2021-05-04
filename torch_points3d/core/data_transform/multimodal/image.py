@@ -793,9 +793,9 @@ class PickMappingsFromProjectionFeatures(ImageTransform):
         features = images.mappings.features.view(images.mappings.num_items, -1)
         for i_feat, lower, upper in zip(self.feat, self.lower, self.upper):
             if lower is not None:
-                view_mask = view_mask & features[:, i_feat] > lower
+                view_mask = view_mask & (features[:, i_feat] > lower)
             if upper is not None:
-                view_mask = view_mask & features[:, i_feat] < upper
+                view_mask = view_mask & (features[:, i_feat] < upper)
 
         # Apply the view mask to the images and mappings
         images = images.select_views(view_mask)

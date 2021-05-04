@@ -1631,8 +1631,9 @@ class ImageMapping(CSRData):
         # Index the values
         out.values = [val[view_idx] for val in out.values]
 
-        # If idx is empty, return a mapping with empty no images
+        # If idx is empty, return an empty mapping
         if idx.shape[0] == 0:
+            out.pointers = torch.zeros_like(out.pointers)
             out.debug()
             return out
 
@@ -1690,10 +1691,11 @@ class ImageMapping(CSRData):
         out = self.clone()
         out.values = [val[view_mask] for val in out.values]
 
-        # If view_mask is empty, return a mapping with empty no images
-        if not torch.any(view_mask) == 0:
+        # If view_mask is empty, return an empty mapping
+        if not torch.any(view_mask):
+            out.pointers = torch.zeros_like(out.pointers)
             out.debug()
-            return out
+            return out, None
 
         # If need be, update the image indices. To do so, create a
         # tensor of indices idx_gen so that the desired output can be
