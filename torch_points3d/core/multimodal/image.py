@@ -576,7 +576,7 @@ class SameSettingImageData(object):
                 if mappings.num_items > 0 else []
             images.mappings = None
             images = images[seen_image_idx]
-            images.mappings = mappings.select_views(seen_image_idx)
+            images.mappings = mappings.select_images(seen_image_idx)
 
             return images
 
@@ -597,6 +597,46 @@ class SameSettingImageData(object):
 
         else:
             raise ValueError(f"Unknown point selection mode '{mode}'.")
+
+        return images
+
+    def select_views(self, view_mask):
+        """
+        Select the views. Typically called when selecting views based on
+        their projection features. So as to preserve the views ordering,
+        view_mask is assumed to be a boolean mask over views.
+
+        The mappings are updated so as to remove views to images absent
+        from the view_mask and change the image indexing to respect the
+        new order.
+
+        To update the views in the modality data and mappings, the image
+        may be subselected if any is absent from the selected mappings.
+
+        Returns a new SameSettingImageData object.
+        """
+
+        # Images are not affected if no mappings are present or
+        # view_mask is None or all True
+        if self.mappings is None or view_mask is None or torch.all(view_mask):
+            return self.clone()
+
+        # Work on a clone of self, to avoid in-place modifications.
+        images = self.clone()
+
+        # Select mappings wrt the point index
+        mappings, seen_image_idx = images.mappings.select_views(view_mask)
+
+        # Select the images used in the mappings. Selected images
+        # are sorted by their order in image_indices. Mappings'
+        # image indices will also be updated to the new ones.
+        # Mappings are temporarily removed from the images as they
+        # will be affected by the indexing on images.
+        if seen_image_idx is None or mappings.num_items > 0:
+            seen_image_idx = []
+        images.mappings = None
+        images = images[seen_image_idx]
+        images.mappings = mappings
 
         return images
 
@@ -787,7 +827,7 @@ class SameSettingImageData(object):
             growth_k=copy.deepcopy(self.growth_k),
             growth_r=copy.deepcopy(self.growth_r),
             x=self.x[idx] if self.x is not None else None,
-            mappings=self.mappings.select_views(idx)
+            mappings=self.mappings.select_images(idx)
             if self.mappings is not None else None,
             mask=self.mask if self.mask is not None else None)
 
@@ -1094,6 +1134,12 @@ class ImageData:
     def select_points(self, idx, mode='pick'):
         return self.__class__([im.select_points(idx, mode=mode)
                                for im in self])
+
+    def select_views(self, view_mask_list):
+        assert isinstance(view_mask_list, list), \
+            "Expected a list of view masks."
+        return self.__class__([im.select_views(view_mask)
+                               for im, view_mask in zip(self, view_mask_list)])
 
     def update_features_and_scale(self, x_list):
         assert isinstance(x_list, list) \
@@ -1560,7 +1606,7 @@ class ImageMapping(CSRData):
 
         return out
 
-    def select_views(self, idx):
+    def select_images(self, idx):
         """
         Return a copy of self with images selected with idx.
 
@@ -1593,7 +1639,7 @@ class ImageMapping(CSRData):
         # Update the image indices. To do so, create a tensor of indices
         # idx_gen so that the desired output can be computed with simple
         # indexation idx_gen[images]. This avoids using map() or
-        # numpy.vectorize alternatives
+        # numpy.vectorize alternatives.
         idx_gen = torch.full((idx.max() + 1,), -1, dtype=torch.int64,
                              device=self.device)
         idx_gen = idx_gen.scatter_(
@@ -1609,13 +1655,77 @@ class ImageMapping(CSRData):
 
         # Some points may have been seen by no image so we need to
         # inject 0-sized pointers to account for these. To get the real
-        # point_ids take the last value of each pointer
+        # point_ids take the last value of each pointer.
         point_ids = point_ids[out.pointers[1:] - 1]
         out = out.insert_empty_groups(point_ids, num_groups=self.num_groups)
 
         out.debug()
 
         return out
+
+    def select_views(self, view_mask):
+        """
+        Return a copy of self with views selected with view_mask, as
+        well as the corresponding selected image indices.
+
+        So as to preserve the views ordering, view_mask is assumed to be
+        a boolean mask over views.
+
+        The mappings are updated so as to remove views to images absent
+        from the view_mask and change the image indexing to respect the
+        new order.
+
+        For the mappings to preserve their meaning, this operation
+        assumes the same indexation is also applied to the corresponding
+        SameSettingImageData and contains no duplicate indices.
+        """
+        if isinstance(view_mask, np.ndarray):
+            view_mask = torch.from_numpy(view_mask)
+        assert isinstance(view_mask, torch.BoolTensor) \
+               and len(view_mask.shape) == 1 \
+               and view_mask.shape[0] == self.num_items, \
+            f"view_mask must be a torch.BoolTensor of size {self.num_items}."
+
+        # Index the values
+        out = self.clone()
+        out.values = [val[view_mask] for val in out.values]
+
+        # If view_mask is empty, return a mapping with empty no images
+        if not torch.any(view_mask) == 0:
+            out.debug()
+            return out
+
+        # If need be, update the image indices. To do so, create a
+        # tensor of indices idx_gen so that the desired output can be
+        # computed with simple indexation idx_gen[images]. This avoids
+        # using map() or numpy.vectorize alternatives.
+        img_idx = torch.unique(out.images)
+        if img_idx.shape[0] < self.images.max() + 1:
+            idx_gen = torch.full((img_idx.max() + 1,), -1, dtype=torch.int64,
+                                 device=self.device)
+            idx_gen = idx_gen.scatter_(
+                0, img_idx, torch.arange(img_idx.shape[0], device=self.device))
+            out.images = idx_gen[out.images]
+        else:
+            img_idx = None
+
+        # Update the pointers
+        point_ids = torch.repeat_interleave(
+            torch.arange(out.num_groups, device=self.device),
+            out.pointers[1:] - out.pointers[:-1])
+        point_ids = point_ids[view_mask]
+        out.pointers = CSRData._sorted_indices_to_pointers(point_ids)
+
+        # Some points may have been seen by no image so we need to
+        # inject 0-sized pointers to account for these. To get the real
+        # point_ids take the last value of each pointer.
+        point_ids = point_ids[out.pointers[1:] - 1]
+        out = out.insert_empty_groups(point_ids, num_groups=self.num_groups)
+
+        out.debug()
+
+        return out, img_idx
+
 
     def select_points(self, idx, mode='pick'):
         """
@@ -1806,10 +1916,11 @@ n_items = 10**6
 idx = torch.randint(low=0, high=n_groups, size=(n_items,))
 img_idx = torch.randint(low=0, high=3, size=(n_items,))
 pixels = torch.randint(low=0, high=10, size=(n_items,2))
+features = torch.rand(n_items, 3)
 
 idx, img_idx = lexsort(idx, img_idx)
 
-m = ImageMapping.from_dense(idx, img_idx, pixels)
+m = ImageMapping.from_dense(idx, img_idx, pixels, features)
 
 b = ImageMappingBatch.from_csr_list([m[2], m[1:3], m, m[0]])
 
