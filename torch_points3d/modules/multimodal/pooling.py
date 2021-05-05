@@ -130,6 +130,146 @@ class HeuristicBimodalCSRPool(nn.Module, ABC):
         return f'mode={self._mode}, feat={self._FEATURES[self._feat]}'
 
 
+class GroupBimodalCSRPool(nn.Module, ABC):
+    """Bimodal pooling modules select and combine information from a
+    modality to prepare its fusion into the main modality.
+
+    The modality pooling may typically be used for atomic-level
+    aggregation or view-level aggregation. To illustrate, in the case of
+    image modality, where each 3D point may be mapped to multiple
+    pixels, in multiple images. The atomic-level corresponds to pixel-
+    level information, while view-level accounts for multi-image views.
+
+    GroupBimodalCSRPool learns to produce a weighting scheme for the
+    modality features of the same index-group, only based on the
+    projection features, optionally from the modality features
+    themselves and an optional gating mechanism. This differs from the
+    attention mechanism in the sense that the main modality's features
+    are not used to compute a compatibility score.
+
+    For computation speed reasons, the data and pooling indices are
+    expected to be provided in a CSR format, where same-index rows are
+    consecutive and indices hold index-change pointers.
+
+    IMPORTANT: the order of 3D points in the main modality is expected
+    to match that of the indices in the mappings. Any update of the
+    mappings following a reindexing, reordering or sampling of the 3D
+    points must be performed prior to the multimodal pooling.
+    """
+
+    def __init__(self, in_main=None, in_proj=None, in_mod=None,
+                 proj_min=False, proj_max=False, proj_num=False,
+                 gating=True, group_scaling=False, save_last=False,
+                 **kwargs):
+        super(GroupBimodalCSRPool, self).__init__()
+
+        self.save_last = save_last
+
+        # Optional key computation mechanisms
+        self.proj_min = proj_min
+        self.proj_max = proj_max
+        self.proj_num = proj_num
+        in_score = 1
+
+        # Optional gating mechanism
+        self.Gating = Gating(weight=True, bias=True) if gating else None
+
+        # Optional compatibilities scaling mechanism
+        self.group_scaling = group_scaling
+
+        # Raw handcrafted projection features are fed to this module, we
+        # let the network preprocess them to its liking before computing
+        # the keys
+        in_proj_0 = in_proj * (1 + proj_min + proj_max) + proj_num
+        in_proj_1 = nearest_power_of_2((in_proj_0 + in_score) / 2, min_power=16)
+        in_proj_2 = nearest_power_of_2(in_score, min_power=16)
+        self.MLP_proj = (
+            Seq().append(nn.Linear(in_proj_0, in_proj_1, bias=True))
+                .append(nn.BatchNorm1d(in_proj_1))
+                .append(nn.ReLU()))
+
+        # Keys computation module
+
+        self.mod_in_key = in_mod is not None
+
+        if self.mod_in_key:
+            in_proj_2 = nearest_power_of_2((in_proj_1 + in_mod) / 2, min_power=16)
+        else:
+            in_proj_2 = nearest_power_of_2(in_proj_1 / 2, min_power=8)
+
+        self.MLP_score = nn.Linear(in_proj_2, in_score, bias=True)
+
+
+
+        if self.mod_in_key:
+            self.MLP_score = nn.Linear(in_proj_2 + in_mod, in_score, bias=True)
+        else:
+            self.MLP_score = nn.Linear(in_proj_2, in_score, bias=True)
+
+    def forward(self, x_main, x_mod, x_proj, csr_idx):
+        """
+        :param x_main: N x F_main
+        :param x_mod: V x F_mod
+        :param x_proj: V x F_proj
+        :param csr_idx:
+        :return: x_pool, x_seen
+        """
+
+        # Optionally expand x_proj with difference-to-min or
+        # difference-to-max or group size features
+        if self.proj_min:
+            x_proj_min = x_proj - segment_csr_gather(x_proj, csr_idx, reduce='min')
+        else:
+            x_proj_min = torch.empty(0, device=x_proj.device)
+        if self.proj_max:
+            x_proj_max = x_proj - segment_csr_gather(x_proj, csr_idx, reduce='max')
+        else:
+            x_proj_max = torch.empty(0, device=x_proj.device)
+        if self.proj_num:
+            # Heuristic to normalize in [0,1]
+            x_proj_num = torch.sqrt(1 / (csr_idx[1:] - csr_idx[:-1]).float()
+                ).repeat_interleave(csr_idx[1:] - csr_idx[:-1]).view(-1, 1)
+        else:
+            x_proj_num = torch.empty(0, device=x_proj.device)
+        x_proj = torch.cat([x_proj, x_proj_min, x_proj_max, x_proj_num], dim=1)
+        if self.save_last:
+            self._last_x_proj = x_proj
+            self._last_x_mod = x_mod
+            self._last_idx = torch.arange(csr_idx.shape[0] - 1, device=x_proj.device
+                ).repeat_interleave(csr_idx[1:] - csr_idx[:-1])
+            self._last_view_num = csr_idx[1:] - csr_idx[:-1]
+
+        # Compute scores : V x D
+        if self.mod_in_key:
+            S = self.MLP_score(torch.cat([self.MLP_proj(x_proj), x_mod], dim=1))
+        else:
+            S = self.MLP_score(self.MLP_proj(x_proj))
+        if self.save_last:
+            self._last_S = S
+
+        # Compute weights : V
+        W = segment_csr_softmax(S, csr_idx, scaling=self.group_scaling)
+        if self.save_last:
+            self._last_W = W
+
+        # Compute weighted-sum modality features : P x F_mod
+        x_pool = segment_csr(x_mod * S.view(-1, 1), csr_idx, reduce='sum')
+
+        if self.Gating:
+            # Compute pointwise gating : P
+            G = self.Gating(segment_csr(S, csr_idx, reduce='max'))
+            if self.save_last:
+                self._last_G = G
+
+            # Apply gating to the features : P x F_mod
+            x_pool = x_pool * G.view(-1, 1)
+
+        # Compute the boolean mask of seen points
+        x_seen = csr_idx[1:] > csr_idx[:-1]
+
+        return x_pool, x_seen
+
+
 class AttentiveBimodalCSRPool(nn.Module, ABC):
     """Bimodal pooling modules select and combine information from a
     modality to prepare its fusion into the main modality.
