@@ -550,14 +550,6 @@ def compute_projection(
     # Cropped feature map initialization
     feat_map = np.zeros((*cropped_img_size, n_feat), dtype=np.float32)
 
-    # Cropped local indices map initialization
-    # This map is useful when 'exact=True', to keep track of seen
-    # points' local indices. These indices can then be used to
-    # efficiently build the 'exact' maps without the need for 'np.isin',
-    # which is not supported un numba.
-    if exact:
-        local_idx_map = np.full(cropped_img_size, no_id, dtype=np.int64)
-
     # Loop through indices for points in range and in FOV
     for i_point in range(distances.shape[0]):
 

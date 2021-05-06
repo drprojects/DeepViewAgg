@@ -52,7 +52,12 @@ class No3D(BaseModel, ABC):
                 f"Expected one of {self._modalities}."
             # TODO: check that the corresponding UniModalBranches have
             #  'keep_last_view=True' and that the pooling mechanism does
-            #  not require any learning: ie not AttentiveBimodalCSRPool
+            #  not require any learning: ie not AttentiveBimodalCSRPool.
+            #  Indeed, the current view-loss training is coded in such a
+            #  way that the image encoder is supervised for each view as
+            #  if it was alone. If the desired view-pooling mechanism
+            #  requires any training, then it will never receive any
+            #  gradient from the view loss and hence will not be trained.
 
     def set_input(self, data, device):
         self.input = data

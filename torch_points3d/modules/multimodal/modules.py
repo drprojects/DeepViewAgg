@@ -329,15 +329,6 @@ class UnimodalBranch(nn.Module, ABC):
         if self.keep_last_view:
             mod_data.last_view_x_mod = self.drop_mod(mod_data.last_view_x_mod)
 
-        # drop = 0.3  # probability to apply dropout on either 3D or modality
-        # drop_3d = 0.  # probability that 3D is the one dropped over modality
-        #
-        # idx_drop = torch.where(torch.rand(x_3d.shape[0], device=x_3d.device) < drop)[0]
-        # subidx_drop = torch.rand(idx_drop.shape[0], device=x_3d.device) < drop_3d
-        #
-        # x_3d[idx_drop[subidx_drop]] *= 0
-        # x_mod[idx_drop[~subidx_drop]] *= 0
-
         # Fuse the modality features into the 3D points features
         x_3d = self.fusion(x_3d, x_mod)
 
