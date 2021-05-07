@@ -302,7 +302,7 @@ class UnimodalBranch(nn.Module, ABC):
         if has_multi_setting:
             idx_sorting = mod_data.view_cat_sorting
             x_mod = torch.cat(x_mod, dim=0)[idx_sorting]
-            x_proj = torch.cat(mod_data.projection_features, dim=0)[idx_sorting]
+            x_proj = torch.cat(mod_data.mapping_features, dim=0)[idx_sorting]
 
         # View pooling of the atomic-pooled modality features
 

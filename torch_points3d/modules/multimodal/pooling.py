@@ -63,7 +63,7 @@ class HeuristicBimodalCSRPool(nn.Module, ABC):
     level information, while view-level accounts for multi-image views.
 
     HeuristicBimodalCSRPool selects modality features based on a
-    handcrafted heuristic on projection features.
+    handcrafted heuristic on mapping features.
 
     For computation speed reasons, the data and pooling indices are
     expected to be provided in a CSR format, where same-index rows are
@@ -142,7 +142,7 @@ class GroupBimodalCSRPool(nn.Module, ABC):
 
     GroupBimodalCSRPool learns to produce a weighting scheme for the
     modality features of the same index-group, only based on the
-    projection features, optionally from the modality features
+    mapping features, optionally from the modality features
     themselves and an optional gating mechanism. This differs from the
     Key-Query attention mechanism in the sense that the main modality's
     features are not used to compute a compatibility score here.
@@ -207,26 +207,33 @@ class GroupBimodalCSRPool(nn.Module, ABC):
         # Optional compatibilities scaling mechanism
         self.group_scaling = group_scaling
 
-        # Raw handcrafted projection features are fed to this module, we
+        # Raw handcrafted mapping features are fed to this module, we
         # let the network preprocess them to its liking before mixing
         # them with other learnt features
         in_proj_0 = in_proj * (1 + proj_min + proj_max) + proj_num
-        in_proj_1 = nearest_power_of_2((in_proj_0 + num_groups) / 2, min_power=32)
-        in_proj_2 = nearest_power_of_2(num_groups, min_power=32)
+        # in_proj_1 = nearest_power_of_2((in_proj_0 + num_groups) / 2, min_power=8)
+        # in_proj_2 = nearest_power_of_2(num_groups, min_power=4)
+        # in_proj_1 = nearest_power_of_2((in_proj_0 + num_groups) / 2, min_power=8)
+        # in_proj_2 = nearest_power_of_2(num_groups, min_power=4)
+        # self.MLP_proj = (
+        #     Seq().append(nn.Linear(in_proj_0, in_proj_1, bias=True))
+        #         .append(nn.BatchNorm1d(in_proj_1))
+        #         .append(nn.ReLU())
+        #         .append(nn.Linear(in_proj_1, in_proj_2, bias=True))
+        #         .append(nn.BatchNorm1d(in_proj_2))
+        #         .append(nn.ReLU()))
+        in_proj_2 = 4
         self.MLP_proj = (
-            Seq().append(nn.Linear(in_proj_0, in_proj_1, bias=True))
-                .append(nn.BatchNorm1d(in_proj_1))
-                .append(nn.ReLU())
-                .append(nn.Linear(in_proj_1, in_proj_2, bias=True))
+            Seq().append(nn.Linear(in_proj_0, in_proj_2, bias=True))
                 .append(nn.BatchNorm1d(in_proj_2))
                 .append(nn.ReLU()))
 
         # Attention scores computation module
         if self.use_mod:
-            in_proj_3 = in_proj_1 + in_mod
+            in_proj_3 = in_proj_2 + in_mod
         else:
             in_proj_3 = in_proj_2
-        # Ease-in the dimensionality reduction when num_groups is small
+        # Ease-in the dimensionality reduction to num_groups if need be
         if num_groups <= 4 and in_proj_3 > 16:
             in_proj_4 = 8
             self.MLP_score = (
@@ -315,7 +322,7 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
     level information, while view-level accounts for multi-image views.
 
     AttentiveBimodalCSRPool learns to attend to modality features based
-    on projection features, the main modality features and an optional
+    on mapping features, the main modality features and an optional
     gating mechanism.
 
     For computation speed reasons, the data and pooling indices are
@@ -386,7 +393,7 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
         # Queries computation module
         self.Q = nn.Linear(in_main, in_score, bias=True)
 
-        # Raw handcrafted projection features are fed to this module, we
+        # Raw handcrafted mapping features are fed to this module, we
         # let the network preprocess them to its liking before computing
         # the keys
         in_proj_0 = in_proj * (1 + proj_min + proj_max) + proj_num

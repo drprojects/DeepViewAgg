@@ -390,12 +390,12 @@ class MapImages(ImageTransform):
         return data, images
 
 
-class NeighborhoodBasedProjectionFeatures(ImageTransform):
+class NeighborhoodBasedMappingFeatures(ImageTransform):
     """
     Transform-like structure. Intended to be called on data and
     images_data.
 
-    Populate the mappings with neighborhood-based projection features:
+    Populate the mappings with neighborhood-based mapping features:
         - density: estimated with the volume of the K-NN sphere
         - occlusion: estimated as the ratio of k-NN seen by the image at
         hand
@@ -745,12 +745,12 @@ class PickImagesFromMemoryCredit(ImageTransform):
         return data, images
 
 
-class PickMappingsFromProjectionFeatures(ImageTransform):
+class PickMappingsFromMappingFeatures(ImageTransform):
     """
-    Transform to drop mappings based on projection features upper or
+    Transform to drop mappings based on mapping features upper or
     lower thresholds.
 
-    Takes as input a list of int (or int) of projection feature indices,
+    Takes as input a list of int (or int) of mapping feature indices,
     optional lists of float (or float) for corresponding lower and upper
     bounds.
     """
@@ -778,7 +778,7 @@ class PickMappingsFromProjectionFeatures(ImageTransform):
         return x
 
     def _process(self, data: Data, images: SameSettingImageData):
-        # Skip if no mappings or no projection features found
+        # Skip if no mappings or no mapping features found
         if images.mappings is None or not images.mappings.has_features \
                 or len(self.feat) == 0:
             return data, images
@@ -799,6 +799,35 @@ class PickMappingsFromProjectionFeatures(ImageTransform):
 
         # Apply the view mask to the images and mappings
         images = images.select_views(view_mask)
+
+        return data, images
+
+
+class JitterMappingFeatures(ImageTransform):
+    """
+    Transform to add a small gaussian noise to the mapping feature.
+
+    Parameters
+    ----------
+    sigma:
+        Variance of the noise
+    clip:
+        Maximum amplitude of the noise
+    """
+
+    def __init__(self, sigma=0.02, clip=0.03):
+        self.sigma = sigma
+        self.clip = clip
+
+    def _process(self, data: Data, images: SameSettingImageData):
+        # Skip if no mappings or no mapping features found
+        if images.mappings is None or not images.mappings.has_features:
+            return data, images
+
+        # Apply clamped gaussian noise to the mapping features
+        noise = self.sigma * torch.randn(images.mappings.features.shape)
+        noise = noise.clamp(-self.clip, self.clip)
+        images.mappings.features = images.mappings.features + noise
 
         return data, images
 

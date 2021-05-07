@@ -14,7 +14,7 @@ from torch_points3d.utils.multimodal import tensor_idx
 class SameSettingImageData(object):
     """
     Class to hold arrays of images information, along with shared 3D-2D 
-    projection information.
+    mapping information.
 
     Attributes
         path:numpy.ndarray      image paths
@@ -544,7 +544,7 @@ class SameSettingImageData(object):
 
           - 'merge': points are agglomerated. The mappings are combined,
             duplicates are removed. If any other value (such as
-            projection features) is present in the mapping, the value
+            mapping features) is present in the mapping, the value
             of one of the duplicates is picked at random. In this case,
             the correspondence map for the N points in the mapping must
             be provided as a 1D array of size N such that i -> idx[i].
@@ -603,7 +603,7 @@ class SameSettingImageData(object):
     def select_views(self, view_mask):
         """
         Select the views. Typically called when selecting views based on
-        their projection features. So as to preserve the views ordering,
+        their mapping features. So as to preserve the views ordering,
         view_mask is assumed to be a boolean mask over views.
 
         The mappings are updated so as to remove views to images absent
@@ -929,9 +929,9 @@ class SameSettingImageData(object):
         return None
 
     @property
-    def projection_features(self):
+    def mapping_features(self):
         """
-        Return the projection features carried by the mappings.
+        Return the mapping features carried by the mappings.
         """
         return self.mappings.features
 
@@ -1226,13 +1226,12 @@ class ImageData:
         return view_csr_idx
 
     @property
-    def projection_features(self):
+    def mapping_features(self):
         """
-        Return the projection features carried by the mappings of each
+        Return the mapping features carried by the mappings of each
         SameSettingImageData.
         """
-        return [im.projection_features for im in self]
-
+        return [im.mapping_features for im in self]
 
 
 class ImageBatch(ImageData):
@@ -1743,7 +1742,7 @@ class ImageMapping(CSRData):
 
           - 'merge': points are agglomerated. The mappings are combined,
             duplicates are removed. If any other value (such as
-            projection features) is present in the mapping, the value
+            mapping features) is present in the mapping, the value
             of one of the duplicates is picked at random. In this case,
             the correspondence map for the N points in the mapping must
             be provided as a 1D array of size N.
@@ -1779,7 +1778,7 @@ class ImageMapping(CSRData):
                 idx, self.pointers[1:] - self.pointers[:-1])
             image_ids = self.images
 
-            # Merge view-level projection features
+            # Merge view-level mapping features
             if self.has_features:
                 # Compute composite point-image views ids
                 view_ids = CompositeTensor(point_ids, image_ids,
@@ -1813,7 +1812,7 @@ class ImageMapping(CSRData):
                     dim=0)
             pixels = self.pixels
 
-            # Remove duplicate pixel mappings and aggregate projection
+            # Remove duplicate pixel mappings and aggregate
             idx_unique = lexargunique(point_ids, image_ids, pixels[:, 0],
                                       pixels[:, 1])
             point_ids = point_ids[idx_unique]
