@@ -80,9 +80,6 @@ class MultimodalBlockDown(nn.Module, ABC):
         for the 3D convolutional modules, and a dictionary of
         modality-specific data equipped with corresponding mappings.
         """
-        # # Unpack the multimodal data tuple
-        # x_3d, x_seen, mod_dict = mm_data_tuple
-
         # Conv on the main 3D modality - assumed to reduce 3D resolution
         mm_data_dict = self.forward_3d_block_down(mm_data_dict, self.down_block)
 
@@ -92,17 +89,11 @@ class MultimodalBlockDown(nn.Module, ABC):
             #  3D information only be updated once all modality branches
             #  have been run on the same input ?
             mod_branch = getattr(self, m)
-            # x_3d, x_seen_mod, mod_dict[m] = mod_branch((x_3d, x_seen, mod_dict[m]))
-            # if x_seen is None:
-            #     x_seen = x_seen_mod
-            # else:
-            #     x_seen = torch.logical_or(x_seen, x_seen_mod)
             mm_data_dict = mod_branch(mm_data_dict, m)
 
         # Conv on the main 3D modality
         mm_data_dict = self.forward_3d_block_down(mm_data_dict, self.conv_block)
 
-        # return tuple((x_3d, x_seen, mod_dict))
         return mm_data_dict
 
     @staticmethod
@@ -233,11 +224,11 @@ class MultimodalBlockDown(nn.Module, ABC):
 class UnimodalBranch(nn.Module, ABC):
     """Unimodal block with downsampling that looks like:
 
-    IN 3D    ------------------------------------           --   OUT 3D
-                                    \            \         /
-    IN Mod   -- Conv -- Atomic Pool -- View Pool -- Fusion
-                      \
-                       ---------------------------------------   OUT Mod
+    IN 3D   ------------------------------------           --  OUT 3D
+                                   \            \         /
+                       Atomic Pool -- View Pool -- Fusion
+                     /
+    IN Mod  -- Conv -----------------------------------------  OUT Mod
 
     The convolution may be a down-convolution or preserve input shape.
     However, up-convolutions are not supported, because reliable the
@@ -251,8 +242,12 @@ class UnimodalBranch(nn.Module, ABC):
         self.atomic_pool = atomic_pool
         self.view_pool = view_pool
         self.fusion = fusion
-        self.drop_3d = nn.Dropout(p=drop_3d) if drop_3d is not None and drop_3d > 0 else nn.Identity()
-        self.drop_mod = nn.Dropout(p=drop_mod) if drop_mod is not None and drop_mod > 0 else nn.Identity()
+        self.drop_3d = nn.Dropout(p=drop_3d, inplace=True) \
+            if drop_3d is not None and drop_3d > 0 \
+            else nn.Identity()
+        self.drop_mod = nn.Dropout(p=drop_mod, inplace=True) \
+            if drop_mod is not None and drop_mod > 0 \
+            else nn.Identity()
         self.keep_last_view = keep_last_view
 
     def forward(self, mm_data_dict, modality):
