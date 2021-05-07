@@ -201,9 +201,6 @@ class GroupBimodalCSRPool(nn.Module, ABC):
         self.proj_max = proj_max
         self.proj_num = proj_num
 
-        # Optional gating mechanism
-        self.Gating = Gating(num_groups, bias=True) if gating else None
-
         # Optional compatibilities scaling mechanism
         self.group_scaling = group_scaling
 
@@ -222,6 +219,7 @@ class GroupBimodalCSRPool(nn.Module, ABC):
         #         .append(nn.Linear(in_proj_1, in_proj_2, bias=True))
         #         .append(nn.BatchNorm1d(in_proj_2))
         #         .append(nn.ReLU()))
+        # TODO: add dropout in here ?
         in_proj_2 = 4
         self.MLP_proj = (
             Seq().append(nn.Linear(in_proj_0, in_proj_2, bias=True))
@@ -243,6 +241,9 @@ class GroupBimodalCSRPool(nn.Module, ABC):
                     .append(nn.Linear(in_proj_4, num_groups, bias=True)))
         else:
            self.MLP_score = nn.Linear(in_proj_3, num_groups, bias=True)
+
+        # Optional gating mechanism
+        self.Gating = Gating(num_groups, bias=True) if gating else None
 
     def forward(self, x_main, x_mod, x_proj, csr_idx):
         """
@@ -383,9 +384,6 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
         self.proj_max = proj_max
         self.proj_num = proj_num
 
-        # Optional gating mechanism
-        self.Gating = Gating(1, bias=True) if gating else None
-
         # Optional compatibilities scaling mechanism
         self.dim_scaling = dim_scaling
         self.group_scaling = group_scaling
@@ -416,6 +414,9 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
             self.K = nn.Linear(in_proj_2 + in_mod, in_score, bias=True)
         else:
             self.K = nn.Linear(in_proj_2, in_score, bias=True)
+
+        # Optional gating mechanism
+        self.Gating = Gating(1, bias=True) if gating else None
 
     def forward(self, x_main, x_mod, x_proj, csr_idx):
         """
