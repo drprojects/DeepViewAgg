@@ -81,9 +81,9 @@ data:
                       use_bbox: ${data.multimodal.settings.exact_splatting}
             - transform: ColorJitter  # Radiometric augmentation
               params:
-                      brightness: 0.3
-                      contrast: 0.3
-                      saturation: 0.5
+                      brightness: 0.6
+                      contrast: 0.6
+                      saturation: 0.7
             - transform: RandomHorizontalFlip
             - transform: ToFloatImage  # Convert uint8 image to float
             - transform: AddPixelHeightFeature  # Pixel height as image channel
