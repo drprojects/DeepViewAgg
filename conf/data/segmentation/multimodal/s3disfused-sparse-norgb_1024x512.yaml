@@ -66,7 +66,7 @@ data:
                     growth_k: ${data.multimodal.settings.growth_k}
                     growth_r: ${data.multimodal.settings.growth_r}
                     exact: ${data.multimodal.settings.exact_splatting}
-            - transform: NeighborhoodBasedProjectionFeatures  # Compute local density and occlusion
+            - transform: NeighborhoodBasedMappingFeatures  # Compute local density and occlusion
               params:
                     k: 50  # empirically-chosen heuristic [30-100] is fine
                     voxel: ${data.first_subsampling}
@@ -81,9 +81,9 @@ data:
                       use_bbox: ${data.multimodal.settings.exact_splatting}
             - transform: ColorJitter  # Radiometric augmentation
               params:
-                      brightness: 0.3
-                      contrast: 0.3
-                      saturation: 0.5
+                      brightness: 0.6
+                      contrast: 0.6
+                      saturation: 0.7
             - transform: RandomHorizontalFlip
             - transform: ToFloatImage  # Convert uint8 image to float
             - transform: AddPixelHeightFeature  # Pixel height as image channel

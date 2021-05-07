@@ -238,7 +238,7 @@ class ResNetDown(nn.Module, ABC):
         # If an empty down_conv_nn or channel sizes smaller than 1 are
         # passed, the ResNetDown will simply become a pass-through
         # Identity module
-        if len(down_conv_nn) < 2 or any([x < 1 for x in down_conv_nn]):
+        if len(down_conv_nn) < 2 or any([x < 0 for x in down_conv_nn]):
             self.conv_in = None
             self.blocks = None
             return
