@@ -369,8 +369,13 @@ class UnaryConv(nn.Module, ABC):
     """1x1 convolution on image."""
 
     def __init__(self, input_nc, output_nc, normalization=None, activation=None,
-                 weight_standardization=False):
+                 weight_standardization=False, input_drop=0, output_dropout=0):
         super().__init__()
+        # Build the input Dropout if any
+        self.input_dropout = nn.Dropout2d(p=input_drop, inplace=True) \
+            if input_drop is not None and input_drop > 0 \
+            else None
+
         # Recover the normalization module from torch.nn, for GroupNorm
         # the number of groups is set to distribute ~16 channels per
         # group: https://arxiv.org/pdf/1803.08494.pdf
@@ -391,12 +396,21 @@ class UnaryConv(nn.Module, ABC):
             self.activation = getattr(nn, activation) \
                 if activation is not None else None
 
+        # Build the output Dropout if any
+        self.output_dropout = nn.Dropout2d(p=output_dropout, inplace=True) \
+            if output_dropout is not None and output_dropout > 0 \
+            else None
+
     def forward(self, x):
+        if self.input_dropout:
+            x = self.input_dropout(x)
         x = self.conv(x)
         if self.norm:
             x = self.norm(x)
         if self.activation:
             x = self.activation(x)
+        if self.output_dropout:
+            x = self.output_dropout(x)
         return x
 
 
