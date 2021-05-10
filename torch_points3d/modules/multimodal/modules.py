@@ -238,16 +238,16 @@ class UnimodalBranch(nn.Module, ABC):
     def __init__(self, conv, atomic_pool, view_pool, fusion, drop_3d=0,
                  drop_mod=0, keep_last_view=False):
         super(UnimodalBranch, self).__init__()
-        self.conv = conv if conv is not None else Identity()
+        self.conv = conv
         self.atomic_pool = atomic_pool
         self.view_pool = view_pool
         self.fusion = fusion
         self.drop_3d = nn.Dropout(p=drop_3d, inplace=True) \
             if drop_3d is not None and drop_3d > 0 \
-            else nn.Identity()
+            else None
         self.drop_mod = nn.Dropout(p=drop_mod, inplace=True) \
             if drop_mod is not None and drop_mod > 0 \
-            else nn.Identity()
+            else None
         self.keep_last_view = keep_last_view
 
     def forward(self, mm_data_dict, modality):
@@ -265,12 +265,14 @@ class UnimodalBranch(nn.Module, ABC):
         # Note that convolved features are preserved in the modality
         # data holder, to be later used in potential downstream
         # modules.
-        if has_multi_setting:
-            for i in range(len(mod_data)):
-                mod_data[i].update_features_and_scale(self.conv(mod_data[i].x))
-        else:
-            mod_data = mod_data.update_features_and_scale(
-                self.conv(mod_data.x))
+        if self.conv:
+            if has_multi_setting:
+                for i in range(len(mod_data)):
+                    mod_data[i].update_features_and_scale(
+                        self.conv(mod_data[i].x, reset_dropout=(i == 0)))
+            else:
+                mod_data = mod_data.update_features_and_scale(
+                    self.conv(mod_data.x, reset_dropout=True))
 
         # Extract CSR-arranged atomic features from the feature maps
         # of each input modality setting
@@ -316,13 +318,15 @@ class UnimodalBranch(nn.Module, ABC):
         x_mod, x_seen = self.view_pool(x_3d, x_mod, x_proj, csr_idx)
 
         # Dropout 3D or modality features
-        if isinstance(x_3d, torch.Tensor):
-            x_3d = self.drop_3d(x_3d)
-        elif x_3d is not None:
-            x_3d.F = self.drop_3d(x_3d.F)
-        x_mod = self.drop_mod(x_mod)
-        if self.keep_last_view:
-            mod_data.last_view_x_mod = self.drop_mod(mod_data.last_view_x_mod)
+        if self.drop_3d:
+            if isinstance(x_3d, torch.Tensor):
+                x_3d = self.drop_3d(x_3d)
+            elif x_3d is not None:
+                x_3d.F = self.drop_3d(x_3d.F)
+        if self.drop_mod:
+            x_mod = self.drop_mod(x_mod)
+            if self.keep_last_view:
+                mod_data.last_view_x_mod = self.drop_mod(mod_data.last_view_x_mod)
 
         # Fuse the modality features into the 3D points features
         x_3d = self.fusion(x_3d, x_mod)
