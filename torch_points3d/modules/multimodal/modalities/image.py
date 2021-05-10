@@ -300,7 +300,7 @@ class ResNetDown(nn.Module, ABC):
         nc_block_in = nc_stride_out
         return nc_in, nc_stride_out, nc_block_in, nc_out
 
-    def forward(self, x):
+    def forward(self, x, **kwargs):
         if self.conv_in:
             x = self.conv_in(x)
         if self.blocks:
@@ -349,7 +349,7 @@ class ResNetUp(ResNetDown, ABC):
 
         return nc_in, nc_stride_out, nc_block_in, nc_out
 
-    def forward(self, x, skip):
+    def forward(self, x, skip, **kwargs):
         if self.skip_first:
             if skip is not None:
                 x = torch.cat((x, skip), dim=1)
@@ -372,7 +372,7 @@ class UnaryConv(nn.Module, ABC):
                  weight_standardization=False, input_drop=0, output_dropout=0):
         super().__init__()
         # Build the input Dropout if any
-        self.input_dropout = nn.Dropout2d(p=input_drop, inplace=True) \
+        self.input_dropout = PeristentDropout2D(input_nc, p=input_drop) \
             if input_drop is not None and input_drop > 0 \
             else None
 
@@ -397,21 +397,64 @@ class UnaryConv(nn.Module, ABC):
                 if activation is not None else None
 
         # Build the output Dropout if any
-        self.output_dropout = nn.Dropout2d(p=output_dropout, inplace=True) \
+        self.output_dropout = PeristentDropout2D(output_nc, p=output_dropout) \
             if output_dropout is not None and output_dropout > 0 \
             else None
 
-    def forward(self, x):
+    def forward(self, x, **kwargs):
         if self.input_dropout:
-            x = self.input_dropout(x)
+            x = self.input_dropout(x, **kwargs)
         x = self.conv(x)
         if self.norm:
             x = self.norm(x)
         if self.activation:
             x = self.activation(x)
         if self.output_dropout:
-            x = self.output_dropout(x)
+            x = self.output_dropout(x, **kwargs)
         return x
+
+
+class PeristentDropout2D(nn.Module):
+    """ PeristentDropout2D. Dropout2d with a persistent dropout mask.
+    The mask may be reset at froward time. This is useful when the same
+    Dropout mask needs to be applied to various input batches.
+
+    Inspired from:
+    https://pytorchnlp.readthedocs.io/en/latest/_modules/torchnlp/nn/lock_dropout.html
+
+    Args:
+        input_nc (int): Number of input channels.
+        p (float): Probability of an element in the dropout mask to be zeroed.
+    """
+    def __init__(self, input_nc, p=0.5):
+        self.input_nc = input_nc
+        self.p = p
+        self.mask = None
+        super().__init__()
+
+    def forward(self, x, reset=True, **kwargs):
+        """
+        Args:
+            x :class:`torch.FloatTensor`: Input to apply dropout too.
+            reset (bool, optional): If set to ``True``, will reset the
+                dropout mask.
+        """
+        # Dropout acts as Identity in eval mode
+        if not self.training or not self.p:
+            self.mask = None
+            return x
+
+        # Reset the feature dropout mask
+        if self.mask is None or reset:
+            mask = x.new_empty(1, self.input_nc, 1, 1, requires_grad=False
+                               ).bernoulli_(1 - self.p)
+            self.mask = mask.div_(1 - self.p)
+
+        return x * self.mask.expand_as(x)
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(input_nc={self.input_nc}, " \
+               f"p={self.p})"
 
 
 SPECIAL_NAMES = ["block_names"]
@@ -532,6 +575,6 @@ class UNet(nn.Module, ABC):
             x = self.up_modules[i](x, skip)
 
         if self.last is not None:
-            x = self.last(x)
+            x = self.last(x, **kwargs)
 
         return x
