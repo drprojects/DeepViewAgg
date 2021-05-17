@@ -92,6 +92,9 @@ class ReLUWS(nn.ReLU, ABC):
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         return nn.functional.relu(input, inplace=self.inplace) * self._SCALE
 
+    def extra_repr(self) -> str:
+        return f"inplace={self.inplace}"
+
 
 class ResBlock(nn.Module, ABC):
     """
@@ -262,7 +265,7 @@ class ResNetDown(nn.Module, ABC):
         # the number of groups is set to distribute ~16 channels per
         # group: https://arxiv.org/pdf/1803.08494.pdf
         if normalization == 'GroupNorm':
-            norm = lambda nc: nn.GroupNorm(nc // 16, nc)
+            norm = lambda nc: nn.GroupNorm(max(nc // 16, 1), nc)
         else:
             norm = getattr(nn, normalization)
 
@@ -364,17 +367,24 @@ class ResNetUp(ResNetDown, ABC):
             x = self.blocks(x)
         return x
 
+    def extra_repr(self) -> str:
+        return f"skip_first={self.skip_first}"
+
 
 class UnaryConv(nn.Module, ABC):
     """1x1 convolution on image."""
 
     def __init__(self, input_nc, output_nc, normalization=None, activation=None,
-                 weight_standardization=False, input_drop=0, output_dropout=0):
+                 weight_standardization=False, in_drop=0, out_drop=0,
+                 persistent_drop=False):
         super().__init__()
         # Build the input Dropout if any
-        self.input_dropout = PeristentDropout2D(input_nc, p=input_drop) \
-            if input_drop is not None and input_drop > 0 \
-            else None
+        if in_drop is None or in_drop <= 0:
+            self.input_dropout = None
+        elif persistent_drop:
+            self.input_dropout = PersistentDropout2d(input_nc, p=in_drop)
+        else:
+            self.input_dropout = Dropout2d(p=in_drop, inplace=True)
 
         # Recover the normalization module from torch.nn, for GroupNorm
         # the number of groups is set to distribute ~16 channels per
@@ -382,7 +392,7 @@ class UnaryConv(nn.Module, ABC):
         if normalization is None:
             self.norm = None
         elif normalization == 'GroupNorm':
-            self.norm = lambda nc: nn.GroupNorm(nc // 16, nc)
+            self.norm = lambda nc: nn.GroupNorm(max(nc // 16, 1), nc)
         else:
             self.norm = getattr(nn, normalization)
 
@@ -397,9 +407,12 @@ class UnaryConv(nn.Module, ABC):
                 if activation is not None else None
 
         # Build the output Dropout if any
-        self.output_dropout = PeristentDropout2D(output_nc, p=output_dropout) \
-            if output_dropout is not None and output_dropout > 0 \
-            else None
+        if out_drop is None or out_drop <= 0:
+            self.output_dropout = None
+        elif persistent_drop:
+            self.output_dropout = PersistentDropout2d(output_nc, p=out_drop)
+        else:
+            self.output_dropout = Dropout2d(p=out_drop, inplace=True)
 
     def forward(self, x, **kwargs):
         if self.input_dropout:
@@ -414,8 +427,14 @@ class UnaryConv(nn.Module, ABC):
         return x
 
 
-class PeristentDropout2D(nn.Module):
-    """ PeristentDropout2D. Dropout2d with a persistent dropout mask.
+class Dropout2d(nn.Dropout2d):
+    """ Dropout2d with kwargs support. """
+    def forward(self, input, **kwargs):
+        return super().forward(input)
+
+
+class PersistentDropout2d(nn.Module):
+    """ Dropout2d with a persistent dropout mask.
     The mask may be reset at froward time. This is useful when the same
     Dropout mask needs to be applied to various input batches.
 
@@ -452,9 +471,8 @@ class PeristentDropout2D(nn.Module):
 
         return x * self.mask.expand_as(x)
 
-    def __repr__(self):
-        return f"{self.__class__.__name__}(input_nc={self.input_nc}, " \
-               f"p={self.p})"
+    def extra_repr(self) -> str:
+        return f"input_nc={self.input_nc}, p={self.p}"
 
 
 SPECIAL_NAMES = ["block_names"]

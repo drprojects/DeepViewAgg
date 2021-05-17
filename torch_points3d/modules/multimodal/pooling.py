@@ -51,6 +51,9 @@ class BimodalCSRPool(nn.Module, ABC):
             self._last_view_num = csr_idx[1:] - csr_idx[:-1]
         return x_pool, x_seen
 
+    def extra_repr(self) -> str:
+        return f'mode={self._mode}, save_last={self.save_last}'
+
 
 class HeuristicBimodalCSRPool(nn.Module, ABC):
     """Bimodal pooling modules select and combine information from a
@@ -127,7 +130,8 @@ class HeuristicBimodalCSRPool(nn.Module, ABC):
         return x_pool, x_seen
 
     def extra_repr(self) -> str:
-        return f'mode={self._mode}, feat={self._FEATURES[self._feat]}'
+        return f'mode={self._mode}, feat={self._FEATURES[self._feat]}, ' \
+               f'save_last={self.save_last}'
 
 
 class GroupBimodalCSRPool(nn.Module, ABC):
@@ -240,7 +244,7 @@ class GroupBimodalCSRPool(nn.Module, ABC):
                     .append(nn.ReLU())
                     .append(nn.Linear(in_proj_4, num_groups, bias=True)))
         else:
-           self.MLP_score = nn.Linear(in_proj_3, num_groups, bias=True)
+            self.MLP_score = nn.Linear(in_proj_3, num_groups, bias=True)
 
         # Optional gating mechanism
         self.Gating = Gating(num_groups, bias=True) if gating else None
@@ -310,6 +314,12 @@ class GroupBimodalCSRPool(nn.Module, ABC):
                 self._last_G = expand_group_feat(G, self.num_groups, self.in_mod)
 
         return x_pool, x_seen
+
+    def extra_repr(self) -> str:
+        return f"num_groups={self.num_groups}, use_mod={self.use_mod}, " \
+            f"proj_min={self.proj_min}, proj_max={self.proj_max}, " \
+            f"proj_num={self.proj_num}, group_scaling={self.group_scaling}, " \
+            f"save_last={self.save_last}"
 
 
 class AttentiveBimodalCSRPool(nn.Module, ABC):
@@ -506,6 +516,11 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
 
         return x_pool, x_seen
 
+    def extra_repr(self) -> str:
+        return f'proj_min={self.proj_min}, proj_max={self.proj_max}, ' \
+            f'proj_num={self.proj_num}, dim_scaling={self.dim_scaling}, ' \
+            f'group_scaling={self.group_scaling}, save_last={self.save_last}'
+
 
 class Gating(nn.Module):
     """Rectified-tanh gating mechanism with learnable linear correction."""
@@ -523,7 +538,8 @@ class Gating(nn.Module):
         return torch.tanh(torch.relu(x)).view(-1, self.num_groups).squeeze(1)
 
     def extra_repr(self) -> str:
-        return f'weight={self.weight is not None}, bias={self.bias is not None}'
+        return f'num_groups={self.num_groups}, ' \
+            f'weight={self.weight is not None}, bias={self.bias is not None}'
 
 
 def nearest_power_of_2(x, min_power=16):
