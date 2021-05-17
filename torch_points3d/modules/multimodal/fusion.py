@@ -49,3 +49,6 @@ class BimodalFusion(nn.Module, ABC):
             x_main.F = self.f(x_main.F, x_mod)
 
         return x_main
+
+    def extra_repr(self) -> str:
+        return f"mode={self.mode}"

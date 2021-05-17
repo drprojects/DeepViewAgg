@@ -362,6 +362,128 @@ models:
                 keep_last_view: True
                 branching_index: 0
 
+    RGB_D32-4_persistent-indrop-50_mean_view:
+        # 6.1 M params - 23.8 Mo on the GPU - ~7.2 ko/pixel at training time
+        class: no3d.No3DImageLogitFusion
+        define_constants:
+            in_feat: 32
+            in_feat_img: 4
+            strided_k: 2
+            strided_s: 2
+            strided_p: 0
+        down_conv:
+            image:
+                down_conv:
+                    module_name: ResNetDown
+                    block: ResBlock
+                    normalization: GroupNorm
+                    weight_standardization: True
+                    N: [ 0, 2, 2, 2, 2 ]
+                    stride: [ 1, strided_s, strided_s, strided_s, strided_s ]
+                    kernel_size: [ 3, strided_k, strided_k, strided_k, strided_k ]
+                    padding: [ 1, strided_p, strided_p, strided_p, strided_p ]
+                    down_conv_nn:
+                      [
+                          [ in_feat_img, in_feat ],
+                          [ in_feat, in_feat ],
+                          [ in_feat, 2*in_feat ],
+                          [ 2*in_feat, 4*in_feat ],
+                          [ 4*in_feat, 8*in_feat ],
+                      ]
+                up_conv:
+                    module_name: ResNetUp
+                    block: ResBlock
+                    normalization: GroupNorm
+                    weight_standardization: True
+                    N: 1
+                    kernel_size: [ strided_k, strided_k, strided_k, strided_k ]
+                    stride: [ strided_s, strided_s, strided_s, strided_s ]
+                    padding: [ strided_p, strided_p, strided_p, strided_p ]
+                    up_conv_nn:
+                      [
+                          [ 8*in_feat, 4*in_feat, 4*in_feat ],
+                          [ 4*in_feat, 2*in_feat, 3*in_feat ],
+                          [ 3*in_feat, in_feat, 2*in_feat ],
+                          [ 2*in_feat, in_feat, in_feat ],
+                      ]
+                last_conv:
+                    input_nc: in_feat
+                    output_nc: N_CLS
+                    in_drop: 0.5
+                    persistent_drop: True
+                atomic_pooling:
+                    module_name: BimodalCSRPool
+                    mode: max
+                view_pooling:
+                    module_name: BimodalCSRPool
+                    mode: mean
+                fusion:
+                    module_name: BimodalFusion
+                    mode: residual
+                keep_last_view: True
+                branching_index: 0
+
+    RGB_D32-4_indrop-50_mean_view:
+        # 6.1 M params - 23.8 Mo on the GPU - ~7.2 ko/pixel at training time
+        class: no3d.No3DImageLogitFusion
+        define_constants:
+            in_feat: 32
+            in_feat_img: 4
+            strided_k: 2
+            strided_s: 2
+            strided_p: 0
+        down_conv:
+            image:
+                down_conv:
+                    module_name: ResNetDown
+                    block: ResBlock
+                    normalization: GroupNorm
+                    weight_standardization: True
+                    N: [ 0, 2, 2, 2, 2 ]
+                    stride: [ 1, strided_s, strided_s, strided_s, strided_s ]
+                    kernel_size: [ 3, strided_k, strided_k, strided_k, strided_k ]
+                    padding: [ 1, strided_p, strided_p, strided_p, strided_p ]
+                    down_conv_nn:
+                      [
+                          [ in_feat_img, in_feat ],
+                          [ in_feat, in_feat ],
+                          [ in_feat, 2*in_feat ],
+                          [ 2*in_feat, 4*in_feat ],
+                          [ 4*in_feat, 8*in_feat ],
+                      ]
+                up_conv:
+                    module_name: ResNetUp
+                    block: ResBlock
+                    normalization: GroupNorm
+                    weight_standardization: True
+                    N: 1
+                    kernel_size: [ strided_k, strided_k, strided_k, strided_k ]
+                    stride: [ strided_s, strided_s, strided_s, strided_s ]
+                    padding: [ strided_p, strided_p, strided_p, strided_p ]
+                    up_conv_nn:
+                      [
+                          [ 8*in_feat, 4*in_feat, 4*in_feat ],
+                          [ 4*in_feat, 2*in_feat, 3*in_feat ],
+                          [ 3*in_feat, in_feat, 2*in_feat ],
+                          [ 2*in_feat, in_feat, in_feat ],
+                      ]
+                last_conv:
+                    input_nc: in_feat
+                    output_nc: N_CLS
+                    in_drop: 0.5
+                    persistent_drop: False
+                atomic_pooling:
+                    module_name: BimodalCSRPool
+                    mode: max
+                view_pooling:
+                    module_name: BimodalCSRPool
+                    mode: mean
+                fusion:
+                    module_name: BimodalFusion
+                    mode: residual
+                keep_last_view: True
+                branching_index: 0
+
     RGB_D64-4_indrop-50_mean_view:
         # 6.1 M params - 23.8 Mo on the GPU - ~7.2 ko/pixel at training time
         class: no3d.No3DImageLogitFusion
@@ -396,21 +518,20 @@ models:
                     normalization: GroupNorm
                     weight_standardization: True
                     N: 1
-                    kernel_size: [ strided_k, strided_k, strided_k, strided_k, 3 ]
-                    stride: [ strided_s, strided_s, strided_s, strided_s, 1 ]
-                    padding: [ strided_p, strided_p, strided_p, strided_p, 1 ]
+                    kernel_size: [ strided_k, strided_k, strided_k, strided_k ]
+                    stride: [ strided_s, strided_s, strided_s, strided_s ]
+                    padding: [ strided_p, strided_p, strided_p, strided_p ]
                     up_conv_nn:
                       [
                           [ 8*in_feat, 4*in_feat, 4*in_feat ],
                           [ 4*in_feat, 2*in_feat, 3*in_feat ],
                           [ 3*in_feat, in_feat, 2*in_feat ],
                           [ 2*in_feat, in_feat, 2*in_feat ],
-                          [ -1, -1, -1 ],
                       ]
                 last_conv:
                     input_nc: 2*in_feat
                     output_nc: N_CLS
-                    input_drop: 0.5
+                    in_drop: 0.5
                 atomic_pooling:
                     module_name: BimodalCSRPool
                     mode: max
@@ -422,68 +543,6 @@ models:
                     mode: residual
                 keep_last_view: True
                 branching_index: 0
-
-    RGB_D96-4_indrop-50_mean_view:
-        # 6.1 M params - 23.8 Mo on the GPU - ~7.2 ko/pixel at training time
-        class: no3d.No3DImageLogitFusion
-        define_constants:
-            in_feat: 32
-            in_feat_img: 4
-            strided_k: 2
-            strided_s: 2
-            strided_p: 0
-        down_conv:
-            image:
-                down_conv:
-                    module_name: ResNetDown
-                    block: ResBlock
-                    normalization: GroupNorm
-                    weight_standardization: True
-                    N: [ 0, 2, 2, 2, 2 ]
-                    stride: [ 1, strided_s, strided_s, strided_s, strided_s ]
-                    kernel_size: [ 3, strided_k, strided_k, strided_k, strided_k ]
-                    padding: [ 1, strided_p, strided_p, strided_p, strided_p ]
-                    down_conv_nn:
-                      [
-                          [ in_feat_img, in_feat ],
-                          [ in_feat, in_feat ],
-                          [ in_feat, 2*in_feat ],
-                          [ 2*in_feat, 4*in_feat ],
-                          [ 4*in_feat, 8*in_feat ],
-                      ]
-                up_conv:
-                    module_name: ResNetUp
-                    block: ResBlock
-                    normalization: GroupNorm
-                    weight_standardization: True
-                    N: 1
-                    kernel_size: [ strided_k, strided_k, strided_k, strided_k, 3 ]
-                    stride: [ strided_s, strided_s, strided_s, strided_s, 1 ]
-                    padding: [ strided_p, strided_p, strided_p, strided_p, 1 ]
-                    up_conv_nn:
-                      [
-                          [ 8*in_feat, 4*in_feat, 4*in_feat ],
-                          [ 4*in_feat, 2*in_feat, 3*in_feat ],
-                          [ 3*in_feat, in_feat, 3*in_feat ],
-                          [ 3*in_feat, in_feat, 3*in_feat ],
-                          [ -1, -1, -1 ],
-                      ]
-                last_conv:
-                    input_nc: 3*in_feat
-                    output_nc: N_CLS
-                    input_drop: 0.5
-                atomic_pooling:
-                    module_name: BimodalCSRPool
-                    mode: max
-                view_pooling:
-                    module_name: BimodalCSRPool
-                    mode: mean
-                fusion:
-                    module_name: BimodalFusion
-                    mode: residual
-                keep_last_view: True
-                branching_index: 0
-
 
     RGB_D32_max:
         # 6.1 M params - 23.8 Mo on the GPU - ~7.2 ko/pixel at training time
