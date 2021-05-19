@@ -516,46 +516,11 @@ class S3DISOriginalFusedMM(InMemoryDataset):
         # --------------------------------------------------------------
         print(f'Computing and saving train, val, test and trainval '
               f'splits for test_area=Area_{self.test_area}...')
-
-        # Save test split preprocessed multimodal data
-        # test_mm_data_list = tuple([x.pop(self.test_area - 1)
-        #                            for x in mm_data_list])
-        test_mm_data_list = mm_data_list
-        # delattr(test_mm_data_list[0], 'is_val')
-        torch.save(test_mm_data_list, self.processed_paths[2])
-        del test_mm_data_list
-
-        # Save trainval preprocessed multimodal data
-        # NB: only trainval data remains in mm_data_list after popping
-        #  test data out of it
-        is_val_list = [data.is_val for data in mm_data_list[0]]
-        # for data in mm_data_list[0]:
-        #     delattr(data, 'is_val')
-        torch.save(mm_data_list, self.processed_paths[3])
-
-        # Local helper to index a Data object with a torch.Tensor
-        # def indexer(data, idx):
-        #     data_ = data.clone()
-        #     for key, item in data:
-        #         if torch.is_tensor(item) and item.size(0) == data.num_nodes:
-        #             data_[key] = data_[key][idx]
-        #     return data_
-
-        # Extract and save train preprocessed multimodal data
-        # transform = SelectMappingFromPointId()
-        # data = [d for d, is_val
-        #         in zip(mm_data_list[0], is_val_list)]
-        # images = [im for im in mm_data_list[1]]
-        # torch.save(transform(data, images), self.processed_paths[0])
-        #
-        # # Extract and save val preprocessed multimodal data
-        # data = [d for d, is_val
-        #         in zip(mm_data_list[0], is_val_list)]
-        # torch.save(transform(data, mm_data_list[1]), self.processed_paths[1])
         torch.save(mm_data_list, self.processed_paths[0])
         torch.save(mm_data_list, self.processed_paths[1])
+        torch.save(mm_data_list, self.processed_paths[2])
+        torch.save(mm_data_list, self.processed_paths[3])
         del mm_data_list
-
         print('Done\n')
 
     def _load_data(self, path):
