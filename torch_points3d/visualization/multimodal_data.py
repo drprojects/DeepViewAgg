@@ -76,6 +76,9 @@ def visualize_3d(
     """3D data interactive visualization tools."""
     assert isinstance(mm_data, MMData)
 
+    # 3D visualization modes
+    modes = {'name': [], 'key': [], 'num_traces': []}
+
     # Make copies of the data and images to be modified in this scope
     data = mm_data.data.clone()
     images = mm_data.modalities['image'].clone()
@@ -124,7 +127,9 @@ def visualize_3d(
             hoverinfo='x+y+z',
             showlegend=False,
             visible=True,))
-    n_rgb_traces = 1  # keep track of the number of traces
+    modes['name'].append('RGB')
+    modes['key'].append('rgb')
+    modes['num_traces'].append(1)
 
     # Draw a trace for labeled 3D point cloud
     y = data.y.numpy()
@@ -133,7 +138,7 @@ def visualize_3d(
         class_names = [f"Class {i}" for i in range(n_classes)]
     if class_colors is None:
         class_colors = [None] * n_classes
-    else:
+    elif not isinstance(class_colors[0], str):
         class_colors = [f"rgb{tuple(x)}" for x in class_colors]
     if class_opacities is None:
         class_opacities = [1.0] * n_classes
@@ -155,6 +160,60 @@ def visualize_3d(
                     color=class_colors[label],),
                 visible=False,))
         n_y_traces += 1  # keep track of the number of traces
+    modes['name'].append('Labels')
+    modes['key'].append('y')
+    modes['num_traces'].append(n_y_traces)
+
+    # Draw a trace for predicted labels 3D point cloud
+    if getattr(data, 'pred', None) is not None:
+        pred = data.pred.numpy()
+        n_classes = int(pred.max() + 1)
+        if class_names is None:
+            class_names = [f"Class {i}" for i in range(n_classes)]
+        if class_colors is None:
+            class_colors = [None] * n_classes
+        elif not isinstance(class_colors[0], str):
+            class_colors = [f"rgb{tuple(x)}" for x in class_colors]
+        if class_opacities is None:
+            class_opacities = [1.0] * n_classes
+
+        n_pred_traces = 0
+        for label in np.unique(pred):
+            indices = np.where(pred == label)[0]
+            fig.add_trace(
+                go.Scatter3d(
+                    name=class_names[label],
+                    opacity=class_opacities[label],
+                    x=data.pos[indices, 0],
+                    y=data.pos[indices, 1],
+                    z=data.pos[indices, 2],
+                    mode='markers',
+                    marker=dict(
+                        size=pointsize,
+                        color=class_colors[label], ),
+                    visible=False, ))
+            n_pred_traces += 1  # keep track of the number of traces
+
+        # Add a trace for prediction errors
+        if getattr(data, 'y', None) is not None:
+            indices = np.where(pred != data.y.numpy())[0]
+            fig.add_trace(
+                go.Scatter3d(
+                    name='errors',
+                    opacity=1.0,
+                    x=data.pos[indices, 0],
+                    y=data.pos[indices, 1],
+                    z=data.pos[indices, 2],
+                    mode='markers',
+                    marker=dict(
+                        size=pointsize,
+                        color='rgb(0, 0, 0)', ),
+                    visible=False, ))
+            n_pred_traces += 1  # keep track of the number of traces
+
+        modes['name'].append('Predictions')
+        modes['key'].append('pred')
+        modes['num_traces'].append(n_pred_traces)
 
     # Draw a trace for 3D point cloud of number of images seen
     n_seen = sum([im.mappings.pointers[1:] - im.mappings.pointers[:-1]
@@ -177,7 +236,9 @@ def visualize_3d(
             hoverinfo='x+y+z+text',
             showlegend=False,
             visible=False,))
-    n_seen_traces = 1  # keep track of the number of traces
+    modes['name'].append('Times seen')
+    modes['key'].append('n_seen')
+    modes['num_traces'].append(1)
 
     # Draw a trace for position-colored 3D point cloud
     radius = torch.norm(data.pos - data.pos.mean(dim=0), dim=1).max()
@@ -195,7 +256,9 @@ def visualize_3d(
             hoverinfo='x+y+z',
             showlegend=False,
             visible=False,))
-    n_pos_rgb_traces = 1  # keep track of the number of traces
+    modes['name'].append('Position RGB')
+    modes['key'].append('position_rgb')
+    modes['num_traces'].append(1)
 
     # Draw a trace for 3D point cloud features
     if getattr(data, 'x', None) is not None:
@@ -215,9 +278,9 @@ def visualize_3d(
                 hoverinfo='x+y+z',
                 showlegend=False,
                 visible=False, ))
-        n_feat_3d_traces = 1  # keep track of the number of traces
-    else:
-        n_feat_3d_traces = 0  # keep track of the number of traces
+        modes['name'].append('Features 3D')
+        modes['key'].append('x')
+        modes['num_traces'].append(1)
 
     # Draw image positions
     if images.num_settings >= 2:
@@ -271,30 +334,10 @@ def visualize_3d(
         visibilities = np.array([d.visible for d in fig.data], dtype='bool')
 
         # Traces visibility for interactive point cloud coloring
-        n_traces = (n_rgb_traces + n_y_traces + n_seen_traces
-                    + n_pos_rgb_traces + n_feat_3d_traces)
-        if mode == 'rgb':
-            a = 0
-            b = n_rgb_traces
-
-        elif mode == 'labels':
-            a = n_rgb_traces
-            b = a + n_y_traces
-
-        elif mode == 'n_seen':
-            a = n_rgb_traces + n_y_traces
-            b = a + n_seen_traces
-
-        elif mode == 'position_rgb':
-            a = n_rgb_traces + n_y_traces + n_seen_traces
-            b = a + n_pos_rgb_traces
-
-        elif mode == 'feats_3d':
-            a = n_rgb_traces + n_y_traces + n_seen_traces + n_pos_rgb_traces
-            b = a + n_feat_3d_traces
-
-        else:
-            raise ValueError(f"Unknown mode '{mode}'")
+        i_mode = modes['key'].index(mode)
+        a = sum(modes['num_traces'][:i_mode])
+        b = sum(modes['num_traces'][:i_mode+1])
+        n_traces = sum(modes['num_traces'])
 
         visibilities[:n_traces] = False
         visibilities[a:b] = True
@@ -304,22 +347,8 @@ def visualize_3d(
     # Create the buttons that will serve for toggling trace visibility
     updatemenus = [
         dict(
-            buttons=[
-                dict(label='RGB',
-                     method='update',
-                     args=trace_visibility('rgb')),
-                dict(label='Labels',
-                     method='update',
-                     args=trace_visibility('labels')),
-                dict(label='Times seen',
-                     method='update',
-                     args=trace_visibility('n_seen')),
-                dict(label='Position RGB',
-                     method='update',
-                     args=trace_visibility('position_rgb')),
-                dict(label='Features 3D',
-                     method='update',
-                     args=trace_visibility('feats_3d')),],
+            buttons=[dict(label=name, method='update', args=trace_visibility(key))
+               for name, key in zip(modes['name'], modes['key'])],
             pad={'r': 10, 't': 10},
             showactive=True,
             type='dropdown',
