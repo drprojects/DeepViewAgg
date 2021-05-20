@@ -132,37 +132,39 @@ def visualize_3d(
     modes['num_traces'].append(1)
 
     # Draw a trace for labeled 3D point cloud
-    y = data.y.numpy()
-    n_classes = int(y.max() + 1)
-    if class_names is None:
-        class_names = [f"Class {i}" for i in range(n_classes)]
-    if class_colors is None:
-        class_colors = [None] * n_classes
-    elif not isinstance(class_colors[0], str):
-        class_colors = [f"rgb{tuple(x)}" for x in class_colors]
-    if class_opacities is None:
-        class_opacities = [1.0] * n_classes
+    if getattr(data, 'y', None) is not None:
+        y = data.y.numpy()
+        n_classes = int(y.max() + 1)
+        if class_names is None:
+            class_names = [f"Class {i}" for i in range(n_classes)]
+        if class_colors is None:
+            class_colors = [None] * n_classes
+        elif not isinstance(class_colors[0], str):
+            class_colors = [f"rgb{tuple(x)}" for x in class_colors]
+        if class_opacities is None:
+            class_opacities = [1.0] * n_classes
 
-    n_y_traces = 0
-    for label in np.unique(y):
-        indices = np.where(y == label)[0]
+        n_y_traces = 0
+        for label in np.unique(y):
+            indices = np.where(y == label)[0]
 
-        fig.add_trace(
-            go.Scatter3d(
-                name=class_names[label],
-                opacity=class_opacities[label],
-                x=data.pos[indices, 0],
-                y=data.pos[indices, 1],
-                z=data.pos[indices, 2],
-                mode='markers',
-                marker=dict(
-                    size=pointsize,
-                    color=class_colors[label],),
-                visible=False,))
-        n_y_traces += 1  # keep track of the number of traces
-    modes['name'].append('Labels')
-    modes['key'].append('y')
-    modes['num_traces'].append(n_y_traces)
+            fig.add_trace(
+                go.Scatter3d(
+                    name=class_names[label],
+                    opacity=class_opacities[label],
+                    x=data.pos[indices, 0],
+                    y=data.pos[indices, 1],
+                    z=data.pos[indices, 2],
+                    mode='markers',
+                    marker=dict(
+                        size=pointsize,
+                        color=class_colors[label],),
+                    visible=False,))
+            n_y_traces += 1  # keep track of the number of traces
+
+        modes['name'].append('Labels')
+        modes['key'].append('y')
+        modes['num_traces'].append(n_y_traces)
 
     # Draw a trace for predicted labels 3D point cloud
     if getattr(data, 'pred', None) is not None:
@@ -191,23 +193,6 @@ def visualize_3d(
                     marker=dict(
                         size=pointsize,
                         color=class_colors[label], ),
-                    visible=False, ))
-            n_pred_traces += 1  # keep track of the number of traces
-
-        # Add a trace for prediction errors
-        if getattr(data, 'y', None) is not None:
-            indices = np.where(pred != data.y.numpy())[0]
-            fig.add_trace(
-                go.Scatter3d(
-                    name='errors',
-                    opacity=1.0,
-                    x=data.pos[indices, 0],
-                    y=data.pos[indices, 1],
-                    z=data.pos[indices, 2],
-                    mode='markers',
-                    marker=dict(
-                        size=pointsize,
-                        color='rgb(0, 0, 0)', ),
                     visible=False, ))
             n_pred_traces += 1  # keep track of the number of traces
 
@@ -282,8 +267,29 @@ def visualize_3d(
         modes['key'].append('x')
         modes['num_traces'].append(1)
 
+    # Add a trace for prediction errors
+    if getattr(data, 'y', None) is not None \
+            and getattr(data, 'pred', None) is not None:
+        indices = np.where(data.pred.numpy() != data.y.numpy())[0]
+        fig.add_trace(
+            go.Scatter3d(
+                name='Errors',
+                opacity=1.0,
+                x=data.pos[indices, 0],
+                y=data.pos[indices, 1],
+                z=data.pos[indices, 2],
+                mode='markers',
+                marker=dict(
+                    size=pointsize,
+                    color='rgb(0, 0, 0)', ),
+                showlegend=False,
+                visible=False, ))
+        modes['name'].append('Errors')
+        modes['key'].append('error')
+        modes['num_traces'].append(1)
+
     # Draw image positions
-    if images.num_settings >= 2:
+    if images.num_settings > 1:
         image_xyz = torch.cat([im.pos for im in images]).numpy()
         image_opk = torch.cat([im.opk for im in images]).numpy()
     else:
@@ -348,7 +354,7 @@ def visualize_3d(
     updatemenus = [
         dict(
             buttons=[dict(label=name, method='update', args=trace_visibility(key))
-               for name, key in zip(modes['name'], modes['key'])],
+               for name, key in zip(modes['name'], modes['key']) if key != 'error'],
             pad={'r': 10, 't': 10},
             showactive=True,
             type='dropdown',
@@ -356,7 +362,20 @@ def visualize_3d(
             xanchor='left',
             x=0.02,
             yanchor='top',
-            y=1.02,),]
+            y=1.02,),
+        dict(
+            buttons=[dict(method='restyle',
+                label='Error',
+                visible=True,
+                args=[{'visible': True,}, [sum(modes['num_traces'][:modes['key'].index('error')])]],
+                args2=[{'visible': False,}, [sum(modes['num_traces'][:modes['key'].index('error')])]],)],
+            pad={'r': 10, 't': 10},
+            showactive=False,
+            type='buttons',
+            xanchor='left',
+            x=1.02,
+            yanchor='top',
+            y=1.02, ),]
     fig.update_layout(updatemenus=updatemenus)
 
     # Place the legend on the left
