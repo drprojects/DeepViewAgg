@@ -45,7 +45,7 @@ def feats_to_rgb(feats):
     elif feats.shape[1] == 1:
         # If only 1 feature is found convert to a 3-channel
         # repetition for black-and-white visualization.
-        color = torch.repeat_interleave(feats, 3, 1)
+        color = feats.repeat_interleave(3, 1)
         
     elif feats.shape[1] == 2:
         # If 2 features are found, add an extra channel.
@@ -69,10 +69,9 @@ def feats_to_rgb(feats):
     return color
 
 
-def visualize_3d(
-        mm_data, class_names=None, class_colors=None, class_opacities=None,
-        figsize=800, width=None, height=None, voxel=0.1, max_points=100000,
-        pointsize=5, **kwargs):
+def visualize_3d(mm_data, class_names=None, class_colors=None,
+        class_opacities=None, figsize=800, width=None, height=None, voxel=0.1,
+        max_points=100000, pointsize=5, error_color=None, **kwargs):
     """3D data interactive visualization tools."""
     assert isinstance(mm_data, MMData)
 
@@ -271,6 +270,8 @@ def visualize_3d(
     if getattr(data, 'y', None) is not None \
             and getattr(data, 'pred', None) is not None:
         indices = np.where(data.pred.numpy() != data.y.numpy())[0]
+        error_color = f"rgb{tuple(error_color)}" \
+            if error_color is not None else 'rgb(0, 0, 0)'
         fig.add_trace(
             go.Scatter3d(
                 name='Errors',
@@ -281,7 +282,7 @@ def visualize_3d(
                 mode='markers',
                 marker=dict(
                     size=pointsize,
-                    color='rgb(0, 0, 0)', ),
+                    color=error_color, ),
                 showlegend=False,
                 visible=False, ))
         modes['name'].append('Errors')
@@ -389,9 +390,9 @@ def visualize_3d(
     return fig
 
 
-def visualize_2d(
-        mm_data, figsize=800, width=None, height=None,
-        alpha=3, color_mode='light', class_colors=None, **kwargs):
+def visualize_2d(mm_data, figsize=800, width=None, height=None, alpha=3,
+        color_mode='light', class_colors=None, show_point_error=False,
+        show_view_error=False, error_color=None, **kwargs):
     """2D data interactive visualization tools."""
     assert isinstance(mm_data, MMData)
 
@@ -403,21 +404,66 @@ def visualize_2d(
     if isinstance(images, SameSettingImageData):
         images = ImageData([images])
     
-    # Fallback to 'light' visualization mode if provided mode is 
+    # Fallback to 'light' visualization mode if provided mode is
     # unknown
-    MODES_2D = ['light', 'rgb', 'pos', 'y', 'feat_3d', 'feat_proj']
+    MODES_2D = ['light', 'rgb', 'pos', 'y', 'feat_3d', 'feat_proj', 'pred']
     color_mode = color_mode if color_mode in MODES_2D else 'light'
+
+    # Sanity checks
+    no_3d_x = getattr(data, 'x', None) is None
+    no_3d_y = getattr(data, 'y', None) is None
+    no_3d_pred = getattr(data, 'pred', None) is None
+    no_2d_x = any([getattr(im, 'x', None) is None for im in images])
+    no_2d_pred = any([getattr(im, 'pred', None) is None for im in images])
+    no_map_feat = any([im.mappings.features is None for im in images])
     if color_mode == 'y' and class_colors is None:
-        color_mode = 'light'
-    elif color_mode == 'feat_3d' and getattr(data, 'x', None) is None:
-        color_mode = 'light'
-    elif color_mode == 'feat_proj' \
-        and any([im.mappings.features is None for im in images]):
-        color_mode = 'light'
-        
+        raise ValueError("Mode 'y' requires 'class_colors'.")
+    elif color_mode == 'feat_3d' and no_2d_x:
+        raise ValueError("Mode 'feat_3d' requires images to carry an 'x' attribute.")
+    elif color_mode == 'feat_proj' and no_map_feat:
+        raise ValueError("Mode 'feat_proj' requires mappings to carry a 'features' attribute.")
+    elif color_mode == 'pred' and no_2d_pred:
+        raise ValueError("Mode 'pred' requires images to carry a 'pred' attribute.")
+    if show_point_error and (no_3d_y or no_3d_pred):
+        raise ValueError("'show_point_error' requires points to carry 'y' and 'pred' attributes.")
+    if show_view_error and (no_3d_y or no_2d_pred):
+        raise ValueError("'show_view_error' requires points to carry 'y' attributes and images to carry 'pred' attributes.")
+    if show_point_error and show_view_error:
+        raise ValueError("Please choose either 'show_point_error' or 'show_point_error', but not both.")
+    error_color = torch.ByteTensor(error_color).view(1, 3) \
+        if error_color is not None else torch.zeros(1, 3, dtype=torch.uint8)
+
+    # Convert 2D predictions to RGB colors, if need be
+    if color_mode == 'pred':
+        for im in images:
+            pred = im.pred
+
+            # If logits, convert to labels1
+            if pred.is_floating_point():
+                pred = pred.argmax(dim=1).long()
+
+            # If class labels are passed in (N, 1, H, W) tensor, convert
+            # to (N, H, W) long tensor
+            if len(pred.shape) == 4 and pred.shape[1] == 1:
+                pred = pred.squeeze(1).long()
+
+            # Save the labels to pred attribute
+            im.pred = pred
+
+            # Convert int labels to RGB colors
+            if len(pred.shape) == 3:
+                pred = torch.ByteTensor(class_colors)[pred.long()].permute(0, 3, 1, 2)
+            elif not pred.shape[1] == 3:
+                raise ValueError(
+                    "'pred' mode assumes image's 'x' attribute to either carry"
+                    " class logits or class labels.")
+
+            # Save the RGB-converted labels to x attribute
+            im.x = pred
+
     # Load images if need be
     images = ImageData([im.load() if im.x is None else im for im in images])
-    
+
     # Convert image features to [0, 1] colors, if need be. All images 
     # must be handled at once, in case we need to PCA the features in a 
     # common projective space.
@@ -430,8 +476,8 @@ def visualize_2d(
         colors = feats_to_rgb(feats)
         colors = [x.T.reshape(3, s[0], s[2], s[3]).permute(1, 0, 2, 3) 
                  for x, s in zip(colors.split(sizes), shapes)]
-        for x, im in zip(colors, images):
-            im.x = (x * 255).byte()
+        for pred, im in zip(colors, images):
+            im.x = (pred * 255).byte()
 
     for im in images:
         # Color the images where points are projected and darken the 
@@ -441,7 +487,7 @@ def visualize_2d(
         # Get the mapping of all points in the sample
         idx = im.mappings.feature_map_indexing
 
-        if color_mode == 'light':
+        if color_mode in ['light', 'pred']:
             # Set mapping mask back to original lighting
             color = torch.full((3,), alpha, dtype=torch.uint8)
             color = im.x[idx] * color
@@ -449,12 +495,10 @@ def visualize_2d(
         elif color_mode == 'rgb':
             # Set mapping mask to point cloud RGB colors
             color = (data.rgb * 255).type(torch.uint8)
-            color = torch.repeat_interleave(
-                color,
+            color = color.repeat_interleave(
                 im.mappings.pointers[1:] - im.mappings.pointers[:-1],
                 dim=0)
-            color = torch.repeat_interleave(
-                color,
+            color = color.repeat_interleave(
                 im.mappings.values[1].pointers[1:]
                 - im.mappings.values[1].pointers[:-1],
                 dim=0)
@@ -465,12 +509,10 @@ def visualize_2d(
                 data.pos - data.pos.mean(dim=0), dim=1).max()
             color = ((data.pos - data.pos.mean(dim=0))
                      / (2 * radius) * 255 + 127).type(torch.uint8)
-            color = torch.repeat_interleave(
-                color,
+            color = color.repeat_interleave(
                 im.mappings.pointers[1:] - im.mappings.pointers[:-1],
                 dim=0)
-            color = torch.repeat_interleave(
-                color,
+            color = color.repeat_interleave(
                 im.mappings.values[1].pointers[1:]
                 - im.mappings.values[1].pointers[:-1],
                 dim=0)
@@ -478,38 +520,60 @@ def visualize_2d(
         elif color_mode == 'y':
             # Set mapping mask to point labels
             color = torch.ByteTensor(class_colors)[data.y]
-            color = torch.repeat_interleave(
-                color,
+            color = color.repeat_interleave(
                 im.mappings.pointers[1:] - im.mappings.pointers[:-1],
                 dim=0)
-            color = torch.repeat_interleave(
-                color,
+            color = color.repeat_interleave(
                 im.mappings.values[1].pointers[1:]
                 - im.mappings.values[1].pointers[:-1],
                 dim=0)
         
         elif color_mode == 'feat_3d':
             color = (feats_to_rgb(data.x) * 255).type(torch.uint8)
-            color = torch.repeat_interleave(
-                color,
+            color = color.repeat_interleave(
                 im.mappings.pointers[1:] - im.mappings.pointers[:-1],
                 dim=0)
-            color = torch.repeat_interleave(
-                color,
+            color = color.repeat_interleave(
                 im.mappings.values[1].pointers[1:]
                 - im.mappings.values[1].pointers[:-1],
                 dim=0)
         
         elif color_mode == 'feat_proj':
             color = (feats_to_rgb(im.mappings.features) * 255).type(torch.uint8)
-            color = torch.repeat_interleave(
-                color,
+            color = color.repeat_interleave(
                 im.mappings.values[1].pointers[1:]
                 - im.mappings.values[1].pointers[:-1], 
                 dim=0)
 
         # Apply the coloring to the mapping masks
         im.x[idx] = color
+
+        # Apply a mask to the 3D pointwise error
+        if show_point_error:
+            is_tp = (data.pred == data.y)
+            is_tp = is_tp.repeat_interleave(
+                im.mappings.pointers[1:] - im.mappings.pointers[:-1],
+                dim=0)
+            is_tp = is_tp.repeat_interleave(
+                im.mappings.values[1].pointers[1:]
+                - im.mappings.values[1].pointers[:-1],
+                dim=0)
+            is_tp = is_tp.unsqueeze(1)
+            im.x[idx] = im.x[idx] * is_tp + ~is_tp * error_color
+
+        # Apply a mask to the 3D view-wise error
+        if show_view_error:
+            y = data.y
+            y = y.repeat_interleave(
+                im.mappings.pointers[1:] - im.mappings.pointers[:-1],
+                dim=0)
+            y = y.repeat_interleave(
+                im.mappings.values[1].pointers[1:]
+                - im.mappings.values[1].pointers[:-1],
+                dim=0)
+            is_tp = (im.pred[idx] == y)
+            is_tp = is_tp.unsqueeze(1)
+            im.x[idx] = im.x[idx] * is_tp + ~is_tp * error_color
 
     # Prepare figure
     width = width if width and height else figsize
