@@ -45,7 +45,7 @@ def feats_to_rgb(feats):
     elif feats.shape[1] == 1:
         # If only 1 feature is found convert to a 3-channel
         # repetition for black-and-white visualization.
-        color = torch.repeat_interleave(feats, 3, 1)
+        color = feats.repeat_interleave(3, 1)
         
     elif feats.shape[1] == 2:
         # If 2 features are found, add an extra channel.
@@ -69,12 +69,14 @@ def feats_to_rgb(feats):
     return color
 
 
-def visualize_3d(
-        mm_data, class_names=None, class_colors=None, class_opacities=None,
-        figsize=800, width=None, height=None, voxel=0.1, max_points=100000,
-        pointsize=5, **kwargs):
+def visualize_3d(mm_data, class_names=None, class_colors=None,
+        class_opacities=None, figsize=800, width=None, height=None, voxel=0.1,
+        max_points=100000, pointsize=5, error_color=None, **kwargs):
     """3D data interactive visualization tools."""
     assert isinstance(mm_data, MMData)
+
+    # 3D visualization modes
+    modes = {'name': [], 'key': [], 'num_traces': []}
 
     # Make copies of the data and images to be modified in this scope
     data = mm_data.data.clone()
@@ -124,37 +126,78 @@ def visualize_3d(
             hoverinfo='x+y+z',
             showlegend=False,
             visible=True,))
-    n_rgb_traces = 1  # keep track of the number of traces
+    modes['name'].append('RGB')
+    modes['key'].append('rgb')
+    modes['num_traces'].append(1)
 
     # Draw a trace for labeled 3D point cloud
-    y = data.y.numpy()
-    n_classes = int(y.max() + 1)
-    if class_names is None:
-        class_names = [f"Class {i}" for i in range(n_classes)]
-    if class_colors is None:
-        class_colors = [None] * n_classes
-    else:
-        class_colors = [f"rgb{tuple(x)}" for x in class_colors]
-    if class_opacities is None:
-        class_opacities = [1.0] * n_classes
+    if getattr(data, 'y', None) is not None:
+        y = data.y.numpy()
+        n_classes = int(y.max() + 1)
+        if class_names is None:
+            class_names = [f"Class {i}" for i in range(n_classes)]
+        if class_colors is None:
+            class_colors = [None] * n_classes
+        elif not isinstance(class_colors[0], str):
+            class_colors = [f"rgb{tuple(x)}" for x in class_colors]
+        if class_opacities is None:
+            class_opacities = [1.0] * n_classes
 
-    n_y_traces = 0
-    for label in np.unique(y):
-        indices = np.where(y == label)[0]
+        n_y_traces = 0
+        for label in np.unique(y):
+            indices = np.where(y == label)[0]
 
-        fig.add_trace(
-            go.Scatter3d(
-                name=class_names[label],
-                opacity=class_opacities[label],
-                x=data.pos[indices, 0],
-                y=data.pos[indices, 1],
-                z=data.pos[indices, 2],
-                mode='markers',
-                marker=dict(
-                    size=pointsize,
-                    color=class_colors[label],),
-                visible=False,))
-        n_y_traces += 1  # keep track of the number of traces
+            fig.add_trace(
+                go.Scatter3d(
+                    name=class_names[label],
+                    opacity=class_opacities[label],
+                    x=data.pos[indices, 0],
+                    y=data.pos[indices, 1],
+                    z=data.pos[indices, 2],
+                    mode='markers',
+                    marker=dict(
+                        size=pointsize,
+                        color=class_colors[label],),
+                    visible=False,))
+            n_y_traces += 1  # keep track of the number of traces
+
+        modes['name'].append('Labels')
+        modes['key'].append('y')
+        modes['num_traces'].append(n_y_traces)
+
+    # Draw a trace for predicted labels 3D point cloud
+    if getattr(data, 'pred', None) is not None:
+        pred = data.pred.numpy()
+        n_classes = int(pred.max() + 1)
+        if class_names is None:
+            class_names = [f"Class {i}" for i in range(n_classes)]
+        if class_colors is None:
+            class_colors = [None] * n_classes
+        elif not isinstance(class_colors[0], str):
+            class_colors = [f"rgb{tuple(x)}" for x in class_colors]
+        if class_opacities is None:
+            class_opacities = [1.0] * n_classes
+
+        n_pred_traces = 0
+        for label in np.unique(pred):
+            indices = np.where(pred == label)[0]
+            fig.add_trace(
+                go.Scatter3d(
+                    name=class_names[label],
+                    opacity=class_opacities[label],
+                    x=data.pos[indices, 0],
+                    y=data.pos[indices, 1],
+                    z=data.pos[indices, 2],
+                    mode='markers',
+                    marker=dict(
+                        size=pointsize,
+                        color=class_colors[label], ),
+                    visible=False, ))
+            n_pred_traces += 1  # keep track of the number of traces
+
+        modes['name'].append('Predictions')
+        modes['key'].append('pred')
+        modes['num_traces'].append(n_pred_traces)
 
     # Draw a trace for 3D point cloud of number of images seen
     n_seen = sum([im.mappings.pointers[1:] - im.mappings.pointers[:-1]
@@ -177,7 +220,9 @@ def visualize_3d(
             hoverinfo='x+y+z+text',
             showlegend=False,
             visible=False,))
-    n_seen_traces = 1  # keep track of the number of traces
+    modes['name'].append('Times seen')
+    modes['key'].append('n_seen')
+    modes['num_traces'].append(1)
 
     # Draw a trace for position-colored 3D point cloud
     radius = torch.norm(data.pos - data.pos.mean(dim=0), dim=1).max()
@@ -195,7 +240,9 @@ def visualize_3d(
             hoverinfo='x+y+z',
             showlegend=False,
             visible=False,))
-    n_pos_rgb_traces = 1  # keep track of the number of traces
+    modes['name'].append('Position RGB')
+    modes['key'].append('position_rgb')
+    modes['num_traces'].append(1)
 
     # Draw a trace for 3D point cloud features
     if getattr(data, 'x', None) is not None:
@@ -215,12 +262,35 @@ def visualize_3d(
                 hoverinfo='x+y+z',
                 showlegend=False,
                 visible=False, ))
-        n_feat_3d_traces = 1  # keep track of the number of traces
-    else:
-        n_feat_3d_traces = 0  # keep track of the number of traces
+        modes['name'].append('Features 3D')
+        modes['key'].append('x')
+        modes['num_traces'].append(1)
+
+    # Add a trace for prediction errors
+    if getattr(data, 'y', None) is not None \
+            and getattr(data, 'pred', None) is not None:
+        indices = np.where(data.pred.numpy() != data.y.numpy())[0]
+        error_color = f"rgb{tuple(error_color)}" \
+            if error_color is not None else 'rgb(0, 0, 0)'
+        fig.add_trace(
+            go.Scatter3d(
+                name='Errors',
+                opacity=1.0,
+                x=data.pos[indices, 0],
+                y=data.pos[indices, 1],
+                z=data.pos[indices, 2],
+                mode='markers',
+                marker=dict(
+                    size=pointsize,
+                    color=error_color, ),
+                showlegend=False,
+                visible=False, ))
+        modes['name'].append('Errors')
+        modes['key'].append('error')
+        modes['num_traces'].append(1)
 
     # Draw image positions
-    if images.num_settings >= 2:
+    if images.num_settings > 1:
         image_xyz = torch.cat([im.pos for im in images]).numpy()
         image_opk = torch.cat([im.opk for im in images]).numpy()
     else:
@@ -271,30 +341,10 @@ def visualize_3d(
         visibilities = np.array([d.visible for d in fig.data], dtype='bool')
 
         # Traces visibility for interactive point cloud coloring
-        n_traces = (n_rgb_traces + n_y_traces + n_seen_traces
-                    + n_pos_rgb_traces + n_feat_3d_traces)
-        if mode == 'rgb':
-            a = 0
-            b = n_rgb_traces
-
-        elif mode == 'labels':
-            a = n_rgb_traces
-            b = a + n_y_traces
-
-        elif mode == 'n_seen':
-            a = n_rgb_traces + n_y_traces
-            b = a + n_seen_traces
-
-        elif mode == 'position_rgb':
-            a = n_rgb_traces + n_y_traces + n_seen_traces
-            b = a + n_pos_rgb_traces
-
-        elif mode == 'feats_3d':
-            a = n_rgb_traces + n_y_traces + n_seen_traces + n_pos_rgb_traces
-            b = a + n_feat_3d_traces
-
-        else:
-            raise ValueError(f"Unknown mode '{mode}'")
+        i_mode = modes['key'].index(mode)
+        a = sum(modes['num_traces'][:i_mode])
+        b = sum(modes['num_traces'][:i_mode+1])
+        n_traces = sum(modes['num_traces'])
 
         visibilities[:n_traces] = False
         visibilities[a:b] = True
@@ -304,22 +354,8 @@ def visualize_3d(
     # Create the buttons that will serve for toggling trace visibility
     updatemenus = [
         dict(
-            buttons=[
-                dict(label='RGB',
-                     method='update',
-                     args=trace_visibility('rgb')),
-                dict(label='Labels',
-                     method='update',
-                     args=trace_visibility('labels')),
-                dict(label='Times seen',
-                     method='update',
-                     args=trace_visibility('n_seen')),
-                dict(label='Position RGB',
-                     method='update',
-                     args=trace_visibility('position_rgb')),
-                dict(label='Features 3D',
-                     method='update',
-                     args=trace_visibility('feats_3d')),],
+            buttons=[dict(label=name, method='update', args=trace_visibility(key))
+               for name, key in zip(modes['name'], modes['key']) if key != 'error'],
             pad={'r': 10, 't': 10},
             showactive=True,
             type='dropdown',
@@ -327,7 +363,20 @@ def visualize_3d(
             xanchor='left',
             x=0.02,
             yanchor='top',
-            y=1.02,),]
+            y=1.02,),
+        dict(
+            buttons=[dict(method='restyle',
+                label='Error',
+                visible=True,
+                args=[{'visible': True,}, [sum(modes['num_traces'][:modes['key'].index('error')])]],
+                args2=[{'visible': False,}, [sum(modes['num_traces'][:modes['key'].index('error')])]],)],
+            pad={'r': 10, 't': 10},
+            showactive=False,
+            type='buttons',
+            xanchor='left',
+            x=1.02,
+            yanchor='top',
+            y=1.02, ),]
     fig.update_layout(updatemenus=updatemenus)
 
     # Place the legend on the left
@@ -341,9 +390,9 @@ def visualize_3d(
     return fig
 
 
-def visualize_2d(
-        mm_data, figsize=800, width=None, height=None,
-        alpha=3, color_mode='light', class_colors=None, **kwargs):
+def visualize_2d(mm_data, figsize=800, width=None, height=None, alpha=3,
+        class_colors=None, back=None, front=None, show_point_error=False,
+        show_view_error=False, error_color=None, **kwargs):
     """2D data interactive visualization tools."""
     assert isinstance(mm_data, MMData)
 
@@ -354,114 +403,198 @@ def visualize_2d(
     # Convert images to ImageData for convenience
     if isinstance(images, SameSettingImageData):
         images = ImageData([images])
-    
-    # Fallback to 'light' visualization mode if provided mode is 
-    # unknown
-    MODES_2D = ['light', 'rgb', 'pos', 'y', 'feat_3d', 'feat_proj']
-    color_mode = color_mode if color_mode in MODES_2D else 'light'
-    if color_mode == 'y' and class_colors is None:
-        color_mode = 'light'
-    elif color_mode == 'feat_3d' and getattr(data, 'x', None) is None:
-        color_mode = 'light'
-    elif color_mode == 'feat_proj' \
-        and any([im.mappings.features is None for im in images]):
-        color_mode = 'light'
-        
-    # Load images if need be
-    images = ImageData([im.load() if im.x is None else im for im in images])
-    
-    # Convert image features to [0, 1] colors, if need be. All images 
-    # must be handled at once, in case we need to PCA the features in a 
-    # common projective space.
-    if images[0].x.is_floating_point():
-        shapes = [im.x.shape for im in images]
+
+    # Set the image background with a fallback to 'x' attribute.
+    # The background must be an image attribute carrying a tensor of
+    # size (Num_Views, C, H, W) ((Num_Views, H, W) is accepted for
+    # 'pred' labels only).
+    if back is None or any([getattr(im, back, None) is None for im in images]):
+        back = 'x'
+    elif any([not isinstance(getattr(im, back), torch.Tensor) for im in images]) \
+            or any([getattr(im, back).shape[0] != im.num_views for im in images]) \
+            or any([getattr(im, back).shape[-2:] != im.img_size[::-1] for im in images]):
+        raise ValueError(f"Background attribute '{back}' cannot be treated as an image tensor.")
+    elif back is not 'pred' and any([len(getattr(im, back).shape) != 4 for im in images]):
+        raise ValueError(f"Background attribute '{back}' must have shape (Num_Views, C, H, W).")
+
+    # Load images, if need be
+    if back == 'x':
+        images = ImageData([im.load() if im.x is None else im for im in images])
+
+    # Convert 2D predictions to RGB colors
+    if back == 'pred':
+        for im in images:
+            # Convert logits to labels if need be
+            if len(im.pred.shape) == 4 and im.pred.is_floating_point():
+                im.pred = im.pred.argmax(dim=1)
+            elif len(im.pred.shape) != 3:
+                raise ValueError("Image predictions must be int labels or float logits.")
+            im.background = torch.ByteTensor(class_colors)[im.pred.long()].permute(0, 3, 1, 2)
+
+    # Convert the background to RGB, if need be. All images must be
+    # handled at once, in case we need to PCA the features in a common
+    # projective space.
+    elif any([getattr(im, back).is_floating_point() for im in images]) \
+            or any([getattr(im, back).max() > 255 for im in images]):
+        shapes = [getattr(im, back).shape for im in images]
         sizes = [s[0] * s[2] * s[3] for s in shapes]
         feats = torch.cat([
-            im.x.permute(1, 0, 2, 3).reshape(s[1], -1).T
+            getattr(im, back).float().permute(1, 0, 2, 3).reshape(s[1], -1).T
             for im, s in zip(images, shapes)], dim=0)
         colors = feats_to_rgb(feats)
-        colors = [x.T.reshape(3, s[0], s[2], s[3]).permute(1, 0, 2, 3) 
+        colors = [x.T.reshape(3, s[0], s[2], s[3]).permute(1, 0, 2, 3)
                  for x, s in zip(colors.split(sizes), shapes)]
-        for x, im in zip(colors, images):
-            im.x = (x * 255).byte()
+        for rgb, im in zip(colors, images):
+            im.background = (rgb * 255).byte()
 
-    for im in images:
-        # Color the images where points are projected and darken the 
-        # rest
-        im.x = (im.x.float() / alpha).floor().type(torch.uint8)
+    # Save the background
+    else:
+        for im in images:
+            im.background = getattr(im, back).byte()
 
-        # Get the mapping of all points in the sample
-        idx = im.mappings.feature_map_indexing
+    # Set the error visualization parameters
+    no_3d_y = getattr(data, 'y', None) is None
+    no_3d_pred = getattr(data, 'pred', None) is None
+    no_2d_pred = any([getattr(im, 'pred', None) is None for im in images])
+    if show_point_error and (no_3d_y or no_3d_pred):
+        raise ValueError("'show_point_error' requires points to carry 'y' and 'pred' attributes.")
+    if show_view_error and (no_3d_y or no_2d_pred):
+        raise ValueError("'show_view_error' requires points to carry 'y' attributes and images to carry 'pred' attributes.")
+    if show_point_error and show_view_error:
+        raise ValueError("Please choose either 'show_point_error' or 'show_point_error', but not both.")
+    error_color = torch.ByteTensor(error_color).view(1, 3) \
+        if error_color is not None else torch.zeros(1, 3, dtype=torch.uint8)
 
-        if color_mode == 'light':
+    # Set the image foregrounds
+    FRONT = ['map', 'rgb', 'pos', 'y', 'feat_3d', 'feat_proj']
+    if isinstance(front, str):
+        front = [front]
+    if isinstance(front, list):
+        front = [x for x in FRONT if x in front]
+    else:
+        front = []
+    if any([im.mappings is None for im in images]):
+        front = []
+
+    # Compute the background-foreground visualizations
+    if len(front) == 0:
+        for im in images:
+            im.visualizations = [im.background]
+    else:
+        for im in images:
+            # Color the mapped foreground and darken the background
+            im.background = (im.background.float() / alpha).floor().type(torch.uint8)
+
+            # Get the mapping of all points in the sample
+            idx = im.mappings.feature_map_indexing
+
+            # Init the visualizations
+            im.visualizations = []
+
             # Set mapping mask back to original lighting
-            color = torch.full((3,), alpha, dtype=torch.uint8)
-            color = im.x[idx] * color
+            if 'map' in front:
+                color = torch.full((3,), alpha, dtype=torch.uint8)
+                color = im.background[idx] * color
+                viz = im.background
+                viz[idx] = color
+                im.visualizations.append(viz)
 
-        elif color_mode == 'rgb':
             # Set mapping mask to point cloud RGB colors
-            color = (data.rgb * 255).type(torch.uint8)
-            color = torch.repeat_interleave(
-                color,
-                im.mappings.pointers[1:] - im.mappings.pointers[:-1],
-                dim=0)
-            color = torch.repeat_interleave(
-                color,
-                im.mappings.values[1].pointers[1:]
-                - im.mappings.values[1].pointers[:-1],
-                dim=0)
+            if 'rgb' in front:
+                color = (data.rgb * 255).type(torch.uint8)
+                color = color.repeat_interleave(
+                    im.mappings.pointers[1:] - im.mappings.pointers[:-1],
+                    dim=0)
+                color = color.repeat_interleave(
+                    im.mappings.values[1].pointers[1:]
+                    - im.mappings.values[1].pointers[:-1],
+                    dim=0)
+                viz = im.background
+                viz[idx] = color
+                im.visualizations.append(viz)
 
-        elif color_mode == 'pos':
             # Set mapping mask to point cloud positional RGB colors
-            radius = torch.norm(
-                data.pos - data.pos.mean(dim=0), dim=1).max()
-            color = ((data.pos - data.pos.mean(dim=0))
-                     / (2 * radius) * 255 + 127).type(torch.uint8)
-            color = torch.repeat_interleave(
-                color,
-                im.mappings.pointers[1:] - im.mappings.pointers[:-1],
-                dim=0)
-            color = torch.repeat_interleave(
-                color,
-                im.mappings.values[1].pointers[1:]
-                - im.mappings.values[1].pointers[:-1],
-                dim=0)
+            if 'pos' in front:
+                radius = torch.norm(
+                    data.pos - data.pos.mean(dim=0), dim=1).max()
+                color = ((data.pos - data.pos.mean(dim=0))
+                         / (2 * radius) * 255 + 127).type(torch.uint8)
+                color = color.repeat_interleave(
+                    im.mappings.pointers[1:] - im.mappings.pointers[:-1],
+                    dim=0)
+                color = color.repeat_interleave(
+                    im.mappings.values[1].pointers[1:]
+                    - im.mappings.values[1].pointers[:-1],
+                    dim=0)
+                viz = im.background
+                viz[idx] = color
+                im.visualizations.append(viz)
 
-        elif color_mode == 'y':
-            # Set mapping mask to point labels
-            color = torch.ByteTensor(class_colors)[data.y]
-            color = torch.repeat_interleave(
-                color,
-                im.mappings.pointers[1:] - im.mappings.pointers[:-1],
-                dim=0)
-            color = torch.repeat_interleave(
-                color,
-                im.mappings.values[1].pointers[1:]
-                - im.mappings.values[1].pointers[:-1],
-                dim=0)
-        
-        elif color_mode == 'feat_3d':
-            color = (feats_to_rgb(data.x) * 255).type(torch.uint8)
-            color = torch.repeat_interleave(
-                color,
-                im.mappings.pointers[1:] - im.mappings.pointers[:-1],
-                dim=0)
-            color = torch.repeat_interleave(
-                color,
-                im.mappings.values[1].pointers[1:]
-                - im.mappings.values[1].pointers[:-1],
-                dim=0)
-        
-        elif color_mode == 'feat_proj':
-            color = (feats_to_rgb(im.mappings.features) * 255).type(torch.uint8)
-            color = torch.repeat_interleave(
-                color,
-                im.mappings.values[1].pointers[1:]
-                - im.mappings.values[1].pointers[:-1], 
-                dim=0)
+            if 'y' in front:
+                # Set mapping mask to point labels
+                color = torch.ByteTensor(class_colors)[data.y]
+                color = color.repeat_interleave(
+                    im.mappings.pointers[1:] - im.mappings.pointers[:-1],
+                    dim=0)
+                color = color.repeat_interleave(
+                    im.mappings.values[1].pointers[1:]
+                    - im.mappings.values[1].pointers[:-1],
+                    dim=0)
+                viz = im.background
+                viz[idx] = color
+                im.visualizations.append(viz)
 
-        # Apply the coloring to the mapping masks
-        im.x[idx] = color
+            if 'feat_3d' in front:
+                color = (feats_to_rgb(data.x) * 255).type(torch.uint8)
+                color = color.repeat_interleave(
+                    im.mappings.pointers[1:] - im.mappings.pointers[:-1],
+                    dim=0)
+                color = color.repeat_interleave(
+                    im.mappings.values[1].pointers[1:]
+                    - im.mappings.values[1].pointers[:-1],
+                    dim=0)
+                viz = im.background
+                viz[idx] = color
+                im.visualizations.append(viz)
+
+            if 'feat_proj' in front:
+                # TODO: PCA mapping features globally
+                color = (feats_to_rgb(im.mappings.features) * 255).type(torch.uint8)
+                color = color.repeat_interleave(
+                    im.mappings.values[1].pointers[1:]
+                    - im.mappings.values[1].pointers[:-1],
+                    dim=0)
+                viz = im.background
+                viz[idx] = color
+                im.visualizations.append(viz)
+
+            if show_point_error:
+                is_tp = (data.pred == data.y)
+                is_tp = is_tp.repeat_interleave(
+                    im.mappings.pointers[1:] - im.mappings.pointers[:-1],
+                    dim=0)
+                is_tp = is_tp.repeat_interleave(
+                    im.mappings.values[1].pointers[1:]
+                    - im.mappings.values[1].pointers[:-1],
+                    dim=0)
+                is_tp = is_tp.unsqueeze(1)
+                for v in im.visualizations:
+                    v[idx] = v[idx] * is_tp + ~is_tp * error_color
+
+            # Apply a mask to the 3D view-wise error
+            if show_view_error:
+                y = data.y
+                y = y.repeat_interleave(
+                    im.mappings.pointers[1:] - im.mappings.pointers[:-1],
+                    dim=0)
+                y = y.repeat_interleave(
+                    im.mappings.values[1].pointers[1:]
+                    - im.mappings.values[1].pointers[:-1],
+                    dim=0)
+                is_tp = (im.pred[idx] == y)
+                is_tp = is_tp.unsqueeze(1)
+                for v in im.visualizations:
+                    v[idx] = v[idx] * is_tp + ~is_tp * error_color
 
     # Prepare figure
     width = width if width and height else figsize
@@ -477,32 +610,60 @@ def visualize_2d(
     fig.update_yaxes(visible=False)  # hide image axes
 
     # Draw the images
-    n_img_traces = images.num_views
-    for i, image in enumerate(chain(*[im.x.__iter__()
-                                          for im in images])):
+    n_views = images.num_views
+    n_front = max(len(front), 1)
+    for i, image in enumerate(chain(
+            *[viz.__iter__() for im in images for viz in im.visualizations])):
         fig.add_trace(
             go.Image(
                 z=image.permute(1, 2, 0),
                 visible=i == 0,  # initialize to image 0 visible
+                opacity=1.0 * (i % n_front == 0),  # initialize to front 0 visible
                 hoverinfo='none',))  # disable hover info on images
 
-    # Traces visibility for interactive point cloud coloring
-    def trace_visibility(i_img):
-        visibilities = np.array(
-            [d.visible for d in fig.data], dtype='bool')
-        if i_img < n_img_traces:
+    # Local helpers to compute the visibility of a view and opacity of
+    # a foreground mode for interactive visualization. Since plotly
+    # buttons cannot access the figure and button states, the trick here
+    # is to apply a double filter using both the "visibility" and
+    # "opacity" attributes of the image traces.
+    def view_visibility(i_img):
+        visibilities = np.array([d.visible for d in fig.data], dtype='bool')
+        if i_img < n_views:
             visibilities[:] = False
-            visibilities[i_img] = True
+            visibilities[i_img * n_front:(i_img + 1) * n_front] = True
         return [{"visible": visibilities.tolist()}]
+    def front_opacity(i_front):
+        opacities = np.array([d.opacity for d in fig.data])
+        if i_front < n_front:
+            opacities[:] = 0
+            opacities[np.arange(n_views) * n_front + i_front] = 1.0
+        return [{"opacity": opacities.tolist()}]
 
     # Create the buttons that will serve for toggling trace visibility
-    updatemenus = [
+    updatemenus = []
+    if n_front > 1:
+        updatemenus.append(
+            dict(
+                buttons=[
+                    dict(label=f"{front[i_front]}",
+                         method='update',
+                         args=front_opacity(i_front))
+                    for i_front in range(n_front)],
+                pad={'r': 10, 't': 10},
+                showactive=True,
+                type='dropdown',
+                direction='right',
+                xanchor='left',
+                x=0.02,
+                yanchor='top',
+                y=1.02, ))
+    updatemenus.append(
         dict(
             buttons=[
                 dict(label=f"{i_img}",
                      method='update',
-                     args=trace_visibility(i_img))
-                for i_img in range(n_img_traces)],
+                     args=view_visibility(i_img))
+                for i_img in range(n_views)],
             pad={'r': 10, 't': 10},
             showactive=True,
             type='dropdown',
@@ -510,7 +671,7 @@ def visualize_2d(
             xanchor='left',
             x=0.02,
             yanchor='top',
-            y=1.02,),]
+            y=1.12, ),)
 
     fig.update_layout(updatemenus=updatemenus)
 
