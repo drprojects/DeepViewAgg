@@ -78,6 +78,10 @@ data:
             - transform: PickImagesFromMappingArea  # Remove images with not enough mappings
               params:
                     use_bbox: ${data.multimodal.settings.exact_splatting}
+            - transform: JitterMappingFeatures  # Mapping features augmentation
+              params:
+                    sigma: 0.02
+                    clip: 0.03
             - transform: ColorJitter  # Radiometric augmentation
               params:
                     brightness: 0.6
