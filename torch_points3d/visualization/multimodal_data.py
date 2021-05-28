@@ -397,8 +397,8 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
 
 
 def visualize_2d(mm_data, figsize=800, width=None, height=None, alpha=3,
-         class_colors=None, back=None, front=None, show_point_error=False,
-         show_view_error=False, error_color=None, **kwargs):
+         class_colors=None, back=None, front=None, overlay_point_error=False,
+         overlay_view_error=False, error_color=None, **kwargs):
     """2D data interactive visualization tools."""
     assert isinstance(mm_data, MMData)
 
@@ -462,12 +462,12 @@ def visualize_2d(mm_data, figsize=800, width=None, height=None, alpha=3,
     no_3d_y = getattr(data, 'y', None) is None
     no_3d_pred = getattr(data, 'pred', None) is None
     no_2d_pred = any([getattr(im, 'pred', None) is None for im in images])
-    if show_point_error and (no_3d_y or no_3d_pred):
+    if overlay_point_error and (no_3d_y or no_3d_pred):
         raise ValueError("'show_point_error' requires points to carry 'y' and 'pred' attributes.")
-    if show_view_error and (no_3d_y or no_2d_pred):
+    if overlay_view_error and (no_3d_y or no_2d_pred):
         raise ValueError(
             "'show_view_error' requires points to carry 'y' attributes and images to carry 'pred' attributes.")
-    if show_point_error and show_view_error:
+    if overlay_point_error and overlay_view_error:
         raise ValueError("Please choose either 'show_point_error' or 'show_point_error', but not both.")
     error_color = torch.ByteTensor(error_color).view(1, 3) \
         if error_color is not None else torch.zeros(1, 3, dtype=torch.uint8)
@@ -591,7 +591,7 @@ def visualize_2d(mm_data, figsize=800, width=None, height=None, alpha=3,
                 im.visualizations.append(viz)
                 im.front.append(color)
 
-            if show_point_error:
+            if not no_3d_y and not no_3d_pred:
                 is_tp = (data.pred == data.y)
                 is_tp = is_tp.repeat_interleave(
                     im.mappings.pointers[1:] - im.mappings.pointers[:-1],
@@ -601,11 +601,13 @@ def visualize_2d(mm_data, figsize=800, width=None, height=None, alpha=3,
                     - im.mappings.values[1].pointers[:-1],
                     dim=0)
                 is_tp = is_tp.unsqueeze(1)
-                for v in im.visualizations:
-                    v[idx] = v[idx] * is_tp + ~is_tp * error_color
+                if overlay_point_error:
+                    for v in im.visualizations:
+                        v[idx] = v[idx] * is_tp + ~is_tp * error_color
+                im.is_tp_point = is_tp
 
             # Apply a mask to the 3D view-wise error
-            if show_view_error:
+            if not no_3d_y and not no_2d_pred:
                 y = data.y
                 y = y.repeat_interleave(
                     im.mappings.pointers[1:] - im.mappings.pointers[:-1],
@@ -614,10 +616,14 @@ def visualize_2d(mm_data, figsize=800, width=None, height=None, alpha=3,
                     im.mappings.values[1].pointers[1:]
                     - im.mappings.values[1].pointers[:-1],
                     dim=0)
-                is_tp = (im.pred[idx] == y)
+                im_pred = im.pred[idx]
+                im_pred = im_pred.argmax(dim=1) if len(im_pred.shape) > 1 else im_pred
+                is_tp = (im_pred == y)
                 is_tp = is_tp.unsqueeze(1)
-                for v in im.visualizations:
-                    v[idx] = v[idx] * is_tp + ~is_tp * error_color
+                if overlay_view_error:
+                    for v in im.visualizations:
+                        v[idx] = v[idx] * is_tp + ~is_tp * error_color
+                im.is_tp_view = is_tp
 
     # Prepare figure
     width = width if width and height else figsize
