@@ -76,6 +76,14 @@ class No3D(BaseModel, ABC):
         data = self.backbone(self.input)
         features = data.x
         seen_mask = data.seen
+
+        # TODO: this is a bit dirty, saving the modality-wise feature
+        #  maps in self.input. Need to find a cleaner way. This impacts
+        #  the Dash visualization app.
+        for m in self.modalities:
+            for i in range(self.input.modalities[m].num_settings):
+                self.input.modalities[m][i].pred = data[m][i].x
+
         logits = self.head(features) if self._HAS_HEAD else features
         self.output = F.log_softmax(logits, dim=-1)
 

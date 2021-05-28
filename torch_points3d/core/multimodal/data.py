@@ -137,8 +137,8 @@ class MMData(object):
     def __repr__(self):
         info = [f"    data = {self.data}"]
         info = info + \
-               [f"    {mod} = {data_mod}"
-                for mod, data_mod in self.modalities.items()]
+           [f"    {mod} = {data_mod}"
+            for mod, data_mod in self.modalities.items()]
         info = '\n'.join(info)
         return f"{self.__class__.__name__}(\n{info}\n)"
 

@@ -41,16 +41,16 @@ def feats_to_rgb(feats):
 
     if feats.shape[1] == 3:
         color = feats
-        
+
     elif feats.shape[1] == 1:
         # If only 1 feature is found convert to a 3-channel
         # repetition for black-and-white visualization.
         color = feats.repeat_interleave(3, 1)
-        
+
     elif feats.shape[1] == 2:
         # If 2 features are found, add an extra channel.
         color = torch.cat([feats, torch.ones(feats.shape[0], 1)], 1)
-    
+
     elif feats.shape[1] > 3:
         # If more than 3 features or more are found, project
         # features to a 3-dimensional space using PCA
@@ -62,16 +62,16 @@ def feats_to_rgb(feats):
     # Unit-normalize the features in a hypercube of shared scale
     # for nicer visualizations
     color = color - color.min(dim=0).values.view(1, -1) \
-        if color.max() != color.min()\
+        if color.max() != color.min() \
         else color
     color = color / (color.max(dim=0).values.view(1, -1) + 1e-6)
-    
+
     return color
 
 
 def visualize_3d(mm_data, class_names=None, class_colors=None,
-        class_opacities=None, figsize=800, width=None, height=None, voxel=0.1,
-        max_points=100000, pointsize=5, error_color=None, **kwargs):
+         class_opacities=None, figsize=800, width=None, height=None, voxel=0.1,
+         max_points=100000, pointsize=5, error_color=None, **kwargs):
     """3D data interactive visualization tools."""
     assert isinstance(mm_data, MMData)
 
@@ -101,6 +101,12 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
     for im in images:
         im.pos = (im.pos * 100).round() / 100
 
+    # CLass colors initialization
+    if class_colors is not None and not isinstance(class_colors[0], str):
+        class_colors = [f"rgb{tuple(x)}" for x in class_colors]
+    else:
+        class_colors = None
+
     # Prepare figure
     width = width if width and height else figsize
     height = height if width and height else int(figsize / 2)
@@ -109,7 +115,8 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
         width=width,
         height=height,
         scene=dict(aspectmode='data', ),  # preserve aspect ratio
-        margin=dict(l=margin, r=margin, b=margin, t=margin),)
+        margin=dict(l=margin, r=margin, b=margin, t=margin),
+        uirevision=True)
     fig = go.Figure(layout=layout)
 
     # Draw a trace for RGB 3D point cloud
@@ -122,10 +129,10 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
             mode='markers',
             marker=dict(
                 size=pointsize,
-                color=rgb_to_plotly_rgb(data.rgb),),
+                color=rgb_to_plotly_rgb(data.rgb), ),
             hoverinfo='x+y+z',
             showlegend=False,
-            visible=True,))
+            visible=True, ))
     modes['name'].append('RGB')
     modes['key'].append('rgb')
     modes['num_traces'].append(1)
@@ -133,32 +140,23 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
     # Draw a trace for labeled 3D point cloud
     if getattr(data, 'y', None) is not None:
         y = data.y.numpy()
-        n_classes = int(y.max() + 1)
-        if class_names is None:
-            class_names = [f"Class {i}" for i in range(n_classes)]
-        if class_colors is None:
-            class_colors = [None] * n_classes
-        elif not isinstance(class_colors[0], str):
-            class_colors = [f"rgb{tuple(x)}" for x in class_colors]
-        if class_opacities is None:
-            class_opacities = [1.0] * n_classes
-
         n_y_traces = 0
+
         for label in np.unique(y):
             indices = np.where(y == label)[0]
 
             fig.add_trace(
                 go.Scatter3d(
-                    name=class_names[label],
-                    opacity=class_opacities[label],
+                    name=class_names[label] if class_names else f"Class {label}",
+                    opacity=class_opacities[label] if class_opacities else 1.0,
                     x=data.pos[indices, 0],
                     y=data.pos[indices, 1],
                     z=data.pos[indices, 2],
                     mode='markers',
                     marker=dict(
                         size=pointsize,
-                        color=class_colors[label],),
-                    visible=False,))
+                        color=class_colors[label] if class_colors else None, ),
+                    visible=False, ))
             n_y_traces += 1  # keep track of the number of traces
 
         modes['name'].append('Labels')
@@ -168,30 +166,22 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
     # Draw a trace for predicted labels 3D point cloud
     if getattr(data, 'pred', None) is not None:
         pred = data.pred.numpy()
-        n_classes = int(pred.max() + 1)
-        if class_names is None:
-            class_names = [f"Class {i}" for i in range(n_classes)]
-        if class_colors is None:
-            class_colors = [None] * n_classes
-        elif not isinstance(class_colors[0], str):
-            class_colors = [f"rgb{tuple(x)}" for x in class_colors]
-        if class_opacities is None:
-            class_opacities = [1.0] * n_classes
-
         n_pred_traces = 0
+
         for label in np.unique(pred):
             indices = np.where(pred == label)[0]
+
             fig.add_trace(
                 go.Scatter3d(
-                    name=class_names[label],
-                    opacity=class_opacities[label],
+                    name=class_names[label] if class_names else f"Class {label}",
+                    opacity=class_opacities[label] if class_opacities else 1.0,
                     x=data.pos[indices, 0],
                     y=data.pos[indices, 1],
                     z=data.pos[indices, 2],
                     mode='markers',
                     marker=dict(
                         size=pointsize,
-                        color=class_colors[label], ),
+                        color=class_colors[label] if class_colors else None, ),
                     visible=False, ))
             n_pred_traces += 1  # keep track of the number of traces
 
@@ -215,11 +205,11 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
                 colorscale='spectral',
                 colorbar=dict(
                     thickness=10, len=0.66, tick0=0,
-                    dtick=max(1, int(n_seen.max() / 10.)),),),
+                    dtick=max(1, int(n_seen.max() / 10.)), ), ),
             hovertext=[f"seen: {n}" for n in n_seen],
             hoverinfo='x+y+z+text',
             showlegend=False,
-            visible=False,))
+            visible=False, ))
     modes['name'].append('Times seen')
     modes['key'].append('n_seen')
     modes['num_traces'].append(1)
@@ -236,10 +226,10 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
             mode='markers',
             marker=dict(
                 size=pointsize,
-                color=rgb_to_plotly_rgb(data.pos_rgb),),
+                color=rgb_to_plotly_rgb(data.pos_rgb), ),
             hoverinfo='x+y+z',
             showlegend=False,
-            visible=False,))
+            visible=False, ))
     modes['name'].append('Position RGB')
     modes['key'].append('position_rgb')
     modes['num_traces'].append(1)
@@ -267,8 +257,9 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
         modes['num_traces'].append(1)
 
     # Add a trace for prediction errors
-    if getattr(data, 'y', None) is not None \
-            and getattr(data, 'pred', None) is not None:
+    has_error = getattr(data, 'y', None) is not None \
+                and getattr(data, 'pred', None) is not None
+    if has_error:
         indices = np.where(data.pred.numpy() != data.y.numpy())[0]
         error_color = f"rgb{tuple(error_color)}" \
             if error_color is not None else 'rgb(0, 0, 0)'
@@ -290,6 +281,7 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
         modes['num_traces'].append(1)
 
     # Draw image positions
+    img_traces = []
     if images.num_settings > 1:
         image_xyz = torch.cat([im.pos for im in images]).numpy()
         image_opk = torch.cat([im.opk for im in images]).numpy()
@@ -315,9 +307,10 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
                         width=pointsize + 1),
                     showlegend=False,
                     hoverinfo='none',
-                    visible=True,))
+                    visible=True, ))
 
         # Draw image position as ball
+        img_traces.append(len(fig.data))
         fig.add_trace(
             go.Scatter3d(
                 name=f"Image {i}",
@@ -327,14 +320,14 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
                 mode='markers+text',
                 marker=dict(
                     line_width=2,
-                    size=pointsize + 4,),
+                    size=pointsize + 4, ),
                 text=f"<b>{i}</b>",
                 textposition="bottom center",
                 textfont=dict(
                     size=16),
                 hoverinfo='x+y+z+name',
                 showlegend=False,
-                visible=True,))
+                visible=True, ))
 
     # Traces visibility for interactive point cloud coloring
     def trace_visibility(mode):
@@ -343,7 +336,7 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
         # Traces visibility for interactive point cloud coloring
         i_mode = modes['key'].index(mode)
         a = sum(modes['num_traces'][:i_mode])
-        b = sum(modes['num_traces'][:i_mode+1])
+        b = sum(modes['num_traces'][:i_mode + 1])
         n_traces = sum(modes['num_traces'])
 
         visibilities[:n_traces] = False
@@ -355,7 +348,7 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
     updatemenus = [
         dict(
             buttons=[dict(label=name, method='update', args=trace_visibility(key))
-               for name, key in zip(modes['name'], modes['key']) if key != 'error'],
+                     for name, key in zip(modes['name'], modes['key']) if key != 'error'],
             pad={'r': 10, 't': 10},
             showactive=True,
             type='dropdown',
@@ -363,20 +356,27 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
             xanchor='left',
             x=0.02,
             yanchor='top',
-            y=1.02,),
-        dict(
-            buttons=[dict(method='restyle',
-                label='Error',
-                visible=True,
-                args=[{'visible': True,}, [sum(modes['num_traces'][:modes['key'].index('error')])]],
-                args2=[{'visible': False,}, [sum(modes['num_traces'][:modes['key'].index('error')])]],)],
-            pad={'r': 10, 't': 10},
-            showactive=False,
-            type='buttons',
-            xanchor='left',
-            x=1.02,
-            yanchor='top',
-            y=1.02, ),]
+            y=1.02, ),
+    ]
+    if has_error:
+        updatemenus.append(
+            dict(
+                buttons=[dict(
+                    method='restyle',
+                    label='Error',
+                    visible=True,
+                    args=[{'visible': True, },
+                          [sum(modes['num_traces'][:modes['key'].index('error')])]],
+                    args2=[{'visible': False, },
+                           [sum(modes['num_traces'][:modes['key'].index('error')])]], )],
+                pad={'r': 10, 't': 10},
+                showactive=False,
+                type='buttons',
+                xanchor='left',
+                x=1.02,
+                yanchor='top',
+                y=1.02, ),
+        )
     fig.update_layout(updatemenus=updatemenus)
 
     # Place the legend on the left
@@ -387,12 +387,18 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
             xanchor="right",
             x=0.99))
 
-    return fig
+    output = {
+        'figure': fig,
+        'images': images,
+        'data': data,
+        'img_traces': img_traces}
+
+    return output
 
 
 def visualize_2d(mm_data, figsize=800, width=None, height=None, alpha=3,
-        class_colors=None, back=None, front=None, show_point_error=False,
-        show_view_error=False, error_color=None, **kwargs):
+         class_colors=None, back=None, front=None, show_point_error=False,
+         show_view_error=False, error_color=None, **kwargs):
     """2D data interactive visualization tools."""
     assert isinstance(mm_data, MMData)
 
@@ -443,7 +449,7 @@ def visualize_2d(mm_data, figsize=800, width=None, height=None, alpha=3,
             for im, s in zip(images, shapes)], dim=0)
         colors = feats_to_rgb(feats)
         colors = [x.T.reshape(3, s[0], s[2], s[3]).permute(1, 0, 2, 3)
-                 for x, s in zip(colors.split(sizes), shapes)]
+                  for x, s in zip(colors.split(sizes), shapes)]
         for rgb, im in zip(colors, images):
             im.background = (rgb * 255).byte()
 
@@ -459,18 +465,26 @@ def visualize_2d(mm_data, figsize=800, width=None, height=None, alpha=3,
     if show_point_error and (no_3d_y or no_3d_pred):
         raise ValueError("'show_point_error' requires points to carry 'y' and 'pred' attributes.")
     if show_view_error and (no_3d_y or no_2d_pred):
-        raise ValueError("'show_view_error' requires points to carry 'y' attributes and images to carry 'pred' attributes.")
+        raise ValueError(
+            "'show_view_error' requires points to carry 'y' attributes and images to carry 'pred' attributes.")
     if show_point_error and show_view_error:
         raise ValueError("Please choose either 'show_point_error' or 'show_point_error', but not both.")
     error_color = torch.ByteTensor(error_color).view(1, 3) \
         if error_color is not None else torch.zeros(1, 3, dtype=torch.uint8)
 
     # Set the image foregrounds
-    FRONT = ['map', 'rgb', 'pos', 'y', 'feat_3d', 'feat_proj']
+    FRONT = {
+        'map': 'Mapping',
+        'rgb': 'Point RGB',
+        'pos': 'Point position',
+        'y': 'Point label',
+        'feat_3d': 'Point features',
+        'feat_proj': 'Mapping features'}
     if isinstance(front, str):
         front = [front]
     if isinstance(front, list):
-        front = [x for x in FRONT if x in front]
+        front = [x for x in FRONT.keys() if x in front]
+        front_label = [FRONT[x] for x in front]
     else:
         front = []
     if any([im.mappings is None for im in images]):
@@ -480,24 +494,28 @@ def visualize_2d(mm_data, figsize=800, width=None, height=None, alpha=3,
     if len(front) == 0:
         for im in images:
             im.visualizations = [im.background]
+            im.front = []
     else:
         for im in images:
             # Color the mapped foreground and darken the background
-            im.background = (im.background.float() / alpha).floor().type(torch.uint8)
+            im.background_alpha = (im.background.float() / alpha).floor().type(torch.uint8)
 
             # Get the mapping of all points in the sample
             idx = im.mappings.feature_map_indexing
 
             # Init the visualizations
             im.visualizations = []
+            im.front = []
 
             # Set mapping mask back to original lighting
             if 'map' in front:
-                color = torch.full((3,), alpha, dtype=torch.uint8)
-                color = im.background[idx] * color
-                viz = im.background
+                # color = torch.full((3,), alpha, dtype=torch.uint8)
+                # color = im.background_alpha[idx] * color
+                color = im.background[idx]
+                viz = im.background_alpha.clone()
                 viz[idx] = color
                 im.visualizations.append(viz)
+                im.front.append(color)
 
             # Set mapping mask to point cloud RGB colors
             if 'rgb' in front:
@@ -509,9 +527,10 @@ def visualize_2d(mm_data, figsize=800, width=None, height=None, alpha=3,
                     im.mappings.values[1].pointers[1:]
                     - im.mappings.values[1].pointers[:-1],
                     dim=0)
-                viz = im.background
+                viz = im.background_alpha.clone()
                 viz[idx] = color
                 im.visualizations.append(viz)
+                im.front.append(color)
 
             # Set mapping mask to point cloud positional RGB colors
             if 'pos' in front:
@@ -526,9 +545,10 @@ def visualize_2d(mm_data, figsize=800, width=None, height=None, alpha=3,
                     im.mappings.values[1].pointers[1:]
                     - im.mappings.values[1].pointers[:-1],
                     dim=0)
-                viz = im.background
+                viz = im.background_alpha.clone()
                 viz[idx] = color
                 im.visualizations.append(viz)
+                im.front.append(color)
 
             if 'y' in front:
                 # Set mapping mask to point labels
@@ -540,9 +560,10 @@ def visualize_2d(mm_data, figsize=800, width=None, height=None, alpha=3,
                     im.mappings.values[1].pointers[1:]
                     - im.mappings.values[1].pointers[:-1],
                     dim=0)
-                viz = im.background
+                viz = im.background_alpha.clone()
                 viz[idx] = color
                 im.visualizations.append(viz)
+                im.front.append(color)
 
             if 'feat_3d' in front:
                 color = (feats_to_rgb(data.x) * 255).type(torch.uint8)
@@ -553,9 +574,10 @@ def visualize_2d(mm_data, figsize=800, width=None, height=None, alpha=3,
                     im.mappings.values[1].pointers[1:]
                     - im.mappings.values[1].pointers[:-1],
                     dim=0)
-                viz = im.background
+                viz = im.background_alpha.clone()
                 viz[idx] = color
                 im.visualizations.append(viz)
+                im.front.append(color)
 
             if 'feat_proj' in front:
                 # TODO: PCA mapping features globally
@@ -564,9 +586,10 @@ def visualize_2d(mm_data, figsize=800, width=None, height=None, alpha=3,
                     im.mappings.values[1].pointers[1:]
                     - im.mappings.values[1].pointers[:-1],
                     dim=0)
-                viz = im.background
+                viz = im.background.clone()
                 viz[idx] = color
                 im.visualizations.append(viz)
+                im.front.append(color)
 
             if show_point_error:
                 is_tp = (data.pred == data.y)
@@ -604,7 +627,8 @@ def visualize_2d(mm_data, figsize=800, width=None, height=None, alpha=3,
         width=width,
         height=height,
         scene=dict(aspectmode='data', ),  # preserve aspect ratio
-        margin=dict(l=margin, r=margin, b=margin, t=margin),)
+        margin=dict(l=margin, r=margin, b=margin, t=margin),
+        uirevision=True)
     fig = go.Figure(layout=layout)
     fig.update_xaxes(visible=False)  # hide image axes
     fig.update_yaxes(visible=False)  # hide image axes
@@ -619,7 +643,7 @@ def visualize_2d(mm_data, figsize=800, width=None, height=None, alpha=3,
                 z=image.permute(1, 2, 0),
                 visible=i == 0,  # initialize to image 0 visible
                 opacity=1.0 * (i % n_front == 0),  # initialize to front 0 visible
-                hoverinfo='none',))  # disable hover info on images
+                hoverinfo='none', ))  # disable hover info on images
 
     # Local helpers to compute the visibility of a view and opacity of
     # a foreground mode for interactive visualization. Since plotly
@@ -632,6 +656,7 @@ def visualize_2d(mm_data, figsize=800, width=None, height=None, alpha=3,
             visibilities[:] = False
             visibilities[i_img * n_front:(i_img + 1) * n_front] = True
         return [{"visible": visibilities.tolist()}]
+
     def front_opacity(i_front):
         opacities = np.array([d.opacity for d in fig.data])
         if i_front < n_front:
@@ -641,22 +666,6 @@ def visualize_2d(mm_data, figsize=800, width=None, height=None, alpha=3,
 
     # Create the buttons that will serve for toggling trace visibility
     updatemenus = []
-    if n_front > 1:
-        updatemenus.append(
-            dict(
-                buttons=[
-                    dict(label=f"{front[i_front]}",
-                         method='update',
-                         args=front_opacity(i_front))
-                    for i_front in range(n_front)],
-                pad={'r': 10, 't': 10},
-                showactive=True,
-                type='dropdown',
-                direction='right',
-                xanchor='left',
-                x=0.02,
-                yanchor='top',
-                y=1.02, ))
     updatemenus.append(
         dict(
             buttons=[
@@ -671,11 +680,36 @@ def visualize_2d(mm_data, figsize=800, width=None, height=None, alpha=3,
             xanchor='left',
             x=0.02,
             yanchor='top',
-            y=1.12, ),)
+            y=1.12, ), )
+    if n_front > 1:
+        updatemenus.append(
+            dict(
+                buttons=[
+                    dict(label=f"{front_label[i_front]}",
+                         method='update',
+                         args=front_opacity(i_front))
+                    for i_front in range(n_front)],
+                pad={'r': 10, 't': 10},
+                showactive=True,
+                type='dropdown',
+                direction='right',
+                xanchor='left',
+                x=0.02,
+                yanchor='top',
+                y=1.02, ))
 
     fig.update_layout(updatemenus=updatemenus)
 
-    return fig
+    output = {
+        'figure': fig,
+        'n_views': n_views,
+        'n_front': n_front,
+        'images': images,
+        'data': data,
+        'front': front,
+        'back': back}
+
+    return output
 
 
 def figure_html(fig):
@@ -691,14 +725,15 @@ def figure_html(fig):
         fig_html = f.read()
 
     # Center the figure div for cleaner display
-    fig_html = fig_html.replace('class="plotly-graph-div" style="', 
-        'class="plotly-graph-div" style="margin:0 auto;')
+    fig_html = fig_html.replace('class="plotly-graph-div" style="',
+                                'class="plotly-graph-div" style="margin:0 auto;')
 
     return fig_html
 
 
 def visualize_mm_data(
-        mm_data, show_3d=True, show_2d=True, path=None, title=None, **kwargs):
+        mm_data, show_3d=True, show_2d=True, path=None, title=None,
+        no_output=True, **kwargs):
     """Draw an interactive 3D visualization of the Data point cloud."""
     assert isinstance(mm_data, MMData)
 
@@ -714,22 +749,31 @@ def visualize_mm_data(
 
     # Draw a figure for 3D data visualization
     if show_3d:
-        fig_3d = visualize_3d(mm_data, **kwargs)
-        if path is None:
-            fig_3d.show(config={'displayModeBar': False})
-        else:
-            fig_html += figure_html(fig_3d)
+        out_3d = visualize_3d(mm_data, **kwargs)
+        if no_output:
+            if path is None:
+                out_3d['figure'].show(config={'displayModeBar': False})
+            else:
+                fig_html += figure_html(out_3d['figure'])
+    else:
+        out_3d = None
 
     # Draw a figure for 2D data visualization
     if show_2d:
-        fig_2d = visualize_2d(mm_data, **kwargs)
-        if path is None:
-            fig_2d.show(config={'displayModeBar': False})
-        else:
-            fig_html += figure_html(fig_2d)
+        out_2d = visualize_2d(mm_data, **kwargs)
+        if no_output:
+            if path is None:
+                out_2d['figure'].show(config={'displayModeBar': False})
+            else:
+                fig_html += figure_html(out_2d['figure'])
+    else:
+        out_2d = None
 
     if path is not None:
         with open(path, "w") as f:
             f.write(fig_html)
-    
+
+    if not no_output:
+        return out_3d, out_2d
+
     return

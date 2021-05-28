@@ -104,12 +104,17 @@ class No3DEncoder(BackboneBasedModel, ABC):
         # proper point positions and modality-generated features.
         out = Batch(x=mm_data_dict['x_3d'], pos=self.xyz,
                     seen=mm_data_dict['x_seen'])
-        # out = Batch(x=data[0], pos=self.xyz, seen=data[1]).to(self.device)
 
+        # TODO: this always passes the modality feature maps in the
+        #  output dictionary. May not be relevant at inference time,
+        #  when we would rather save memory and discard unnecessary
+        #  data. Besides, this behavior for NoDEncoder is not consistent
+        #  with the multimodal UNet, need to consider homogenizing.
         for m in self.modalities:
-            x_mod = getattr(mm_data_dict['modalities'][m], 'last_view_x_mod', None)
-            if x_mod is not None:
-                out[m] = mm_data_dict['modalities'][m]
+            # x_mod = getattr(mm_data_dict['modalities'][m], 'last_view_x_mod', None)
+            # if x_mod is not None:
+            #     out[m] = mm_data_dict['modalities'][m]
+            out[m] = mm_data_dict['modalities'][m]
 
         # Apply the MLP head, if any
         if self.has_mlp_head:
