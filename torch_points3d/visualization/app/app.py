@@ -154,4 +154,5 @@ def update_graph_2d(i_img, i_back, i_front, i_error, alpha):
 
 
 if __name__ == '__main__':
-    app.run_server(debug=True, port=8050, dev_tools_hot_reload=True)
+    #app.run_server(debug=True, port=8050, dev_tools_hot_reload=True)
+    app.run_server(port=8050)

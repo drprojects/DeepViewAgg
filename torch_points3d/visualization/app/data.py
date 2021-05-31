@@ -7,8 +7,8 @@ import glob
 from matplotlib.colors import ListedColormap
 from omegaconf import OmegaConf
 
-from torch_points3d.datasets.segmentation.multimodal.s3dis_area1_office1 import S3DISFusedDataset, OBJECT_COLOR, INV_OBJECT_LABEL
-# from torch_points3d.datasets.segmentation.multimodal.s3dis_area5_office40 import S3DISFusedDataset, OBJECT_COLOR, INV_OBJECT_LABEL
+#from torch_points3d.datasets.segmentation.multimodal.s3dis_area1_office1 import S3DISFusedDataset, OBJECT_COLOR, INV_OBJECT_LABEL
+from torch_points3d.datasets.segmentation.multimodal.s3dis_area5_office40 import S3DISFusedDataset, OBJECT_COLOR, INV_OBJECT_LABEL
 from torch_points3d.datasets.segmentation.multimodal import IGNORE_LABEL
 from torch_points3d.visualization.multimodal_data import visualize_mm_data
 
@@ -61,8 +61,8 @@ def sample_data(tg_dataset, idx=0, drop_3d=TRANSFORMS_3D, drop_2d=TRANSFORMS_2D)
 
 def get_dataset():
     start = time()
-    dataset_options = OmegaConf.load('conf/data/segmentation/multimodal/s3dis-area1-office1-no3d_exact_768x384.yaml')
-    # dataset_options = OmegaConf.load('conf/data/segmentation/multimodal/s3dis-area5-office40-no3d_exact_768x384.yaml')
+    #dataset_options = OmegaConf.load('conf/data/segmentation/multimodal/s3dis-area1-office1-no3d_exact_768x384.yaml')
+    dataset_options = OmegaConf.load('conf/data/segmentation/multimodal/s3dis-area5-office40-no3d_exact_768x384.yaml')
 
     # Set the 3D resolution
     dataset_options.data.first_subsampling = 0.05
@@ -140,6 +140,9 @@ def get_mm_sample(mm_idx, mm_dataset, model):
             if pred_mod[i].shape[-2:] == im.img_size[::-1]:
                 im.pred = pred_mod[i]
                 break
+    
+    print(mm_data)
+    
     print("Done")
 
     return mm_data
@@ -191,7 +194,16 @@ def compute_2d_back_front_visualization(images, i_img, i_front, i_error,
     # Recover the image settings from global image index
     bins = np.cumsum([im.num_views for im in images])
     i_img_1 = np.digitize(i_img, bins).item()
-    i_img_2 = i_img - bins[i_img_1].item()
+    i_img_2 = i_img - np.r_[0, bins][i_img_1].item()
+    
+    print()
+    print(f"i_img: {i_img}")
+    print(f"num views: {[im.num_views for im in images]}")
+    print(f"i_img_1: {i_img_1}")
+    print(f"i_img_2: {i_img_2}")
+    print(f"unique img_2: {torch.unique(images[i_img_1].mappings.feature_map_indexing[0])}")
+    
+    print()
 
     # Recover the mapping
     idx = images[i_img_1].mappings.feature_map_indexing
