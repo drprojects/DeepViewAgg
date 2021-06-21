@@ -30,10 +30,12 @@ def rgb_to_plotly_rgb(rgb):
     return [f"rgb{tuple(x)}" for x in (rgb * 255).int().numpy()]
 
 
-def feats_to_rgb(feats):
+def feats_to_rgb(feats, normalize=False):
     """Convert features of the format M x N with N>=1 to an M x 3
     tensor with values in [0, 1 for RGB visualization].
     """
+    is_normalized = False
+
     if feats.dim() == 1:
         feats = feats.unsqueeze(1)
     elif feats.dim() > 2:
@@ -44,7 +46,7 @@ def feats_to_rgb(feats):
 
     elif feats.shape[1] == 1:
         # If only 1 feature is found convert to a 3-channel
-        # repetition for black-and-white visualization.
+        # repetition for grayscale visualization.
         color = feats.repeat_interleave(3, 1)
 
     elif feats.shape[1] == 2:
@@ -53,20 +55,46 @@ def feats_to_rgb(feats):
 
     elif feats.shape[1] > 3:
         # If more than 3 features or more are found, project
-        # features to a 3-dimensional space using PCA
-        x_centered = feats - feats.mean(axis=0)
-        cov_matrix = x_centered.T.mm(x_centered) / len(x_centered)
-        _, eigenvectors = torch.symeig(cov_matrix, eigenvectors=True)
-        color = x_centered.mm(eigenvectors[:, -3:])
+        # features to a 3-dimensional space using N-simplex PCA
+        # Heuristics for clamping
+        #   - most features live in [0, 1]
+        #   - most n-simplex PCA features live in [-0.5, 0.6]
+        color = identity_PCA(feats, dim=3)
+        color = (torch.clamp(color, -0.5, 0.6) + 0.5) / 1.1
+        is_normalized = True
 
-    # Unit-normalize the features in a hypercube of shared scale
-    # for nicer visualizations
-    color = color - color.min(dim=0).values.view(1, -1) \
-        if color.max() != color.min() \
-        else color
-    color = color / (color.max(dim=0).values.view(1, -1) + 1e-6)
+    if normalize and not is_normalized:
+        # Unit-normalize the features in a hypercube of shared scale
+        # for nicer visualizations
+        if color.max() != color.min():
+            color = color - color.min(dim=0).values.view(1, -1)
+        color = color / (color.max(dim=0).values.view(1, -1) + 1e-6)
 
     return color
+
+
+def identity_PCA(x, dim=3):
+    """Reduce dimension of x based on PCA on the union of the n-simplex.
+    This is a way of reducing the dimension of x while treating all
+    input dimensions with the same importance, independently of the
+    input distribution in x.
+    """
+    assert x.dim() == 2, f"Expected x.dim()=2 but got x.dim()={x.dim()} instead"
+
+    # Create z the union of the N-simplex
+    input_dim = x.shape[1]
+    z = torch.eye(input_dim)
+
+    # PCA on z
+    z_offset = z.mean(axis=0)
+    z_centered = z - z_offset
+    cov_matrix = z_centered.T.mm(z_centered) / len(z_centered)
+    _, eigenvectors = torch.symeig(cov_matrix, eigenvectors=True)
+
+    # Apply the PCA on x
+    x_reduced = (x - z_offset).mm(eigenvectors[:, -dim:])
+
+    return x_reduced
 
 
 def visualize_3d(mm_data, class_names=None, class_colors=None,
@@ -580,7 +608,6 @@ def visualize_2d(mm_data, figsize=800, width=None, height=None, alpha=3,
                 im.front.append(color)
 
             if 'feat_proj' in front:
-                # TODO: PCA mapping features globally
                 color = (feats_to_rgb(im.mappings.features) * 255).type(torch.uint8)
                 color = color.repeat_interleave(
                     im.mappings.values[1].pointers[1:]

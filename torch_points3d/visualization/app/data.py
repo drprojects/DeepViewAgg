@@ -61,8 +61,8 @@ def sample_data(tg_dataset, idx=0, drop_3d=TRANSFORMS_3D, drop_2d=TRANSFORMS_2D)
 
 def get_dataset():
     start = time()
-    #dataset_options = OmegaConf.load('conf/data/segmentation/multimodal/s3dis-area1-office1-no3d_exact_768x384.yaml')
-    dataset_options = OmegaConf.load('conf/data/segmentation/multimodal/s3dis-area5-office40-no3d_exact_768x384.yaml')
+    dataset_options = OmegaConf.load('conf/data/segmentation/multimodal/s3dis-area1-office1-no3d_exact_768x384.yaml')
+    # dataset_options = OmegaConf.load('conf/data/segmentation/multimodal/s3dis-area5-office40-no3d_exact_768x384.yaml')
 
     # Set the 3D resolution
     dataset_options.data.first_subsampling = 0.05

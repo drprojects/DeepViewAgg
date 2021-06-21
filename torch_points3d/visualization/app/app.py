@@ -18,9 +18,11 @@ sys.path.insert(0, ROOT)
 from torch_points3d.visualization.app.data import *
 
 # Compute the initial state od the app
+# i_sample = 10  # area5-office40
+i_sample = 5  # area1-office1
 dataset = get_dataset()
 model = get_model(dataset)
-mm_data = get_mm_sample(10, dataset.test_dataset[0], model)
+mm_data = get_mm_sample(i_sample, dataset.test_dataset[0], model)
 out_3d, out_2d_rgb, out_2d_pred = compute_plotly_visualizations(mm_data)
 
 # Recover the image position traces in 3D visualization
@@ -154,5 +156,5 @@ def update_graph_2d(i_img, i_back, i_front, i_error, alpha):
 
 
 if __name__ == '__main__':
-    #app.run_server(debug=True, port=8050, dev_tools_hot_reload=True)
+    # app.run_server(debug=True, port=8050, dev_tools_hot_reload=True)
     app.run_server(port=8050)
