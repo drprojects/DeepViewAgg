@@ -89,9 +89,14 @@ def get_model(dataset):
     # Load the model from checkpoint - RGB light drop 50 trained on "5cm exact 768x384"
     model_options = OmegaConf.load('conf/data/segmentation/multimodal/s3disfused-no3d_exact_768x384.yaml')
     model_options.models = OmegaConf.load('conf/models/segmentation/multimodal/no3d.yaml').models
-    model_options.model_name = 'RGB_D32-4_persistent-indrop-50_mean_view'
-    checkpoint_dir = 'outputs/benchmark/benchmark-RGB_D32-4_persistent-indrop-50_mean_view-20210517_230329'
-    selection_stage = 'val' # train, val, test
+
+    # model_options.model_name = 'RGB_D32-4_persistent-indrop-50_mean_view'
+    # checkpoint_dir = 'outputs/benchmark/benchmark-RGB_D32-4_persistent-indrop-50_mean_view-20210517_230329'
+
+    model_options.model_name = 'RGB_D32_gp-8-32-32-4_gscale'
+    checkpoint_dir = 'outputs/benchmark/cnes/RGB/fold5/RGB_D32_gp-8-32-32-4_gscale_exact_768x384'
+
+    selection_stage = 'val'  # train, val, test
     weight_name = 'miou'  # miou, macc, acc, ..., latest
     checkpoint = ModelCheckpoint(checkpoint_dir, model_options.model_name, selection_stage, run_config=model_options, resume=False)
 
@@ -120,7 +125,12 @@ def get_mm_sample(mm_idx, mm_dataset, model):
     model.set_input(batch, model.device)
     _ = model(batch)
     pred = model.output.detach().cpu().argmax(dim=1)
-    pred_mod = [im.pred.detach().cpu() for im in model.input.modalities['image']]
+    has_img_pred = hasattr(model.input.modalities['image'][0], 'pred')
+    has_img_feat = hasattr(model.input.modalities['image'][0], 'feat')
+    if has_img_pred:
+        pred_mod = [im.pred.detach().cpu() for im in model.input.modalities['image']]
+    if has_img_feat:
+        feat_mod = [im.feat.detach().cpu() for im in model.input.modalities['image'] if hasattr(im, 'feat')]
     del batch
 
     # Reload multimodal data for visualization
@@ -136,10 +146,18 @@ def get_mm_sample(mm_idx, mm_dataset, model):
     # Need to dispatch image feature maps wrt img_size, assuming size is
     # unique.
     for im in mm_data.modalities['image']:
-        for i in range(len(pred_mod)):
-            if pred_mod[i].shape[-2:] == im.img_size[::-1]:
+        match_found = False
+        i = 0
+        while not match_found and i < len(mm_data.modalities['image']):
+            if has_img_pred and pred_mod[i].shape[-2:] == im.img_size[::-1]:
                 im.pred = pred_mod[i]
-                break
+                im.pred_l2 = torch.linalg.norm(pred_mod[i], dim=1).unsqueeze(1)
+                match_found = True
+            if has_img_feat and feat_mod[i].shape[-2:] == im.img_size[::-1]:
+                im.feat = feat_mod[i]
+                im.feat_l2 = torch.linalg.norm(feat_mod[i], dim=1).unsqueeze(1)
+                match_found = True
+            i += 1
     
     print(mm_data)
     
@@ -149,7 +167,9 @@ def get_mm_sample(mm_idx, mm_dataset, model):
 
 def compute_plotly_visualizations(mm_data):
     # Build plotly visualization objects to be used in dash
-    out_3d, out_2d_rgb = visualize_mm_data(
+    out = {}
+
+    out['3d'], out['2d_rgb'] = visualize_mm_data(
         mm_data,
         class_names=CLASSES,
         class_colors=OBJECT_COLOR,
@@ -166,28 +186,29 @@ def compute_plotly_visualizations(mm_data):
         pointsize=5,
         no_output=False)
 
-    _, out_2d_pred = visualize_mm_data(
-        mm_data,
-        class_names=CLASSES,
-        class_colors=OBJECT_COLOR,
-        error_color=[255, 0, 0],
-        figsize=800,
-        voxel=0.05,
-        show_3d=False,
-        show_2d=True,
-        back='pred',
-        front=['map', 'rgb', 'pos', 'y', 'feat_proj'],
-        show_point_error=False,
-        show_view_error=False,
-        alpha=2.5,
-        pointsize=5,
-        no_output=False)
+    for back in ['pred', 'pred_l2', 'feat', 'feat_l2']:
+        out['2d_' + back] = visualize_mm_data(
+            mm_data,
+            class_names=CLASSES,
+            class_colors=OBJECT_COLOR,
+            error_color=[255, 0, 0],
+            figsize=800,
+            voxel=0.05,
+            show_3d=False,
+            show_2d=True,
+            back=back,
+            front=['map', 'rgb', 'pos', 'y', 'feat_proj'],
+            show_point_error=False,
+            show_view_error=False,
+            alpha=2.5,
+            pointsize=5,
+            no_output=False)[1]
 
-    for im_rgb, im_pred in zip(out_2d_rgb['images'], out_2d_pred['images']):
+    for im_rgb, im_pred in zip(out['2d_rgb']['images'], out['2d_pred']['images']):
         im_rgb.is_tp_point = im_pred.is_tp_point
         im_rgb.is_tp_view = im_pred.is_tp_view
 
-    return out_3d, out_2d_rgb, out_2d_pred
+    return out
 
 def compute_2d_back_front_visualization(images, i_img, i_front, i_error,
         alpha=2, error_color=[255, 0, 0]):

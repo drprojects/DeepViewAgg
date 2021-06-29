@@ -12,6 +12,7 @@ import plotly.graph_objects as go
 
 import os
 import sys
+import copy
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 sys.path.insert(0, ROOT)
@@ -23,18 +24,18 @@ i_sample = 5  # area1-office1
 dataset = get_dataset()
 model = get_model(dataset)
 mm_data = get_mm_sample(i_sample, dataset.test_dataset[0], model)
-out_3d, out_2d_rgb, out_2d_pred = compute_plotly_visualizations(mm_data)
+out = compute_plotly_visualizations(mm_data)
 
 # Recover the image position traces in 3D visualization
-img_3d_traces = out_3d['img_traces']
+img_3d_traces = out['3d']['img_traces']
 
 # button_2d_image
-fig_3d = out_3d['figure']
+fig_3d = out['3d']['figure']
 visibilities_3d = [button.args[0]['visible'] for button in fig_3d.layout.updatemenus[0].buttons]
 
-# layout_3d = fig_3d.layout
-# fig_3d_menus = layout_3d.updatemenus
-# layout_3d.updatemenus = None
+# layout['3d'] = fig_3d.layout
+# fig_3d_menus = layout['3d'].updatemenus
+# layout['3d'].updatemenus = None
 # fig_3d.layout.updatemenus = None
 
 # button_3d_mode = dcc.Dropdown(
@@ -47,11 +48,16 @@ visibilities_3d = [button.args[0]['visible'] for button in fig_3d.layout.updatem
 
 # Separate the 2D data from the figure, for faster visualization update
 # at callback time
-images_rgb = out_2d_rgb['images']
-images_pred = out_2d_pred['images']
+image_backgrounds = [
+    out['2d_rgb']['images'],
+    out['2d_pred']['images'],
+    out['2d_pred_l2']['images'],
+    out['2d_feat']['images'],
+    out['2d_feat_l2']['images']
+]
 
 # Layout for 2D figure
-layout_2d = out_2d_rgb['figure'].layout
+layout_2d = out['2d_rgb']['figure'].layout
 fig_2d_menus = layout_2d.updatemenus
 layout_2d.updatemenus = None
 
@@ -59,7 +65,7 @@ layout_2d.updatemenus = None
 fig_2d = go.Figure(layout=layout_2d)
 fig_2d.add_trace(
     go.Image(
-        z=compute_2d_back_front_visualization(images_rgb, 0, 0, 0, alpha=2).permute(1, 2, 0),
+        z=compute_2d_back_front_visualization(image_backgrounds[0], 0, 0, 0, alpha=2).permute(1, 2, 0),
         visible=True,
         opacity=1.0,
         hoverinfo='none', ))  # disable hover info on images
@@ -72,12 +78,21 @@ button_2d_image = dcc.Dropdown(
         {'label': f, 'value': str(i)} for i, f in enumerate([button.label for button in fig_2d_menus[0].buttons])],
     value=0)
 
-button_2d_back = dcc.Dropdown(
-    id='back-dropdown',
+button_2d_back_1 = dcc.Dropdown(
+    id='back-dropdown-1',
     searchable=False,
     clearable=False,
     options=[
-        {'label': f, 'value': str(i)} for i, f in enumerate(['RGB', 'Prediction'])],
+        {'label': f, 'value': str(i)} for i, f in enumerate(['RGB', 'Prediction', 'Prediction L2', 'Features', 'Features L2'])],
+    value=0,
+)
+
+button_2d_back_2 = dcc.Dropdown(
+    id='back-dropdown-2',
+    searchable=False,
+    clearable=False,
+    options=[
+        {'label': f, 'value': str(i)} for i, f in enumerate(['RGB', 'Prediction', 'Prediction L2', 'Features', 'Features L2'])],
     value=0,
 )
 
@@ -108,7 +123,7 @@ app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 style_center = {'display': 'flex', 'justify-content': 'center'}
 
 app.layout = html.Div(children=[
-    html.H1(children='Multimodal Sample', style={'textAlign': 'center'}),
+    html.H1(children='Multimodal Sample', style={'textAlign': 'center', 'font-size': '30px'}),
 
     html.Div([
         dcc.Graph(id='graph_3d', figure=fig_3d, config={'displayModeBar': False}), ],
@@ -116,7 +131,9 @@ app.layout = html.Div(children=[
 
     html.Div([
         html.Div([button_2d_image], style={'width': '2cm', 'margin': '5px', 'display': 'inline-block'}),
-        html.Div([button_2d_back], style={'width': '3cm', 'margin': '5px', 'display': 'inline-block'}),
+        html.Div([button_2d_back_1], style={'width': '4cm', 'margin': '5px', 'display': 'inline-block'}),
+        html.Div([button_2d_back_2], style={'width': '4cm', 'margin': '5px', 'display': 'inline-block'}),
+        html.Div([dcc.Slider(id='back-slider', min=0, max=1, step=0.1, value=0,)], style={'width': '4cm', 'margin': '5px', 'display': 'inline-block'}),
         html.Div([button_2d_front], style={'width': '5cm', 'margin': '5px', 'display': 'inline-block'}),
         html.Div([button_2d_error], style={'width': '4cm', 'margin': '5px', 'display': 'inline-block'}),
         html.Div([dcc.Slider(id='alpha-slider', min=1, max=6, step=0.25, value=2,)], style={'width': '4cm', 'margin': '5px', 'display': 'inline-block'}),],
@@ -132,13 +149,17 @@ app.layout = html.Div(children=[
 @app.callback(
     Output('graph_2d', 'figure'),
     [Input('image-dropdown', 'value'),
-    Input('back-dropdown', 'value'),
+    Input('back-dropdown-1', 'value'),
+    Input('back-dropdown-2', 'value'),
+    Input('back-slider', 'value'),
     Input('front-dropdown', 'value'),
     Input('error-dropdown', 'value'),
     Input('alpha-slider', 'value')])
-def update_graph_2d(i_img, i_back, i_front, i_error, alpha):
+def update_graph_2d(i_img, i_back_1, i_back_2, t_back, i_front, i_error, alpha):
     # Select background between RGB and Prediction
-    images = images_rgb if int(i_back) == 0 else images_pred
+    images = image_backgrounds[int(i_back_1)].clone()
+    for im_1, im_2 in zip(images, image_backgrounds[int(i_back_2)]):
+        im_1.background = (im_1.background * (1 - float(t_back)) + im_2.background * float(t_back)).byte()
 
     # Select foreground and compute visualization
     fig_2d = go.Figure(layout=layout_2d)
@@ -157,4 +178,5 @@ def update_graph_2d(i_img, i_back, i_front, i_error, alpha):
 
 if __name__ == '__main__':
     # app.run_server(debug=True, port=8050, dev_tools_hot_reload=True)
-    app.run_server(port=8050)
+    # app.run_server(port=8050)
+    app.run_server(port=8051)

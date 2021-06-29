@@ -455,7 +455,7 @@ def visualize_2d(mm_data, figsize=800, width=None, height=None, alpha=3,
     if back == 'x':
         images = ImageData([im.load() if im.x is None else im for im in images])
 
-    # Convert 2D predictions to RGB colors
+    # Convert 2D predicted labels to RGB colors
     if back == 'pred':
         for im in images:
             # Convert logits to labels if need be
@@ -465,8 +465,8 @@ def visualize_2d(mm_data, figsize=800, width=None, height=None, alpha=3,
                 raise ValueError("Image predictions must be int labels or float logits.")
             im.background = torch.ByteTensor(class_colors)[im.pred.long()].permute(0, 3, 1, 2)
 
-    # Convert the background to RGB, if need be. All images must be
-    # handled at once, in case we need to PCA the features in a common
+    # Convert the background to RGB, if need be. All images are handled
+    # at once, in case we need to PCA the features in a common
     # projective space.
     elif any([getattr(im, back).is_floating_point() for im in images]) \
             or any([getattr(im, back).max() > 255 for im in images]):
