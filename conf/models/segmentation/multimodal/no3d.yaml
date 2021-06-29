@@ -1039,3 +1039,42 @@ models:
                     mode: residual
                 #                drop_mod: 0.5
                 branching_index: 0
+
+    RGB_ADE20KResNet18PPM_mean-feat_view:
+        # 6.1 M params - 23.8 Mo on the GPU - ~7.2 ko/pixel at training time
+        class: no3d.No3DFeatureFusion
+        down_conv:
+            image:
+                down_conv:
+                    module_name: ADE20KResNet18PPM
+                atomic_pooling:
+                    module_name: BimodalCSRPool
+                    mode: max
+                view_pooling:
+                    module_name: BimodalCSRPool
+                    mode: mean
+                fusion:
+                    module_name: BimodalFusion
+                    mode: residual
+                drop_mod: 0.1
+                keep_last_view: True
+                branching_index: 0
+
+    RGB_ADE20KResNet18PPM_mean-feat:
+        # 6.1 M params - 23.8 Mo on the GPU - ~7.2 ko/pixel at training time
+        class: no3d.No3DFeatureFusion
+        down_conv:
+            image:
+                down_conv:
+                    module_name: ADE20KResNet18PPM
+                atomic_pooling:
+                    module_name: BimodalCSRPool
+                    mode: max
+                view_pooling:
+                    module_name: BimodalCSRPool
+                    mode: mean
+                fusion:
+                    module_name: BimodalFusion
+                    mode: residual
+                drop_mod: 0.1
+                branching_index: 0

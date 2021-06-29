@@ -43,9 +43,9 @@ class SameSettingImageData(object):
     _map_key = 'mappings'
     _x_key = 'x'
     _mask_key = 'mask'
-    _shared_keys = ['ref_size', 'proj_upscale', 'downscale', 'crop_size',
-                    'voxel', 'r_max', 'r_min', 'growth_k', 'growth_r',
-                    _mask_key]
+    _shared_keys = [
+        'ref_size', 'proj_upscale', 'downscale', 'crop_size', 'voxel',
+        'r_max', 'r_min', 'growth_k', 'growth_r', _mask_key]
     _own_keys = _numpy_keys + _torch_keys + [_map_key, _x_key]
     _keys = _shared_keys + _own_keys
 
@@ -980,8 +980,8 @@ class SameSettingImageBatch(SameSettingImageData):
             batch_dict[key] = [batch_dict[key]]
 
         # Only stack if all SameSettingImageData have the same shared
-        # attributes, except for the 'mask' attribute, for which the
-        # value of the first SameSettingImageData is taken for the
+        # attributes. Except for the 'mask' attribute, for which the
+        # value of the first SameSettingImageData is used for the
         # whole batch. This is because masks may differ slightly when
         # computed statistically with NonStaticImageMask.
         if len(image_data_list) > 1:

@@ -27,9 +27,9 @@ class No3DEncoder(BackboneBasedModel, ABC):
         # the BackboneBasedModel carries most of the required
         # initialization.
         assert self.is_multimodal, \
-            f"No3DUnet should carry at least one non-3D modality."
+            f"No3DEncoder should carry at least one non-3D modality."
         assert self.no_3d_conv, \
-            f"No3DUnet should not have 3D-specific modules."
+            f"No3DEncoder should not have 3D-specific modules."
 
         # Recover size of output features
         default_output_nc = kwargs.get("default_output_nc", None)
