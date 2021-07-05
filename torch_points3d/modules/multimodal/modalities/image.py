@@ -6,6 +6,10 @@ from torch_points3d.utils.config import *
 from torch_points3d.core.common_modules import Seq, Identity
 from math import pi, sqrt
 
+from mit_semseg.config import cfg
+from mit_semseg.models import ModelBuilder
+from mit_semseg.lib.nn import SynchronizedBatchNorm2d
+
 
 def standardize_weights(weight, scaled=True):
     weight_mean = weight.mean(dim=1, keepdim=True).mean(dim=2,
@@ -596,3 +600,123 @@ class UNet(nn.Module, ABC):
             x = self.last(x, **kwargs)
 
         return x
+
+
+class PPMFeatMap(nn.Module):
+    """Pyramid Pooling Module for feature extraction.
+
+    Adapted from https://github.com/CSAILVision/semantic-segmentation-pytorch
+    """
+    def __init__(self, fc_dim=4096, pool_scales=(1, 2, 3, 6)):
+        super(PPMFeatMap, self).__init__()
+
+        self.ppm = []
+        for scale in pool_scales:
+            self.ppm.append(nn.Sequential(
+                nn.AdaptiveAvgPool2d(scale),
+                nn.Conv2d(fc_dim, 512, kernel_size=1, bias=False),
+                SynchronizedBatchNorm2d(512),
+                nn.ReLU(inplace=True)
+            ))
+        self.ppm = nn.ModuleList(self.ppm)
+
+        self.conv_last = nn.Sequential(
+            nn.Conv2d(fc_dim + len(pool_scales) * 512, 512,
+                      kernel_size=3, padding=1, bias=False),
+            SynchronizedBatchNorm2d(512),
+            nn.ReLU(inplace=True)
+        )
+
+    @classmethod
+    def from_pretrained_ppm(cls, ppm_pretrained):
+        ppm_feat = cls()
+        ppm_feat.ppm = ppm_pretrained.ppm
+        ppm_feat.conv_last = nn.Sequential(*list(ppm_pretrained.conv_last)[:-2])
+        return ppm_feat
+
+    def forward(self, conv_out, out_size=None):
+        conv5 = conv_out[-1]
+
+        input_size = conv5.size()
+        ppm_out = [conv5]
+        for pool_scale in self.ppm:
+            ppm_out.append(nn.functional.interpolate(
+                pool_scale(conv5),
+                (input_size[2], input_size[3]),
+                mode='bilinear', align_corners=False))
+        ppm_out = torch.cat(ppm_out, 1)
+
+        x = self.conv_last(ppm_out)
+
+        if out_size is not None:
+            x = nn.functional.interpolate(
+                x, size=out_size, mode='bilinear', align_corners=False)
+
+        return x
+
+
+class ADE20KResNet18PPM(nn.Module, ABC):
+    """ResNet-18 encoder with PPM decoder pretrained on ADE20K.
+
+    Adapted from https://github.com/CSAILVision/semantic-segmentation-pytorch
+    """
+
+    def __init__(self, frozen=False, *args, **kwargs):
+        super(ADE20KResNet18PPM, self).__init__()
+
+        # Adapt the default config to use ResNet18 + PPM-Deepsup model
+        ARCH = 'resnet18dilated-ppm_deepsup'
+        DIR = osp.join(osp.dirname(osp.abspath(__file__)), 'pretrained/ade20k', ARCH)
+        cfg.merge_from_file(osp.join(DIR, f'{ARCH}.yaml'))
+        cfg.MODEL.arch_encoder = cfg.MODEL.arch_encoder.lower()
+        cfg.MODEL.arch_decoder = cfg.MODEL.arch_decoder.lower()
+        cfg.DIR = DIR
+
+        # Absolute paths of model weights
+        cfg.MODEL.weights_encoder = osp.join(
+            cfg.DIR, 'encoder_' + cfg.TEST.checkpoint)
+        cfg.MODEL.weights_decoder = osp.join(
+            cfg.DIR, 'decoder_' + cfg.TEST.checkpoint)
+
+        assert osp.exists(cfg.MODEL.weights_encoder) and \
+               osp.exists(cfg.MODEL.weights_decoder), "checkpoint does not exist!"
+
+        # Build encoder and decoder from pretrained weights
+        self.encoder = ModelBuilder.build_encoder(
+            arch=cfg.MODEL.arch_encoder,
+            fc_dim=cfg.MODEL.fc_dim,
+            weights=cfg.MODEL.weights_encoder)
+        self.decoder = ModelBuilder.build_decoder(
+            arch=cfg.MODEL.arch_decoder,
+            fc_dim=cfg.MODEL.fc_dim,
+            num_class=cfg.DATASET.num_class,
+            weights=cfg.MODEL.weights_decoder,
+            use_softmax=True)
+
+        # Convert PPM from a classifier into a feature map extractor
+        self.decoder = PPMFeatMap.from_pretrained_ppm(self.decoder)
+
+        # If the model is frozen, it will always remain in eval mode
+        # and the parameters will
+        self.frozen = frozen
+        if self.frozen:
+            self.training = False
+
+    def forward(self, x, out_size=None, **kwargs):
+        pred = self.decoder(self.encoder(x, return_feature_maps=True),
+            out_size=out_size)
+        return pred
+
+    @property
+    def frozen(self):
+        return self._frozen
+
+    @frozen.setter
+    def frozen(self, frozen):
+        if isinstance(frozen, bool):
+            self._frozen = frozen
+        for p in self.parameters():
+            p.requires_grad = not self.frozen
+
+    def train(self, mode=True):
+        return super(ADE20KResNet18PPM, self).train(mode and not self.frozen)

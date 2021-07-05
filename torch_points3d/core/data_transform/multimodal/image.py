@@ -1114,6 +1114,19 @@ class GaussianBlur(TorchvisionTransform):
         self.sigma = sigma
         self.transform = T.GaussianBlur(kernel_size, sigma=sigma)
 
+
+class Normalize(TorchvisionTransform):
+    """Normalize image colors.
+
+    Default parameters come from ADE20K pretrained models at:
+    https://github.com/CSAILVision/semantic-segmentation-pytorch."""
+
+    def __init__(self,  mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]):
+        self.mean = mean
+        self.std = std
+        self.transform = T.Normalize(mean=mean, std=std)
+
+
 # TODO : add invertible transforms from https://github.com/gregunz/invertransforms
 #  or modify the mappings when applying the geometric transforms.
 #  WARNING : if the image undergoes geometric transform, this may cause

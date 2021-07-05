@@ -128,7 +128,7 @@ def fetch_modalities(opt, modality_names):
                and hasattr(v, 'fusion') \
                and hasattr(v, 'branching_index'), \
             f"Found '{name}' modality in the config but could not " \
-            f"recover all required attributes: ['down_conv' " \
+            f"recover all required attributes: ['down_conv', " \
             f"'atomic_pooling', 'view_pooling', 'fusion', 'branching_index]"
         modalities.append(name)
     return modalities

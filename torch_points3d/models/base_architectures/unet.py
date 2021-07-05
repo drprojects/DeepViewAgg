@@ -459,8 +459,7 @@ class UnwrappedUnetBasedModel(BaseModel, ABC):
                 b_idx = [b_idx] if not is_list(b_idx) else b_idx
 
                 # Check whether the modality module is a UNet
-                is_unet = hasattr(opt.down_conv[m], 'up_conv') \
-                          and opt.down_conv[m].up_conv is not None
+                is_unet = getattr(opt.down_conv[m], 'up_conv', None) is not None
                 assert not is_unet or len(b_idx) == 1, \
                     f"Cannot build a {m}-specific UNet with multiple " \
                     f"branching indices. Consider removing the 'up_conv' " \

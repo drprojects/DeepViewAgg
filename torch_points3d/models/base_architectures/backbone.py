@@ -63,8 +63,9 @@ class BackboneBasedModel(BaseModel, ABC):
         # Factory for creating down modules for the main 3D modality
         factory_module_cls = get_factory(model_type, modules_lib)
         down_conv_cls_name = opt.down_conv.module_name
-        self._module_factories = {'main': factory_module_cls(
-            down_conv_cls_name, None, modules_lib)}
+        self._module_factories = {
+            'main': factory_module_cls(down_conv_cls_name, None, modules_lib)
+        }
 
         # Factories for creating modules for additional modalities
         if self.is_multimodal:
@@ -88,7 +89,8 @@ class BackboneBasedModel(BaseModel, ABC):
         # Down modules - modality-specific branches
         if self.is_multimodal:
             # Insert identity 3D convolutions to allow branching
-            # directly into the raw 3D features
+            # directly into the raw 3D features. This is typically
+            # needed for early fusion mechanisms.
             down_modules = [nn.Identity(), nn.Identity()] + down_modules
 
             assert len(down_modules) % 2 == 0 and len(down_modules) > 0, \
@@ -105,8 +107,7 @@ class BackboneBasedModel(BaseModel, ABC):
                 b_idx = [b_idx] if not is_list(b_idx) else b_idx
 
                 # Check whether the modality module is a UNet
-                is_unet = hasattr(opt.down_conv[m], 'up_conv') \
-                          and opt.down_conv[m].up_conv is not None
+                is_unet = getattr(opt.down_conv[m], 'up_conv', None) is not None
                 assert not is_unet or len(b_idx) == 1, \
                     f"Cannot build a {m}-specific UNet with multiple " \
                     f"branching indices. Consider removing the 'up_conv' " \
@@ -118,7 +119,7 @@ class BackboneBasedModel(BaseModel, ABC):
                 assert not self.no_3d_conv or b_idx == [0], \
                     f"Cannot build a no-3D model with multiple " \
                     f"branching indices. All modality-specific branches " \
-                    f"should join at the index=0. Consider changing the" \
+                    f"should join at index=0. Consider changing the" \
                     f"branching index of the {m} modality to 0 or building " \
                     f"3D convolutions."
 
