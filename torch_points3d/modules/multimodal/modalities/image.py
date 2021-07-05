@@ -661,7 +661,7 @@ class ADE20KResNet18PPM(nn.Module, ABC):
     Adapted from https://github.com/CSAILVision/semantic-segmentation-pytorch
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, frozen=False, *args, **kwargs):
         super(ADE20KResNet18PPM, self).__init__()
 
         # Adapt the default config to use ResNet18 + PPM-Deepsup model
@@ -696,7 +696,27 @@ class ADE20KResNet18PPM(nn.Module, ABC):
         # Convert PPM from a classifier into a feature map extractor
         self.decoder = PPMFeatMap.from_pretrained_ppm(self.decoder)
 
+        # If the model is frozen, it will always remain in eval mode
+        # and the parameters will
+        self.frozen = frozen
+        if self.frozen:
+            self.training = False
+
     def forward(self, x, out_size=None, **kwargs):
         pred = self.decoder(self.encoder(x, return_feature_maps=True),
             out_size=out_size)
         return pred
+
+    @property
+    def frozen(self):
+        return self._frozen
+
+    @frozen.setter
+    def frozen(self, frozen):
+        if isinstance(frozen, bool):
+            self._frozen = frozen
+        for p in self.parameters():
+            p.requires_grad = not self.frozen
+
+    def train(self, mode=True):
+        return super(ADE20KResNet18PPM, self).train(mode and not self.frozen)
