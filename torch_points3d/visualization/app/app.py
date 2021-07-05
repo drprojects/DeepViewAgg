@@ -18,12 +18,19 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.a
 sys.path.insert(0, ROOT)
 from torch_points3d.visualization.app.data import *
 
-# Compute the initial state od the app
-# i_sample = 10  # area5-office40
-i_sample = 5  # area1-office1
-dataset = get_dataset()
+# Available data samples for visualization
+SAMPLES = {
+    'area1-office1': {'sphere': 5, 'port': 8050},
+    'area5-office40': {'sphere': 10, 'port': 8051}
+}
+
+# Compute the initial state of the app
+name = 'area1-office1'
+# name = 'area5-office40'
+sphere = SAMPLES[name]['sphere']
+dataset = get_dataset(name)
 model = get_model(dataset)
-mm_data = get_mm_sample(i_sample, dataset.test_dataset[0], model)
+mm_data = get_mm_sample(sphere, dataset.test_dataset[0], model)
 out = compute_plotly_visualizations(mm_data)
 
 # Recover the image position traces in 3D visualization
@@ -178,5 +185,4 @@ def update_graph_2d(i_img, i_back_1, i_back_2, t_back, i_front, i_error, alpha):
 
 if __name__ == '__main__':
     # app.run_server(debug=True, port=8050, dev_tools_hot_reload=True)
-    # app.run_server(port=8050)
-    app.run_server(port=8051)
+    app.run_server(port=SAMPLES[name]['port'])
