@@ -602,14 +602,29 @@ class UNet(nn.Module, ABC):
         return x
 
 
-class PrudentBatchNorm2d(SynchronizedBatchNorm2d):
+class PrudentSynchronizedBatchNorm2d(SynchronizedBatchNorm2d):
+    """SynchronizedBatchNorm2d with support for (1, C, 1, 1) inputs at
+    training time.
+    """
+
     def forward(self, input):
-        training_bkp = self.training
+        is_training = self.training
         if input.shape[0] == input.shape[2] == input.shape[3] == 1:
             self.training = False
-        output = super(PrudentBatchNorm2d, self).forward(input)
-        self.training = training_bkp
+        output = super(PrudentSynchronizedBatchNorm2d, self).forward(input)
+        self.training = is_training
         return output
+
+    @classmethod
+    def from_pretrained(cls, bn_pretrained):
+        # Initialize to default PPMFeatMap instance
+        bn_new = cls(bn_pretrained.num_features)
+
+        # Recover all attributes
+        for k, v in bn_pretrained.__dict__.items():
+            setattr(bn_new, k, v)
+
+        return bn_new
 
 
 class PPMFeatMap(nn.Module):
@@ -625,7 +640,7 @@ class PPMFeatMap(nn.Module):
             self.ppm.append(nn.Sequential(
                 nn.AdaptiveAvgPool2d(scale),
                 nn.Conv2d(fc_dim, 512, kernel_size=1, bias=False),
-                PrudentBatchNorm2d(512),  # (1, C, 1, 1) inputs hurt basic BN
+                PrudentSynchronizedBatchNorm2d(512),  # (1, C, 1, 1) inputs hurt basic BN
                 nn.ReLU(inplace=True)
             ))
         self.ppm = nn.ModuleList(self.ppm)
@@ -638,11 +653,21 @@ class PPMFeatMap(nn.Module):
         )
 
     @classmethod
-    def from_pretrained_ppm(cls, ppm_pretrained):
-        ppm_feat = cls()
-        ppm_feat.ppm = ppm_pretrained.ppm
-        ppm_feat.conv_last = nn.Sequential(*list(ppm_pretrained.conv_last)[:-2])
-        return ppm_feat
+    def from_pretrained(cls, ppm_pretrained):
+        # Initialize to default PPMFeatMap instance
+        ppm_new = cls()
+
+        # Recover the PPM module
+        ppm_new.ppm = ppm_pretrained.ppm
+
+        # Change the PPM SynchronizedBatchNorm2d to PrudentBatchNorm2d
+        # to handle single-image batches
+        for m in ppm_new.ppm:
+            m[2] = PrudentSynchronizedBatchNorm2d.from_pretrained(m[2])
+
+        # Recover the conv_last module without dropout and classifier
+        ppm_new.conv_last = nn.Sequential(*list(ppm_pretrained.conv_last)[:-2])
+        return ppm_new
 
     def forward(self, conv_out, out_size=None):
         conv5 = conv_out[-1]
@@ -704,7 +729,7 @@ class ADE20KResNet18PPM(nn.Module, ABC):
             use_softmax=True)
 
         # Convert PPM from a classifier into a feature map extractor
-        self.decoder = PPMFeatMap.from_pretrained_ppm(self.decoder)
+        self.decoder = PPMFeatMap.from_pretrained(self.decoder)
 
         # If the model is frozen, it will always remain in eval mode
         # and the parameters will
