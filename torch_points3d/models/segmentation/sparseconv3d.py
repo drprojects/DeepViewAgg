@@ -5,6 +5,8 @@ import torch.nn as nn
 from torch_points3d.models.base_model import BaseModel
 from torch_points3d.datasets.segmentation import IGNORE_LABEL
 from torch_points3d.applications.sparseconv3d import SparseConv3d
+import torch_points3d.modules.SparseConv3d as sp3d
+
 
 log = logging.getLogger(__name__)
 
@@ -13,10 +15,12 @@ class APIModel(BaseModel):
     def __init__(self, option, model_type, dataset, modules):
         # call the initialization method of UnetBasedModel
         super().__init__(option)
+        self._weight_classes = dataset.weight_classes
         self.backbone = SparseConv3d(
             "unet", dataset.feature_dimension, config=option.backbone, backend=option.get("backend", "minkowski")
         )
         self._modalities = self.backbone._modalities
+        self._supports_mixed = sp3d.nn.get_backend() == "torchsparse"
         self.head = nn.Sequential(nn.Linear(self.backbone.output_nc, dataset.num_classes))
         self.loss_names = ["loss_seg"]
 
@@ -32,8 +36,10 @@ class APIModel(BaseModel):
         features = self.backbone(self.input).x
         logits = self.head(features)
         self.output = F.log_softmax(logits, dim=-1)
+        if self._weight_classes is not None:
+            self._weight_classes = self._weight_classes.to(self.device)
         if self.labels is not None:
-            self.loss_seg = F.nll_loss(self.output, self.labels, ignore_index=IGNORE_LABEL)
+            self.loss_seg = F.nll_loss(self.output, self.labels, ignore_index=IGNORE_LABEL, weight=self._weight_classes)
 
     def backward(self):
         self.loss_seg.backward()
