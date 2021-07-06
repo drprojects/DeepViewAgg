@@ -23,7 +23,7 @@ class BaseMinkowski(FragmentBaseModel):
         )
         # Last Layer
 
-        if option.mlp_cls is not None:
+        if option.get('mlp_cls') is not None:
             last_mlp_opt = option.mlp_cls
             in_feat = last_mlp_opt.nn[0]
             self.FC_layer = Seq()
@@ -40,7 +40,7 @@ class BaseMinkowski(FragmentBaseModel):
                 )
                 in_feat = last_mlp_opt.nn[i]
 
-            if last_mlp_opt.dropout:
+            if last_mlp_opt.get('dropout'):
                 self.FC_layer.append(Dropout(p=last_mlp_opt.dropout))
 
             self.FC_layer.append(Linear(in_feat, in_feat, bias=False))
@@ -49,11 +49,11 @@ class BaseMinkowski(FragmentBaseModel):
 
     def set_input(self, data, device):
         coords = torch.cat([data.batch.unsqueeze(-1).int(), data.coords.int()], -1)
-        self.input = ME.SparseTensor(data.x, coords=coords).to(device)
+        self.input = ME.SparseTensor(features=data.x, coordinates=coords, device=device)
         self.xyz = data.pos.to(device)
         if hasattr(data, "pos_target"):
             coords_target = torch.cat([data.batch_target.unsqueeze(-1).int(), data.coords_target.int()], -1)
-            self.input_target = ME.SparseTensor(data.x_target, coords=coords_target).to(device)
+            self.input_target = ME.SparseTensor(features=data.x_target, coordinates=coords_target, device=device)
             self.xyz_target = data.pos_target.to(device)
             self.match = data.pair_ind.to(torch.long).to(device)
             self.size_match = data.size_pair_ind.to(torch.long).to(device)
@@ -110,7 +110,7 @@ class MinkowskiFragment(BaseMinkowski, UnwrappedUnetBasedModel):
         )
         # Last Layer
 
-        if option.mlp_cls is not None:
+        if option.get('mlp_cls') is not None:
             last_mlp_opt = option.mlp_cls
             in_feat = last_mlp_opt.nn[0]
             self.FC_layer = Seq()
