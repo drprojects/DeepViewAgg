@@ -602,6 +602,16 @@ class UNet(nn.Module, ABC):
         return x
 
 
+class PrudentBatchNorm2d(SynchronizedBatchNorm2d):
+    def forward(self, input):
+        training_bkp = self.training
+        if input.shape[0] == input.shape[2] == input.shape[3] == 1:
+            self.training = False
+        output = super(PrudentBatchNorm2d, self).forward(input)
+        self.training = training_bkp
+        return output
+
+
 class PPMFeatMap(nn.Module):
     """Pyramid Pooling Module for feature extraction.
 
@@ -615,7 +625,7 @@ class PPMFeatMap(nn.Module):
             self.ppm.append(nn.Sequential(
                 nn.AdaptiveAvgPool2d(scale),
                 nn.Conv2d(fc_dim, 512, kernel_size=1, bias=False),
-                SynchronizedBatchNorm2d(512),
+                PrudentBatchNorm2d(512),  # (1, C, 1, 1) inputs hurt basic BN
                 nn.ReLU(inplace=True)
             ))
         self.ppm = nn.ModuleList(self.ppm)
