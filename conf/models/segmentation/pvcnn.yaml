@@ -1,4 +1,7 @@
 # @package models
+defaults:
+  - segmentation/default
+
 PVCNN:
   class: pvcnn.PVCNN
   conv_type: "SPARSE"

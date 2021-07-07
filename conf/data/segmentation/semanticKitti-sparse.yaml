@@ -1,7 +1,9 @@
 # @package data
+defaults:
+    - segmentation/default
+
 class: semantickitti.SemanticKittiDataset
 dataset_name: "kitti"
-task: segmentation
 dataroot: data
 first_subsampling: 0.1
 process_workers: 8

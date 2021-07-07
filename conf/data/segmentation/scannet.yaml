@@ -1,7 +1,9 @@
 # @package data
+defaults:
+    - segmentation/default
+
 class: scannet.ScannetDataset
 dataset_name: "scannet-sparse"
-task: segmentation
 dataroot: data
 version: v2
 use_instance_labels: False

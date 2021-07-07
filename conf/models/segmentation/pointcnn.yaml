@@ -1,4 +1,7 @@
 # @package models
+defaults:
+  - segmentation/default
+
 pointcnn_small:
   class: pointcnn.PointCNNSeg
   conv_type: "MESSAGE_PASSING"

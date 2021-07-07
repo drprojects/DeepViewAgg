@@ -1,7 +1,9 @@
 # @package data
+defaults:
+    - segmentation/default
+
 class: shapenet.ShapeNetDataset
 dataset_name: "shapenet_sparse"
-task: segmentation
 dataroot: data
 normal: True
 use_category: True

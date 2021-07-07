@@ -3,7 +3,6 @@ defaults:
   - segmentation/default
 
 class: shapenet.ShapeNetDataset
-task: segmentation
 dataroot: data
 normal: True # Use normal vectors as features
 first_subsampling: 0.02 # Grid size of the input data

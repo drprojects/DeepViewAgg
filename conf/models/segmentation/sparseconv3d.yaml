@@ -1,4 +1,7 @@
 # @package models
+defaults:
+  - segmentation/default
+
 ResUNet32:
   class: sparseconv3d.APIModel
   conv_type: "SPARSE"

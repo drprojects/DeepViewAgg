@@ -1,4 +1,7 @@
 # @package models
+defaults:
+  - segmentation/default
+
 # Minkowski Engine: https://github.com/StanfordVL/MinkowskiEngine/blob/master/examples/minkunet.py
 MinkUNet14A:
   class: minkowski.Minkowski_Baseline_Model

@@ -1,4 +1,7 @@
 # @package models
+defaults:
+  - segmentation/default
+
 # PPNet (PosPool): A Closer Look at Local Aggregation Operators in Point Cloud Analysis (https://arxiv.org/pdf/2007.01294.pdf)
 PPNet:
   class: ppnet.PPNet

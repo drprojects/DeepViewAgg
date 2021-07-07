@@ -1,4 +1,7 @@
 # @package models
+defaults:
+  - segmentation/default
+
 MS_SVCONV_B4cm_X2_3head:
   class: ms_svconv3d.MS_SparseConvModel
   conv_type: "SPARSE"

@@ -4,7 +4,6 @@ defaults:
 
 class: shapenet.ShapeNetDataset
 dataroot: data
-task: segmentation
 normal: True
 use_category: True
 category: 'Cap'

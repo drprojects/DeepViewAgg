@@ -1,4 +1,7 @@
 # @package models
+defaults:
+  - segmentation/default
+
 # Relation-Shape Convolutional Neural Network for Point Cloud Analysis (https://arxiv.org/abs/1904.07601)
 RSConv_2LD:
   class: rsconv.RSConv_MP

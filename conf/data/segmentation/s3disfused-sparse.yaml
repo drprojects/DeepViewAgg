@@ -1,5 +1,7 @@
 # @package data
-task: segmentation
+defaults:
+    - segmentation/default
+
 class: s3dis.S3DISFusedDataset
 dataroot: data
 fold: 5

@@ -1,7 +1,9 @@
 # @package data
+defaults:
+    - segmentation/default
+
 class: scannet.ScannetDataset
 dataset_name: "scannet-sparse"
-task: segmentation
 dataroot: data
 grid_size: 0.05
 version: "v2"
