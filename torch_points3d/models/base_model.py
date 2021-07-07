@@ -10,6 +10,7 @@ from collections import defaultdict
 from torch_points3d.core.schedulers.lr_schedulers import instantiate_scheduler
 from torch_points3d.core.schedulers.bn_schedulers import instantiate_bn_scheduler
 from torch_points3d.utils.enums import SchedulerUpdateOn
+from torch_points3d.utils.config import is_list, fetch_arguments_from_list, getattr_recursive
 
 from torch_points3d.core.regularizer import *
 from torch_points3d.core.losses import instantiate_loss_or_miner
@@ -286,10 +287,27 @@ class BaseModel(torch.nn.Module, TrackerInterface, DatasetInterface, CheckpointI
         )
         optmizer_cls_name = optimizer_opt.get("class")
         optimizer_cls = getattr(torch.optim, optmizer_cls_name)
-        optimizer_params = {}
-        if hasattr(optimizer_opt, "params"):
-            optimizer_params = optimizer_opt.params
-        self._optimizer = optimizer_cls(self.parameters(), **optimizer_params)
+
+        is_differential = hasattr(optimizer_opt, 'params') \
+                          and hasattr(optimizer_opt.params, 'params') \
+                          and is_list(optimizer_opt.params.params)
+
+        if is_differential:
+            n_optim_groups = len(optimizer_opt.params.params)
+
+            optimizer_params = [
+                fetch_arguments_from_list(optimizer_opt.params, i, ['params'])
+                for i in range(n_optim_groups)]
+
+            for i in range(n_optim_groups):
+                submodule = getattr_recursive(self, optimizer_params[i]['params'])
+                optimizer_params[i]['params'] = submodule.parameters()
+
+            self._optimizer = optimizer_cls(optimizer_params)
+
+        else:
+            optimizer_params = getattr(optimizer_opt, "params", {})
+            self._optimizer = optimizer_cls(self.parameters(), **optimizer_params)
 
         # LR Scheduler
         scheduler_opt = self.get_from_opt(config, ["training", "optim", "lr_scheduler"])

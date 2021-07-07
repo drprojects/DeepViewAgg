@@ -132,3 +132,19 @@ def fetch_modalities(opt, modality_names):
             f"'atomic_pooling', 'view_pooling', 'fusion', 'branching_index]"
         modalities.append(name)
     return modalities
+
+
+def getattr_recursive(obj, attr):
+    """Same as getattr but supporting dot-separated attributes of attributes.
+    
+    Example
+    -------
+    getattr_recursive(my_object_instance, 'attr1.attr2.attr3')
+    """
+    assert isinstance(attr, str), f"Expected attributes as a string, got {type(attributes)} instead."
+    
+    attr_list = attr.split('.')
+    if len(attr_list) == 1:
+        return getattr(obj, attr)
+    else:
+        return getattr_recursive(getattr(obj, attr_list[0]), '.'.join(attr_list[1:]))
