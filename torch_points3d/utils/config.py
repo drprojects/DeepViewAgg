@@ -1,19 +1,10 @@
-import numpy as np
-from typing import List
-import shutil
-import matplotlib.pyplot as plt
 import os
-from os import path as osp
-import torch
 import logging
-from collections import namedtuple
 from omegaconf import OmegaConf
 from omegaconf.listconfig import ListConfig
 from omegaconf.dictconfig import DictConfig
 from .enums import ConvolutionFormat
 from torch_points3d.utils.debugging_vars import DEBUGGING_VARS
-from torch_points3d.utils.colors import COLORS, colored_print
-import subprocess
 
 log = logging.getLogger(__name__)
 
@@ -22,10 +13,10 @@ class ConvolutionFormatFactory:
     @staticmethod
     def check_is_dense_format(conv_type):
         if (
-            conv_type is None
-            or conv_type.lower() == ConvolutionFormat.PARTIAL_DENSE.value.lower()
-            or conv_type.lower() == ConvolutionFormat.MESSAGE_PASSING.value.lower()
-            or conv_type.lower() == ConvolutionFormat.SPARSE.value.lower()
+                conv_type is None
+                or conv_type.lower() == ConvolutionFormat.PARTIAL_DENSE.value.lower()
+                or conv_type.lower() == ConvolutionFormat.MESSAGE_PASSING.value.lower()
+                or conv_type.lower() == ConvolutionFormat.SPARSE.value.lower()
         ):
             return False
         elif conv_type.lower() == ConvolutionFormat.DENSE.value.lower():
@@ -95,6 +86,13 @@ def fetch_arguments_from_list(opt, index, special_names):
             v_index = v[index]
             if is_list(v_index):
                 v_index = list(v_index)
+
+            # Evaluate arithmetic operations in the config
+            try:
+                v_index = eval(v_index)
+            except:
+                pass
+
             args[name] = v_index
         else:
             if is_list(v):
@@ -134,17 +132,22 @@ def fetch_modalities(opt, modality_names):
     return modalities
 
 
-def getattr_recursive(obj, attr):
+def getattr_recursive(obj, attr, *args):
     """Same as getattr but supporting dot-separated attributes of attributes.
     
     Example
     -------
     getattr_recursive(my_object_instance, 'attr1.attr2.attr3')
     """
-    assert isinstance(attr, str), f"Expected attributes as a string, got {type(attributes)} instead."
-    
+    assert isinstance(attr, str), \
+        f"Expected attributes as a string, got {type(attr)} instead."
+    assert len(args) <= 1, \
+        f"Expected 2 of 3 arguments but got {len(args) + 2} instead."
+
     attr_list = attr.split('.')
     if len(attr_list) == 1:
-        return getattr(obj, attr)
+        return getattr(obj, attr, *args)
     else:
-        return getattr_recursive(getattr(obj, attr_list[0]), '.'.join(attr_list[1:]))
+        return getattr_recursive(
+            getattr(obj, attr_list[0]), '.'.join(attr_list[1:]),
+            *args)
