@@ -2,6 +2,7 @@
 defaults:
     - segmentation/default
 
+task: segmentation.multimodal
 dataset_name: area5_office40
 class: s3dis_area1_office1.S3DISFusedDataset
 dataroot: data

@@ -2,6 +2,7 @@
 defaults:
     - segmentation/default
 
+task: segmentation.multimodal
 class: s3dis.S3DISFusedDataset
 dataroot: data
 fold: 5
