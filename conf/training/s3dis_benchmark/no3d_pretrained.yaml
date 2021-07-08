@@ -42,8 +42,8 @@ wandb:
     entity: "damien_robert"
     project: s3dis-benchmark
     log: True
-    notes: "RGB baseline"
-    name: "RGB_pretrained"
+    notes:
+    name:
     id: 
     public: True # It will be display the model within wandb log, else not.
     config:
