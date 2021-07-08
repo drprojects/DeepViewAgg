@@ -24,10 +24,10 @@ TASK=segmentation
 MODELS=${TASK}/multimodal/no3d
 
 # MODEL_NAME=_________
-MODEL_NAME=RGB_ADE20KResNet18PPM_mean-feat
+MODEL_NAME=RGB_ResNet18PPM_mean-feat
 
 # DATASET=${TASK}/_________
-DATASET=${TASK}/multimodal/s3disfused/no3d_5cm_768x384-exact_ade20k
+DATASET=${TASK}/multimodal/s3disfused/no3d_5cm_768x384-exact_no-pixel-height
 
 # TRAINING=s3dis_benchmark/sparseconv3d
 TRAINING=s3dis_benchmark/no3d_pretrained

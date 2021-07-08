@@ -1043,7 +1043,7 @@ RGB_D32_gp-8-32-32-4_gscale:
             #                drop_mod: 0.5
             branching_index: 0
 
-RGB_ADE20KResNet18PPM_mean-logit_view:
+RGB_ResNet18PPM_mean-logit_view:
     # 6.1 M params - 23.8 Mo on the GPU - ~7.2 ko/pixel at training time
     class: no3d.No3DImageLogitFusion
     down_conv:
@@ -1066,7 +1066,7 @@ RGB_ADE20KResNet18PPM_mean-logit_view:
             keep_last_view: True
             branching_index: 0
 
-RGB_ADE20KResNet18PPM_mean-feat:
+RGB_ResNet18PPM_mean-feat:
     # 6.1 M params - 23.8 Mo on the GPU - ~7.2 ko/pixel at training time
     class: no3d.No3DFeatureFusion
     down_conv:
@@ -1086,7 +1086,7 @@ RGB_ADE20KResNet18PPM_mean-feat:
             drop_mod: 0.1
             branching_index: 0
 
-RGB_ADE20KResNet18PPM_max-feat:
+RGB_ResNet18PPM_max-feat:
     # 6.1 M params - 23.8 Mo on the GPU - ~7.2 ko/pixel at training time
     class: no3d.No3DFeatureFusion
     down_conv:
@@ -1106,7 +1106,7 @@ RGB_ADE20KResNet18PPM_max-feat:
             drop_mod: 0.1
             branching_index: 0
 
-RGB_ADE20KResNet18PPM_gp-8-32-32-4_gscale:
+RGB_ResNet18PPM_gp-8-32-32-4_gscale:
     # 6.1 M params - 23.8 Mo on the GPU - ~7.2 ko/pixel at training time
     class: no3d.No3DFeatureFusion
     down_conv:

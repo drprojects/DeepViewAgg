@@ -1,6 +1,6 @@
 # @package data
 defaults:
-  - /data/segmentation/multimodal/s3disfused/no3d_5cm_768x384-exact_ade20k
+  - /data/segmentation/multimodal/s3disfused/no3d_5cm_768x384-exact_no-pixel-height
 
 dataset_name: area1_office1
 class: s3dis_area1_office1.S3DISFusedDataset
