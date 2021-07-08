@@ -300,8 +300,11 @@ class BaseModel(torch.nn.Module, TrackerInterface, DatasetInterface, CheckpointI
                 for i in range(n_optim_groups)]
 
             for i in range(n_optim_groups):
+                # Recover the parameter group
                 submodule = getattr_recursive(self, optimizer_params[i]['params'])
                 optimizer_params[i]['params'] = submodule.parameters()
+
+                # Recover the
 
             self._optimizer = optimizer_cls(optimizer_params)
 
@@ -312,7 +315,7 @@ class BaseModel(torch.nn.Module, TrackerInterface, DatasetInterface, CheckpointI
         # LR Scheduler
         scheduler_opt = self.get_from_opt(config, ["training", "optim", "lr_scheduler"])
         if scheduler_opt:
-            update_lr_scheduler_on = config.get('update_lr_scheduler_on') # Update to OmegaConf 2.0
+            update_lr_scheduler_on = config.get('update_lr_scheduler_on')  # Update to OmegaConf 2.0
             if update_lr_scheduler_on:
                 self._update_lr_scheduler_on = update_lr_scheduler_on
             scheduler_opt.update_scheduler_on = self._update_lr_scheduler_on
@@ -322,7 +325,7 @@ class BaseModel(torch.nn.Module, TrackerInterface, DatasetInterface, CheckpointI
         # BN Scheduler
         bn_scheduler_opt = self.get_from_opt(config, ["training", "optim", "bn_scheduler"])
         if bn_scheduler_opt:
-            update_bn_scheduler_on = config.get('update_bn_scheduler_on') # update to OmegaConf 2.0
+            update_bn_scheduler_on = config.get('update_bn_scheduler_on')  # update to OmegaConf 2.0
             if update_bn_scheduler_on:
                 self._update_bn_scheduler_on = update_bn_scheduler_on
             bn_scheduler_opt.update_scheduler_on = self._update_bn_scheduler_on

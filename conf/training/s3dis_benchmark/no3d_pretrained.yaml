@@ -13,7 +13,10 @@ optim:
     optimizer:
         class: SGD
         params:
-            params: ['head', 'backbone.down_modules.0.image.conv.encoder', 'backbone.down_modules.0.image.conv.decoder']
+            params:
+                - 'head'
+                - 'backbone.down_modules.0.image.conv.encoder'
+                - 'backbone.down_modules.0.image.conv.decoder'
             momentum: 0.9
             lr: 
                 - ${training.optim.base_lr}
@@ -39,8 +42,8 @@ wandb:
     entity: "damien_robert"
     project: s3dis-benchmark
     log: True
-    notes: "SparseConv3D baseline"
-    name: "Res16UNet34"
+    notes: "RGB baseline"
+    name: "RGB_pretrained"
     id: 
     public: True # It will be display the model within wandb log, else not.
     config:

@@ -1,6 +1,8 @@
 from abc import ABC
 
+import torch
 import torch.nn as nn
+import os.path as osp
 import sys
 from torch_points3d.utils.config import *
 from torch_points3d.core.common_modules import Seq, Identity

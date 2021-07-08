@@ -1,0 +1,9 @@
+# @package data
+defaults:
+  - /data/segmentation/multimodal/s3disfused/default
+
+resolution_3d: 0.05
+resolution_2d: [512, 256]
+padding_2d: 4
+min_size_2d: 32
+exact_splatting_2d: False
