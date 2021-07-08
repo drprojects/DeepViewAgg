@@ -10,6 +10,7 @@ from collections import defaultdict
 from torch_points3d.core.schedulers.lr_schedulers import instantiate_scheduler
 from torch_points3d.core.schedulers.bn_schedulers import instantiate_bn_scheduler
 from torch_points3d.utils.enums import SchedulerUpdateOn
+from torch_points3d.utils.config import is_list, fetch_arguments_from_list, getattr_recursive
 
 from torch_points3d.core.regularizer import *
 from torch_points3d.core.losses import instantiate_loss_or_miner
@@ -49,17 +50,20 @@ class BaseModel(torch.nn.Module, TrackerInterface, DatasetInterface, CheckpointI
         self.loss_names = []
         self.visual_names = []
         self.output = None
-        self._conv_type = opt.conv_type
+        self._conv_type = opt.conv_type  if hasattr(opt, 'conv_type') else None # Update to OmegaConv 2.0
         self._optimizer: Optional[Optimizer] = None
         self._lr_scheduler: Optimizer[_LRScheduler] = None
         self._bn_scheduler = None
         self._spatial_ops_dict: Dict = {}
-        self._num_epochs = None
+        self._num_epochs = 0
         self._num_batches = 0
         self._num_samples = -1
         self._schedulers = {}
         self._accumulated_gradient_step = None
         self._grad_clip = -1
+        self._grad_scale = None
+        self._supports_mixed = False
+        self._enable_mixed = False
         self._update_lr_scheduler_on = "on_epoch"
         self._update_bn_scheduler_on = "on_epoch"
         self._modalities = []
@@ -127,6 +131,9 @@ class BaseModel(torch.nn.Module, TrackerInterface, DatasetInterface, CheckpointI
     @conv_type.setter
     def conv_type(self, conv_type):
         self._conv_type = conv_type
+        
+    def is_mixed_precision(self):
+        return self._supports_mixed and self._enable_mixed
 
     @property
     def is_multimodal(self):
@@ -158,28 +165,25 @@ class BaseModel(torch.nn.Module, TrackerInterface, DatasetInterface, CheckpointI
                 log.warning("The path does not exist, it will not load any model")
             else:
                 log.info("load pretrained weights from {}".format(path_pretrained))
-                m = torch.load(path_pretrained)["models"][weight_name]
+                m = torch.load(path_pretrained, map_location="cpu")["models"][weight_name]
                 self.load_state_dict_with_same_shape(m, strict=False)
 
     def get_labels(self):
-        """ returns a trensor of size ``[N_points]`` where each value is the label of a point
-        """
+        """returns a trensor of size ``[N_points]`` where each value is the label of a point"""
         return getattr(self, "labels", None)
 
     def get_batch(self):
-        """ returns a trensor of size ``[N_points]`` where each value is the batch index of a point
-        """
+        """returns a trensor of size ``[N_points]`` where each value is the batch index of a point"""
         return getattr(self, "batch_idx", None)
 
     def get_output(self):
-        """ returns a trensor of size ``[N_points,...]`` where each value is the output
+        """returns a trensor of size ``[N_points,...]`` where each value is the output
         of the network for a point (output of the last layer in general)
         """
         return self.output
 
     def get_input(self):
-        """ returns the last input that was given to the model or raises error
-        """
+        """returns the last input that was given to the model or raises error"""
         return getattr(self, "input")
 
     def forward(self, *args, **kwargs) -> Any:
@@ -200,44 +204,67 @@ class BaseModel(torch.nn.Module, TrackerInterface, DatasetInterface, CheckpointI
             self._accumulated_gradient_count += 1
             return False
 
-    def _collect_scheduler_step(self, update_scheduler_on):
+    def _do_scheduler_update(self, update_scheduler_on, scheduler, epoch, batch_size):
         if hasattr(self, update_scheduler_on):
             update_scheduler_on = getattr(self, update_scheduler_on)
             if update_scheduler_on is None:
                 raise Exception("The function instantiate_optimizers doesn't look like called")
 
+            num_steps = 0
             if update_scheduler_on == SchedulerUpdateOn.ON_EPOCH.value:
-                return self._num_epochs
+                num_steps = epoch - self._num_epochs
             elif update_scheduler_on == SchedulerUpdateOn.ON_NUM_BATCH.value:
-                return self._num_batches
+                num_steps = 1
             elif update_scheduler_on == SchedulerUpdateOn.ON_NUM_SAMPLE.value:
-                return self._num_samples
+                num_steps = batch_size
+
+            for _ in range(num_steps):
+                scheduler.step()
         else:
             raise Exception("The attributes {} should be defined within self".format(update_scheduler_on))
 
+    def _do_scale_loss(self):
+        orig_losses = {}
+        if self.is_mixed_precision():
+            for loss_name in self.loss_names:
+                loss = getattr(self, loss_name)
+                orig_losses[loss_name] = loss.detach()
+                setattr(self, loss_name, self._grad_scale.scale(loss))
+        return orig_losses
+
+    def _do_unscale_loss(self, orig_losses):
+        if self.is_mixed_precision():
+            for loss_name, loss in orig_losses.items():
+                setattr(self, loss_name, loss)
+            self._grad_scale.unscale_(self._optimizer) # unscale gradients before clipping
+
     def optimize_parameters(self, epoch, batch_size):
         """Calculate losses, gradients, and update network weights; called in every training iteration"""
-        self._num_epochs = epoch
-        self._num_batches += 1
-        self._num_samples += batch_size
 
-        self.forward(epoch=epoch)  # first call forward to calculate intermediate results
+        with torch.cuda.amp.autocast(enabled=self.is_mixed_precision()): # enable autocasting if supported
+            self.forward(epoch=epoch)  # first call forward to calculate intermediate results
+        
+        orig_losses = self._do_scale_loss() # scale losses if needed
         make_optimizer_step = self._manage_optimizer_zero_grad()  # Accumulate gradient if option is up
         self.backward()  # calculate gradients
+        self._do_unscale_loss(orig_losses) # unscale losses to orig
 
         if self._grad_clip > 0:
             torch.nn.utils.clip_grad_value_(self.parameters(), self._grad_clip)
 
         if make_optimizer_step:
-            self._optimizer.step()  # update parameters
+            self._grad_scale.step(self._optimizer)  # update parameters
 
         if self._lr_scheduler:
-            lr_scheduler_step = self._collect_scheduler_step("_update_lr_scheduler_on")
-            self._lr_scheduler.step(lr_scheduler_step)
+            self._do_scheduler_update("_update_lr_scheduler_on", self._lr_scheduler, epoch, batch_size)
 
         if self._bn_scheduler:
-            bn_scheduler_step = self._collect_scheduler_step("_update_bn_scheduler_on")
-            self._bn_scheduler.step(bn_scheduler_step)
+            self._do_scheduler_update("_update_bn_scheduler_on", self._bn_scheduler, epoch, batch_size)
+
+        self._grad_scale.update() # update scaling
+        self._num_epochs = epoch
+        self._num_batches += 1
+        self._num_samples += batch_size
 
     def get_current_losses(self):
         """Return traning losses / errors. train.py will print out these errors on console"""
@@ -251,7 +278,7 @@ class BaseModel(torch.nn.Module, TrackerInterface, DatasetInterface, CheckpointI
                         errors_ret[name] = None
         return errors_ret
 
-    def instantiate_optimizers(self, config):
+    def instantiate_optimizers(self, config, cuda_enabled=False):
         # Optimiser
         optimizer_opt = self.get_from_opt(
             config,
@@ -260,15 +287,35 @@ class BaseModel(torch.nn.Module, TrackerInterface, DatasetInterface, CheckpointI
         )
         optmizer_cls_name = optimizer_opt.get("class")
         optimizer_cls = getattr(torch.optim, optmizer_cls_name)
-        optimizer_params = {}
-        if hasattr(optimizer_opt, "params"):
-            optimizer_params = optimizer_opt.params
-        self._optimizer = optimizer_cls(self.parameters(), **optimizer_params)
+
+        is_differential = hasattr(optimizer_opt, 'params') \
+                          and hasattr(optimizer_opt.params, 'params') \
+                          and is_list(optimizer_opt.params.params)
+
+        if is_differential:
+            n_optim_groups = len(optimizer_opt.params.params)
+
+            optimizer_params = [
+                fetch_arguments_from_list(optimizer_opt.params, i, ['params'])
+                for i in range(n_optim_groups)]
+
+            for i in range(n_optim_groups):
+                # Recover the parameter group
+                submodule = getattr_recursive(self, optimizer_params[i]['params'])
+                optimizer_params[i]['params'] = submodule.parameters()
+
+                # Recover the
+
+            self._optimizer = optimizer_cls(optimizer_params)
+
+        else:
+            optimizer_params = getattr(optimizer_opt, "params", {})
+            self._optimizer = optimizer_cls(self.parameters(), **optimizer_params)
 
         # LR Scheduler
         scheduler_opt = self.get_from_opt(config, ["training", "optim", "lr_scheduler"])
         if scheduler_opt:
-            update_lr_scheduler_on = config.update_lr_scheduler_on
+            update_lr_scheduler_on = config.get('update_lr_scheduler_on')  # Update to OmegaConf 2.0
             if update_lr_scheduler_on:
                 self._update_lr_scheduler_on = update_lr_scheduler_on
             scheduler_opt.update_scheduler_on = self._update_lr_scheduler_on
@@ -278,7 +325,7 @@ class BaseModel(torch.nn.Module, TrackerInterface, DatasetInterface, CheckpointI
         # BN Scheduler
         bn_scheduler_opt = self.get_from_opt(config, ["training", "optim", "bn_scheduler"])
         if bn_scheduler_opt:
-            update_bn_scheduler_on = config.update_bn_scheduler_on
+            update_bn_scheduler_on = config.get('update_bn_scheduler_on')  # update to OmegaConf 2.0
             if update_bn_scheduler_on:
                 self._update_bn_scheduler_on = update_bn_scheduler_on
             bn_scheduler_opt.update_scheduler_on = self._update_bn_scheduler_on
@@ -296,6 +343,18 @@ class BaseModel(torch.nn.Module, TrackerInterface, DatasetInterface, CheckpointI
         # Gradient clipping
         self._grad_clip = self.get_from_opt(config, ["training", "optim", "grad_clip"], default_value=-1)
 
+        # Gradient Scaling
+        self._enable_mixed = self.get_from_opt(config, ["training", "enable_mixed"], default_value=False)
+        if self.is_mixed_precision() and not cuda_enabled:
+            log.warning("Mixed precision is not supported on this device, using default precision...")
+            self._enable_mixed = False
+        elif self._enable_mixed and not self._supports_mixed:
+            log.warning("Mixed precision is not supported on this model, using default precision...")
+        elif self.is_mixed_precision():
+            log.info("Model will use mixed precision")
+
+        self._grad_scale = torch.cuda.amp.GradScaler(enabled=self.is_mixed_precision())
+
     def get_regularization_loss(self, regularizer_type="L2", **kwargs):
         loss = 0
         regularizer_cls = RegularizerTypes[regularizer_type.upper()].value
@@ -304,10 +363,10 @@ class BaseModel(torch.nn.Module, TrackerInterface, DatasetInterface, CheckpointI
 
     def get_named_internal_losses(self):
         """
-            Modules which have internal losses return a dict of the form
-            {<loss_name>: <loss>}
-            This method merges the dicts of all child modules with internal loss
-            and returns this merged dict
+        Modules which have internal losses return a dict of the form
+        {<loss_name>: <loss>}
+        This method merges the dicts of all child modules with internal loss
+        and returns this merged dict
         """
         losses_global = defaultdict(list)
 
@@ -330,8 +389,8 @@ class BaseModel(torch.nn.Module, TrackerInterface, DatasetInterface, CheckpointI
 
     def collect_internal_losses(self, lambda_weight=1, aggr_func=torch.sum):
         """
-            Collect internal loss of all child modules with
-            internal losses and set the losses
+        Collect internal loss of all child modules with
+        internal losses and set the losses
         """
         loss_out = 0
         losses = self.get_named_internal_losses()
@@ -345,8 +404,8 @@ class BaseModel(torch.nn.Module, TrackerInterface, DatasetInterface, CheckpointI
 
     def get_internal_loss(self):
         """
-            Returns the average internal loss of all child modules with
-            internal losses
+        Returns the average internal loss of all child modules with
+        internal losses
         """
         loss = 0
         c = 0
@@ -440,7 +499,7 @@ class BaseModel(torch.nn.Module, TrackerInterface, DatasetInterface, CheckpointI
         return self
 
     def verify_data(self, data, forward_only=False):
-        """ Goes through the __REQUIRED_DATA__ and __REQUIRED_LABELS__ attribute of the model
+        """Goes through the __REQUIRED_DATA__ and __REQUIRED_LABELS__ attribute of the model
         and verifies that the passed data object contains all required members.
         If something is missing it raises a KeyError exception.
         """
@@ -465,8 +524,7 @@ class BaseModel(torch.nn.Module, TrackerInterface, DatasetInterface, CheckpointI
 
 
 class BaseInternalLossModule(torch.nn.Module):
-    """ABC for modules which have internal loss(es)
-    """
+    """ABC for modules which have internal loss(es)"""
 
     @abstractmethod
     def get_internal_losses(self) -> Dict[str, Any]:

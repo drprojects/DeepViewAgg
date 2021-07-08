@@ -24,7 +24,7 @@ class No3DEncoder(BackboneBasedModel, ABC):
                                           modules)
 
         # Make sure the model is multimodal and has no 3D. Note that
-        # the BackboneBasedModel carries most of the required
+        # the BackboneBasedModel.__init__ carries most of the required
         # initialization.
         assert self.is_multimodal, \
             f"No3DEncoder should carry at least one non-3D modality."

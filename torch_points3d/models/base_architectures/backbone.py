@@ -6,7 +6,8 @@ from torch_points3d.models.base_architectures import ModalityFactory, get_factor
 from torch_points3d.models.base_model import BaseModel
 from torch_points3d.modules.multimodal.modules import MultimodalBlockDown, \
     UnimodalBranch
-from torch_points3d.utils.config import is_list, fetch_arguments_from_list, fetch_modalities
+from torch_points3d.utils.config import is_list, fetch_arguments_from_list, \
+    fetch_modalities, getattr_recursive
 from torch_points3d.core.multimodal.data import MODALITY_NAMES
 import logging
 
@@ -62,7 +63,7 @@ class BackboneBasedModel(BaseModel, ABC):
 
         # Factory for creating down modules for the main 3D modality
         factory_module_cls = get_factory(model_type, modules_lib)
-        down_conv_cls_name = opt.down_conv.module_name
+        down_conv_cls_name = getattr_recursive(opt, 'down_conv.module_name', None)
         self._module_factories = {
             'main': factory_module_cls(down_conv_cls_name, None, modules_lib)
         }

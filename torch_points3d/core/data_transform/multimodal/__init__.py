@@ -14,12 +14,9 @@ def instantiate_multimodal_transform(transform_option, attr="transform"):
             size: 0.01
     """
     tr_name = getattr(transform_option, attr, None)
-    try:
-        tr_params = transform_option.params
-    except KeyError:
-        tr_params = None
-
+    tr_params = getattr(transform_option, 'params', None)
     cls = getattr(_custom_multimodal_transforms, tr_name, None)
+
     if not cls:
         raise ValueError(f"Multimodal transform {tr_name} is nowhere to be found")
 

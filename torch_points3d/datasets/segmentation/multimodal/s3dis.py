@@ -822,7 +822,7 @@ class S3DISFusedDataset(BaseDatasetMM):
             transform=self.train_transform,
             pre_transform_image=self.pre_transform_image,
             transform_image=self.train_transform_image,
-            img_ref_size=self.dataset_opt.multimodal.settings.ref_size)
+            img_ref_size=self.dataset_opt.resolution_2d)
 
         self.val_dataset = S3DISSphereMM(
             self._data_path,
@@ -833,7 +833,7 @@ class S3DISFusedDataset(BaseDatasetMM):
             transform=self.val_transform,
             pre_transform_image=self.pre_transform_image,
             transform_image=self.val_transform_image,
-            img_ref_size=self.dataset_opt.multimodal.settings.ref_size)
+            img_ref_size=self.dataset_opt.resolution_2d)
 
         # self.trainval_dataset = S3DISSphereMM(
         #     self._data_path,
@@ -844,7 +844,7 @@ class S3DISFusedDataset(BaseDatasetMM):
         #     transform=self.train_transform,
         #     pre_transform_image=self.pre_transform_image,
         #     transform_image=self.train_transform_image,
-        #     img_ref_size = self.dataset_opt.multimodal.settings.ref_size)
+        #     img_ref_size = self.dataset_opt.resolution_2d)
 
         self.test_dataset = S3DISSphereMM(
             self._data_path,
@@ -855,7 +855,7 @@ class S3DISFusedDataset(BaseDatasetMM):
             transform=self.test_transform,
             pre_transform_image=self.pre_transform_image,
             transform_image=self.test_transform_image,
-            img_ref_size=self.dataset_opt.multimodal.settings.ref_size)
+            img_ref_size=self.dataset_opt.resolution_2d)
 
         if dataset_opt.class_weight_method:
             self.add_weights(
