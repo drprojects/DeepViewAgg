@@ -1,0 +1,8 @@
+# @package data
+defaults:
+  - /data/segmentation/multimodal/s3disfused/no3d_5cm_768x384-exact
+
+dataset_name: area5_office40
+class: s3dis_area5_office40.S3DISFusedDataset
+sample_per_epoch: 16
+fold: 1  # Always set fold=1 for experimental mini S3DIS datasets

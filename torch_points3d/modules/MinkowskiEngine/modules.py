@@ -116,7 +116,7 @@ class BaseResBlock(nn.Module):
         kernel_size=3,
         stride=1,
         dilation=1,
-        has_bias=False,
+        bias=False,
         kernel_generator=None,
         norm_layer=ME.MinkowskiBatchNorm,
         activation=ME.MinkowskiReLU,
@@ -135,7 +135,7 @@ class BaseResBlock(nn.Module):
         kernel_sizes = self.create_arguments_list(kernel_sizes, kernel_size)
         strides = self.create_arguments_list(strides, stride)
         dilations = self.create_arguments_list(dilations, dilation)
-        has_biases = self.create_arguments_list(has_biases, has_bias)
+        has_biases = self.create_arguments_list(has_biases, bias)
         kernel_generators = self.create_arguments_list(kernel_generators, kernel_generator)
 
         for conv_dim, kernel_size, stride, dilation, has_bias, kernel_generator in zip(
@@ -149,7 +149,7 @@ class BaseResBlock(nn.Module):
                     kernel_size=kernel_size,
                     stride=stride,
                     dilation=dilation,
-                    has_bias=has_bias,
+                    bias=has_bias,
                     kernel_generator=kernel_generator,
                     dimension=dimension,
                 )

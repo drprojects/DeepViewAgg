@@ -9,7 +9,8 @@ from torch_points3d.models.base_model import BaseModel
 from torch_points3d.modules.multimodal.modules import MultimodalBlockDown, \
     UnimodalBranch
 from torch_points3d.utils.config import is_list, get_from_kwargs, \
-    fetch_arguments_from_list, flatten_compact_options, fetch_modalities
+    fetch_arguments_from_list, flatten_compact_options, fetch_modalities, \
+    getattr_recursive
 from omegaconf.listconfig import ListConfig
 import logging
 
@@ -129,8 +130,8 @@ class UnetBasedModel(BaseModel, ABC):
 
         # Factory for creating up and down modules
         factory_module_cls = get_factory(model_type, modules_lib)
-        down_conv_cls_name = opt.down_conv.module_name
-        up_conv_cls_name = opt.up_conv.module_name
+        down_conv_cls_name = getattr_recursive(opt, 'down_conv.module_name', None)
+        up_conv_cls_name = getattr_recursive(opt, 'up_conv.module_name', None)
         self._factory_module = factory_module_cls(
             down_conv_cls_name, up_conv_cls_name, modules_lib
         )  # Create the factory object
@@ -404,9 +405,8 @@ class UnwrappedUnetBasedModel(BaseModel, ABC):
         # Factory for creating up and down modules for the main 3D
         # modality
         factory_module_cls = get_factory(model_type, modules_lib)
-        down_conv_cls_name = opt.down_conv.module_name
-        up_conv_cls_name = opt.up_conv.module_name if opt.up_conv is not None \
-            else None
+        down_conv_cls_name = getattr_recursive(opt, 'down_conv.module_name', None)
+        up_conv_cls_name = getattr_recursive(opt, 'up_conv.module_name', None)
         self._module_factories = {'main': factory_module_cls(
             down_conv_cls_name, up_conv_cls_name, modules_lib)}
 

@@ -1,0 +1,4 @@
+# @package data
+task: ${task.name}
+
+class_weight_method: ""

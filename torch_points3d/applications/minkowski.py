@@ -46,7 +46,7 @@ def Minkowski(
         Type of resnet block, ResBlock by default but can be any of the blocks in modules/MinkowskiEngine/api_modules.py
     """
     log.warning(
-        "Minkowski API is deprecated in favor of SparseConv3d, it should be a simple drop in replacement (no change to the API)."
+        "Minkowski API is deprecated in favor of the SparseConv3d API. It should be a simple drop in replacement (no change to the API)."
     )
     factory = MinkowskiFactory(
         architecture=architecture, num_layers=num_layers, input_nc=input_nc, config=config, **kwargs
@@ -119,7 +119,7 @@ class BaseMinkowski(UnwrappedUnetBasedModel):
             a dictionary that contains the data itself and its metadata information.
         """
         coords = torch.cat([data.batch.unsqueeze(-1).int(), data.coords.int()], -1)
-        self.input = ME.SparseTensor(data.x, coords=coords).to(self.device)
+        self.input = ME.SparseTensor(features=data.x, coordinates=coords, device=self.device)
         if data.pos is not None:
             self.xyz = data.pos.to(self.device)
         else:
