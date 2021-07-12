@@ -1050,7 +1050,7 @@ RGB_ResNet18PPM_mean-logit_view:
         image:
             down_conv:
                 module_name: ADE20KResNet18PPM
-                frozen: True
+                frozen: False
             last_conv:
                 input_nc: 512
                 output_nc: N_CLS
@@ -1073,7 +1073,7 @@ RGB_ResNet18PPM_mean-feat:
         image:
             down_conv:
                 module_name: ADE20KResNet18PPM
-                frozen: True
+                frozen: False
             atomic_pooling:
                 module_name: BimodalCSRPool
                 mode: max
@@ -1093,7 +1093,7 @@ RGB_ResNet18PPM_max-feat:
         image:
             down_conv:
                 module_name: ADE20KResNet18PPM
-                frozen: True
+                frozen: False
             atomic_pooling:
                 module_name: BimodalCSRPool
                 mode: max
@@ -1113,7 +1113,7 @@ RGB_ResNet18PPM_gp-8-32-32-4_gscale:
         image:
             down_conv:
                 module_name: ADE20KResNet18PPM
-                frozen: True
+                frozen: False
             atomic_pooling:
                 module_name: BimodalCSRPool
                 mode: max

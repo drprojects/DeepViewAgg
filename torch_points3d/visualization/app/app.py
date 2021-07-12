@@ -27,9 +27,12 @@ SAMPLES = {
 # Compute the initial state of the app
 name = 'area1-office1'
 # name = 'area5-office40'
+model_name = 'RGB_D32_gp-8-32-32-4_gscale'
+# model_name == 'RGB_D32-4_persistent-indrop-50_mean_view'
 sphere = SAMPLES[name]['sphere']
-dataset = get_dataset(name)
-model = get_model(dataset)
+cfg = get_config(name, model_name)
+dataset = get_dataset(cfg)
+model = get_model(cfg, dataset)
 mm_data = get_mm_sample(sphere, dataset.test_dataset[0], model)
 out = compute_plotly_visualizations(mm_data)
 

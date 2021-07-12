@@ -5,7 +5,7 @@ import torch
 from torch import Tensor
 import glob
 from matplotlib.colors import ListedColormap
-from omegaconf import OmegaConf
+from torch_points3d.utils.config import hydra_read
 
 #from torch_points3d.datasets.segmentation.multimodal.s3dis_area1_office1 import S3DISFusedDataset, OBJECT_COLOR, INV_OBJECT_LABEL
 from torch_points3d.datasets.segmentation.multimodal.s3dis_area5_office40 import S3DISFusedDataset, OBJECT_COLOR, INV_OBJECT_LABEL
@@ -24,6 +24,7 @@ from torch_points3d.metrics.model_checkpoint import ModelCheckpoint
 from torch_points3d.core.multimodal.data import MMBatch
 from time import time
 
+
 CLASSES = [INV_OBJECT_LABEL[i] for i in range(13)]
 
 TRANSFORMS_3D = [
@@ -39,6 +40,7 @@ TRANSFORMS_2D = [
     ToFloatImage, 
     AddPixelHeightFeature, 
     PickImagesFromMemoryCredit]
+
 
 def sample_data(tg_dataset, idx=0, drop_3d=TRANSFORMS_3D, drop_2d=TRANSFORMS_2D):
     """
@@ -59,62 +61,62 @@ def sample_data(tg_dataset, idx=0, drop_3d=TRANSFORMS_3D, drop_2d=TRANSFORMS_2D)
     tg_dataset.transform_image = transform_image
     return out
 
-def get_dataset(name):
-    start = time()
 
-    if name == 'area1-office1':
-        dataset_options = OmegaConf.load('conf/data/segmentation/multimodal/s3dis-area1-office1-no3d_exact_768x384.yaml')
-    elif name == 'area5-office40':
-        dataset_options = OmegaConf.load('conf/data/segmentation/multimodal/s3dis-area5-office40-no3d_exact_768x384.yaml')
-    else:
-        raise ValueError
-
-    # Set the 3D resolution
-    dataset_options.data.first_subsampling = 0.05
-
-    # Set root to the DATA drive, where the data was downloaded
-    # DATA_ROOT = '/media/drobert-admin/DATA/datasets/s3dis'  # IGN DATA
+def get_config(data_name, model_name):
     DATA_ROOT = '/media/drobert-admin/DATA2/datasets/s3dis'  # IGN DATA2
     # DATA_ROOT = '/var/data/drobert/datasets/s3dis'  # AI4GEO
     # DATA_ROOT = '/home/qt/robertda/scratch/datasets/s3dis'  # CNES
-    # DATA_ROOT = '/raid/dataset/pointcloud/data/s3dis'  # ENGIE
-    dataset_options.data.dataroot = os.path.join(DATA_ROOT, '5cm_exact_768x384')  # 5cm 3D + 768x384 2D
+    # DATA_ROOT = '/raid/datasets/pointcloud/data/s3dis'  # ENGIE
+    
+    if model_name == 'RGB_D32-4_persistent-indrop-50_mean_view':
+        checkpoint_dir = 'outputs/benchmark/benchmark-RGB_D32-4_persistent-indrop-50_mean_view-20210517_230329'  # produced by hydra 0.1 ...
+    elif model_name == 'RGB_D32_gp-8-32-32-4_gscale':
+        checkpoint_dir = 'outputs/benchmark/cnes/RGB/fold5/RGB_D32_gp-8-32-32-4_gscale_exact_768x384'  # produced by hydra 0.1 ...
+    else:
+        raise ValueError()   
+    
+    overrides = [
+        'task=segmentation',
+        f'data=segmentation/multimodal/s3disfused/{data_name}_no3d_5cm_768x384-exact',
+        'data.fold=1',
+        'data.sample_per_epoch=2000',
+        f"data.dataroot={os.path.join(DATA_ROOT, '5cm_exact_768x384')}",
+        'models=segmentation/multimodal/no3d',
+        f'model_name={model_name}',
+        f'training.checkpoint_dir={checkpoint_dir}',
+    ]  
+    
+    return hydra_read(overrides)
+    
 
+def get_dataset(cfg):
     # Build the dataset
+    start = time()    
     print('\nLoading dataset')
-    dataset = S3DISFusedDataset(dataset_options.data)
+    dataset = S3DISFusedDataset(cfg.data)
     print(f"Time = {time() - start:0.2f} sec")
     print(f"Done")
-
     return dataset
 
-def get_model(dataset):
+
+def get_model(cfg, dataset):
     print(f"\nLoading model")
-
-    # Load the model from checkpoint - RGB light drop 50 trained on "5cm exact 768x384"
-    model_options = OmegaConf.load('conf/data/segmentation/multimodal/s3disfused-no3d_exact_768x384.yaml')
-    model_options.models = OmegaConf.load('conf/models/segmentation/multimodal/no3d.yaml').models
-
-    # model_options.model_name = 'RGB_D32-4_persistent-indrop-50_mean_view'
-    # checkpoint_dir = 'outputs/benchmark/benchmark-RGB_D32-4_persistent-indrop-50_mean_view-20210517_230329'
-
-    model_options.model_name = 'RGB_D32_gp-8-32-32-4_gscale'
-    checkpoint_dir = 'outputs/benchmark/cnes/RGB/fold5/RGB_D32_gp-8-32-32-4_gscale_exact_768x384'
 
     selection_stage = 'val'  # train, val, test
     weight_name = 'miou'  # miou, macc, acc, ..., latest
-    checkpoint = ModelCheckpoint(checkpoint_dir, model_options.model_name, selection_stage, run_config=model_options, resume=False)
+    checkpoint = ModelCheckpoint(cfg.training.checkpoint_dir, cfg.model_name, selection_stage, run_config=cfg, resume=False)
 
     # Load multimodal model
     # model = instantiate_model(model_options, dataset)  # random model initialization
     model = checkpoint.create_model(dataset, weight_name=weight_name)  # initialize from checkpoint
     model = model.eval().cuda()
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"    Model: {model_options.model_name}")
+    print(f"    Model: {cfg.model_name}")
     print(f"    Model parameters : {n_params / 10**6:0.1f} M")
     print("Done")
 
     return model
+
 
 def get_mm_sample(mm_idx, mm_dataset, model):
     print(f"\nLoading multimodal sample")
@@ -170,6 +172,7 @@ def get_mm_sample(mm_idx, mm_dataset, model):
 
     return mm_data
 
+
 def compute_plotly_visualizations(mm_data):
     # Build plotly visualization objects to be used in dash
     out = {}
@@ -214,6 +217,7 @@ def compute_plotly_visualizations(mm_data):
         im_rgb.is_tp_view = im_pred.is_tp_view
 
     return out
+
 
 def compute_2d_back_front_visualization(images, i_img, i_front, i_error,
         alpha=2, error_color=[255, 0, 0]):
