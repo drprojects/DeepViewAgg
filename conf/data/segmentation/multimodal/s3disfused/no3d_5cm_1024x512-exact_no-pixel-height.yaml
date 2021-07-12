@@ -1,0 +1,101 @@
+# @package data
+defaults:
+  - /data/segmentation/multimodal/s3disfused/default
+
+resolution_3d: 0.05
+resolution_2d: [1024, 512]
+padding_2d: 8
+min_size_2d: 64
+exact_splatting_2d: True
+
+multimodal:  # Each modality must be inserted in a dedicated 'multimodal' section
+
+    modality: image
+
+    settings:
+        mapping_key: mapping_index  # hardcoded key used to sync 3D points and modality mappings
+        proj_upscale: 2
+        r_max: 8
+        r_min: 0.05
+        growth_k: 0.5
+        growth_r: 100  # growth_k and growth_r set so that correction factor is ~1.1 at r_max=8
+        train_pixel_credit: 4  # Choose based on GPU capacity, model ko/pixel cost and 3D batch_size
+        test_pixel_credit: 4
+        k_coverage: 2
+
+    pre_transform:
+        - transform: LoadImages  # Read images from disk
+          params:
+                ref_size: ${data.resolution_2d}
+        - transform: NonStaticMask  # Compute acquisition mask
+          params:
+                ref_size: ${data.resolution_2d}
+                proj_upscale: ${data.multimodal.settings.proj_upscale}
+                n_sample: 5
+        - transform: MapImages  # Compute the 3D-2D mapping
+          params:
+                ref_size: ${data.resolution_2d}
+                proj_upscale: ${data.multimodal.settings.proj_upscale}
+                voxel: ${data.first_subsampling}
+                r_max: ${data.multimodal.settings.r_max}
+                r_min: ${data.multimodal.settings.r_min}
+                growth_k: ${data.multimodal.settings.growth_k}
+                growth_r: ${data.multimodal.settings.growth_r}
+                exact: ${data.exact_splatting_2d}
+        - transform: NeighborhoodBasedMappingFeatures  # Compute local density and occlusion
+          params:
+                k: 50  # empirically-chosen heuristic [30-100] is fine
+                voxel: ${data.first_subsampling}
+                density: True
+                occlusion: True
+                use_cuda: True
+
+    train_transforms:
+        - transform: SelectMappingFromPointId  # Select mappings after 3D points sampling
+        - transform: CenterRoll  # Roll images to center mappings
+        - transform: PickImagesFromMappingArea  # Remove images with not enough mappings
+          params:
+                use_bbox: ${data.exact_splatting_2d}
+        - transform: JitterMappingFeatures  # Mapping features augmentation
+          params:
+                sigma: 0.02
+                clip: 0.03
+        - transform: ColorJitter  # Radiometric augmentation
+          params:
+                  brightness: 0.6
+                  contrast: 0.6
+                  saturation: 0.7
+        - transform: RandomHorizontalFlip
+        - transform: ToFloatImage  # Convert uint8 image to float
+        #- transform: AddPixelHeightFeature  # Pixel height as image channel
+        - transform: Normalize  # Normalize colors based on ADE20K pretrained model
+        - transform: CropImageGroups  # Compute cropping groups to minimize embedding cost
+          params:
+                padding: ${data.padding_2d}
+                min_size: ${data.min_size_2d}
+        - transform: PickImagesFromMemoryCredit  # Pick images based on memory credit
+          params:
+                img_size: ${data.resolution_2d}
+                n_img: ${data.multimodal.settings.train_pixel_credit}
+                k_coverage: ${data.multimodal.settings.k_coverage}
+
+    test_transforms:
+        - transform: SelectMappingFromPointId  # Select mappings after 3D points sampling
+        - transform: CenterRoll  # Roll images to center mappings
+        - transform: PickImagesFromMappingArea  # Remove images with not enough mappings
+          params:
+                use_bbox: ${data.exact_splatting_2d}
+        - transform: ToFloatImage  # Convert uint8 image to float
+        #- transform: AddPixelHeightFeature  # Pixel height as image channel
+        - transform: Normalize  # Normalize colors based on ADE20K pretrained model
+        - transform: CropImageGroups  # Compute cropping groups to minimize embedding cost
+          params:
+                padding: ${data.padding_2d}
+                min_size: ${data.min_size_2d}
+        - transform: PickImagesFromMemoryCredit  # Pick images based on memory credit
+          params:
+                img_size: ${data.resolution_2d}
+                n_img: ${data.multimodal.settings.test_pixel_credit}
+                k_coverage: ${data.multimodal.settings.k_coverage}
+
+    val_transforms: ${data.multimodal.test_transforms}
