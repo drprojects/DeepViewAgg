@@ -1,5 +1,7 @@
 import os
 import logging
+import warnings
+from hydra import initialize, compose
 from omegaconf import OmegaConf
 from omegaconf.listconfig import ListConfig
 from omegaconf.dictconfig import DictConfig
@@ -151,3 +153,16 @@ def getattr_recursive(obj, attr, *args):
         return getattr_recursive(
             getattr(obj, attr_list[0]), '.'.join(attr_list[1:]),
             *args)
+
+
+def hydra_read(overrides, config_path='../../conf', config_name='config.yaml'):
+    """Simulates a python command for hydra to parse the config files.
+    Command line arguments are expected in overrides as a list of 
+    strings.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        with initialize(config_path=config_path):
+            cfg = compose(config_name=config_name, overrides=overrides)
+        OmegaConf.resolve(cfg)
+    return cfg
