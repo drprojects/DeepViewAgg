@@ -10,13 +10,13 @@
 
 I_GPU=________
 
-MACHINE_DATA_ROOT='/media/drobert-admin/DATA2/datasets/s3dis'  # IGN DATA2
-# MACHINE_DATA_ROOT='/var/data/drobert/datasets/s3dis'           # AI4GEO
-# MACHINE_DATA_ROOT='/home/qt/robertda/scratch/datasets/s3dis'   # CNES
-# MACHINE_DATA_ROOT='/raid/dataset/pointcloud/data/s3dis'        # ENGIE
+# DATA_ROOT='/media/drobert-admin/DATA2/datasets'  # IGN DATA2
+# DATA_ROOT='/var/data/drobert/datasets'           # AI4GEO
+# DATA_ROOT='/home/qt/robertda/scratch/datasets'   # CNES
+# DATA_ROOT='/raid/dataset/pointcloud/data'        # ENGIE
 
-# DATA_ROOT=${MACHINE_DATA_ROOT}/________
-DATA_ROOT=${MACHINE_DATA_ROOT}/5cm_exact_768x384
+# DATA_DIR=${DATA_ROOT}/s3dis/________
+DATA_DIR=${DATA_ROOT}/s3dis/5cm_exact_1024x512
 
 TASK=segmentation
 
@@ -27,19 +27,19 @@ MODELS=${TASK}/multimodal/no3d
 MODEL_NAME=RGB_ResNet18PPM_mean-feat
 
 # DATASET=${TASK}/_________
-DATASET=${TASK}/multimodal/s3disfused/no3d_5cm_768x384-exact_no-pixel-height
+DATASET=${TASK}/multimodal/s3disfused/no3d_5cm_1024x512-exact_no-pixel-height
 
 # TRAINING=s3dis_benchmark/sparseconv3d
 TRAINING=s3dis_benchmark/no3d_pretrained
 
 # EXP_NAME=________
-EXP_NAME=RGB_ResNet18PPM_mean-feat_LR-10-2-3-4_exact_768x384
+EXP_NAME=RGB_ResNet18PPM_mean-feat_LR-10-1-2-3_exact_1024x512
 
 FOLD=5
-EPOCHS=200
+EPOCHS=100
 SPHERE_SAMPLES=2000  # 3000 for initial BATCH_SIZE=8
 BATCH_SIZE=4
-WORKERS=4
+WORKERS=8
 BASE_LR=0.1
 LR_SCHEDULER=multi_step_s3dis
 EVAL_FREQUENCY=5
@@ -62,7 +62,7 @@ lr_scheduler=${LR_SCHEDULER} \
 eval_frequency=${EVAL_FREQUENCY} \
 data.fold=${FOLD} \
 data.sample_per_epoch=${SPHERE_SAMPLES} \
-data.dataroot=${DATA_ROOT} \
+data.dataroot=${DATA_DIR} \
 training.cuda=${I_GPU} \
 training.batch_size=${BATCH_SIZE} \
 training.epochs=${EPOCHS} \
@@ -81,7 +81,7 @@ training.wandb.name=${EXP_NAME}
 # eval_frequency=${EVAL_FREQUENCY} \
 # data.fold=${FOLD} \
 # data.sample_per_epoch=${SPHERE_SAMPLES} \
-# data.dataroot=${DATA_ROOT} \
+# data.dataroot=${DATA_DIR} \
 # training.cuda=${I_GPU} \
 # training.batch_size=${BATCH_SIZE} \
 # training.epochs=${EPOCHS} \
