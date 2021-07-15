@@ -15,10 +15,12 @@ optim:
         params:
             params:
                 - 'head'
+                - 'backbone.down_modules.0.image.view_pool'
                 - 'backbone.down_modules.0.image.conv.encoder'
                 - 'backbone.down_modules.0.image.conv.decoder'
             momentum: 0.9
-            lr: 
+            lr:
+                - ${training.optim.base_lr}
                 - ${training.optim.base_lr}
                 - ${training.optim.base_lr} * 0.1
                 - ${training.optim.base_lr} * 0.01
