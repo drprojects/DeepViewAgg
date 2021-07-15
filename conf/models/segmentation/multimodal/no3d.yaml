@@ -1133,3 +1133,115 @@ RGB_ResNet18PPM_gp-8-32-32-4_gscale:
                 mode: residual
             drop_mod: 0.1
             branching_index: 0
+
+RGB_ResNet18PPM_gp-8-32-32-1_gscale:
+    # 6.1 M params - 23.8 Mo on the GPU - ~7.2 ko/pixel at training time
+    class: no3d.No3DFeatureFusion
+    down_conv:
+        image:
+            down_conv:
+                module_name: ADE20KResNet18PPM
+                frozen: False
+            atomic_pooling:
+                module_name: BimodalCSRPool
+                mode: max
+            view_pooling:
+                module_name: GroupBimodalCSRPool
+                in_proj: 8
+                in_mod: 512
+                num_groups: 1
+                use_mod: False
+                proj_min: False
+                proj_max: False
+                proj_num: False
+                gating: False
+                group_scaling: True
+            fusion:
+                module_name: BimodalFusion
+                mode: residual
+            drop_mod: 0.1
+            branching_index: 0
+
+RGB_ResNet18PPM_gp-8-32-32+mod-1_gscale:
+    # 6.1 M params - 23.8 Mo on the GPU - ~7.2 ko/pixel at training time
+    class: no3d.No3DFeatureFusion
+    down_conv:
+        image:
+            down_conv:
+                module_name: ADE20KResNet18PPM
+                frozen: False
+            atomic_pooling:
+                module_name: BimodalCSRPool
+                mode: max
+            view_pooling:
+                module_name: GroupBimodalCSRPool
+                in_proj: 8
+                in_mod: 512
+                num_groups: 1
+                use_mod: True
+                proj_min: False
+                proj_max: False
+                proj_num: False
+                gating: False
+                group_scaling: True
+            fusion:
+                module_name: BimodalFusion
+                mode: residual
+            drop_mod: 0.1
+            branching_index: 0
+
+RGB_ResNet18PPM_gp-8-32-32+mod-128-1_gscale:
+    # 6.1 M params - 23.8 Mo on the GPU - ~7.2 ko/pixel at training time
+    class: no3d.No3DFeatureFusion
+    down_conv:
+        image:
+            down_conv:
+                module_name: ADE20KResNet18PPM
+                frozen: False
+            atomic_pooling:
+                module_name: BimodalCSRPool
+                mode: max
+            view_pooling:
+                module_name: GroupBimodalCSRPool
+                in_proj: 8
+                in_mod: 512
+                num_groups: 1
+                use_mod: True
+                proj_min: False
+                proj_max: False
+                proj_num: False
+                gating: False
+                group_scaling: True
+            fusion:
+                module_name: BimodalFusion
+                mode: residual
+            drop_mod: 0.1
+            branching_index: 0
+
+RGB_ResNet18PPM_gp-8-32-32+mod_512-4_gscale:
+    # 6.1 M params - 23.8 Mo on the GPU - ~7.2 ko/pixel at training time
+    class: no3d.No3DFeatureFusion
+    down_conv:
+        image:
+            down_conv:
+                module_name: ADE20KResNet18PPM
+                frozen: False
+            atomic_pooling:
+                module_name: BimodalCSRPool
+                mode: max
+            view_pooling:
+                module_name: GroupBimodalCSRPool
+                in_proj: 8
+                in_mod: 512
+                num_groups: 4
+                use_mod: True
+                proj_min: False
+                proj_max: False
+                proj_num: False
+                gating: False
+                group_scaling: True
+            fusion:
+                module_name: BimodalFusion
+                mode: residual
+            drop_mod: 0.1
+            branching_index: 0

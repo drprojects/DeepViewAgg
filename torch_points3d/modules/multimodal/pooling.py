@@ -414,30 +414,29 @@ class GroupBimodalCSRPool(nn.Module, ABC):
         # TODO: add dropout in here ?
         in_proj_2 = 32
         self.MLP_proj = (
-            Seq().append(nn.Linear(in_proj_0, in_proj_2, bias=True))
+            Seq().append(nn.Linear(in_proj_0, in_proj_2, bias=False))
                 .append(nn.BatchNorm1d(in_proj_2))
                 .append(nn.ReLU())
-                .append(nn.Linear(in_proj_2, in_proj_2, bias=True))
+                .append(nn.Linear(in_proj_2, in_proj_2, bias=False))
                 .append(nn.BatchNorm1d(in_proj_2))
                 .append(nn.ReLU()))
 
         # Attention scores computation module
-        #         if self.use_mod:
-        #             in_proj_3 = in_proj_2 + in_mod
-        #         else:
-        #             in_proj_3 = in_proj_2
+        if self.use_mod:
+            in_proj_3 = in_proj_2 + in_mod
+        else:
+            in_proj_3 = in_proj_2
         # Ease-in the dimensionality reduction to num_groups if need be
-        #         if num_groups <= 4 and in_proj_3 > 16:
-        #             in_proj_4 = 8
-        #             self.MLP_score = (
-        #                 Seq().append(nn.Linear(in_proj_3, in_proj_4, bias=True))
-        #                     .append(nn.BatchNorm1d(in_proj_4))
-        #                     .append(nn.ReLU())
-        #                     .append(nn.Linear(in_proj_4, num_groups, bias=True)))
-        #         else:
-        #             self.MLP_score = nn.Linear(in_proj_3, num_groups, bias=True)
-
-        self.MLP_score = nn.Linear(in_proj_2, num_groups, bias=True)
+        # if num_groups <= 4 and in_proj_3 > 16:
+        #     in_proj_4 = 8
+        #     self.MLP_score = (
+        #         Seq().append(nn.Linear(in_proj_3, in_proj_4, bias=True))
+        #             .append(nn.BatchNorm1d(in_proj_4))
+        #             .append(nn.ReLU())
+        #             .append(nn.Linear(in_proj_4, num_groups, bias=True)))
+        # else:
+        #     self.MLP_score = nn.Linear(in_proj_3, num_groups, bias=True)
+        self.MLP_score = nn.Linear(in_proj_3, num_groups, bias=True)
 
         # Optional gating mechanism
         self.Gating = Gating(num_groups, bias=True) if gating else None
