@@ -8,7 +8,7 @@ from torch_points3d.core.multimodal.image import SameSettingImageData, \
     ImageMapping, ImageData
 from torch_points3d.utils.multimodal import lexunique, lexargunique
 import torchvision.transforms as T
-from .projection import compute_projection
+from .visibility import splatting
 from tqdm.auto import tqdm as tq
 from typing import TypeVar, Union
 from pykeops.torch import LazyTensor
@@ -246,7 +246,7 @@ class MapImages(ImageTransform):
 
             # Projection to build the index, depth and feature maps
             start = time()
-            id_map, depth_map, feat_map = compute_projection(
+            id_map, depth_map, feat_map = splatting(
                 xyz_to_img,
                 indices,
                 img_opk,
@@ -255,7 +255,7 @@ class MapImages(ImageTransform):
                 scattering=scattering,
                 normals=normals,
                 img_mask=img_mask,
-                proj_size=image.proj_size,
+                img_size=image.proj_size,
                 voxel=image.voxel,
                 r_max=image.r_max,
                 r_min=image.r_min,

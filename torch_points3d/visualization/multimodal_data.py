@@ -3,8 +3,8 @@ from torch_points3d.core.multimodal.image import SameSettingImageData, \
     ImageData
 from torch_geometric.transforms import FixedPoints
 from torch_points3d.core.data_transform import GridSampling3D
-from torch_points3d.core.data_transform.multimodal.projection import \
-    pose_to_rotation_matrix_numba
+from torch_points3d.core.data_transform.multimodal.visibility import \
+    pose_to_rotation_matrix_cpu
 from torch_points3d.core.data_transform.multimodal.image import \
     SelectMappingFromPointId
 import os.path as osp
@@ -323,7 +323,7 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
         # Draw image coordinate system axes
         arrow_length = 0.1
         for v, color in zip(np.eye(3), ['red', 'green', 'blue']):
-            v = xyz + pose_to_rotation_matrix_numba(opk).dot(v * arrow_length)
+            v = xyz + pose_to_rotation_matrix_cpu(opk).dot(v * arrow_length)
             fig.add_trace(
                 go.Scatter3d(
                     x=[xyz[0], v[0]],
