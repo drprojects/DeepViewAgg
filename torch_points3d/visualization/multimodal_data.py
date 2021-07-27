@@ -3,7 +3,7 @@ from torch_points3d.core.multimodal.image import SameSettingImageData, \
     ImageData
 from torch_geometric.transforms import FixedPoints
 from torch_points3d.core.data_transform import GridSampling3D
-from torch_points3d.core.data_transform.multimodal.visibility import \
+from torch_points3d.core.multimodal.visibility import \
     pose_to_rotation_matrix_cpu
 from torch_points3d.core.data_transform.multimodal.image import \
     SelectMappingFromPointId

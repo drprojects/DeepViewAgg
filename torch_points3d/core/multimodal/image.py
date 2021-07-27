@@ -1681,7 +1681,7 @@ class ImageMapping(CSRData):
         if isinstance(view_mask, np.ndarray):
             view_mask = torch.from_numpy(view_mask)
         assert isinstance(view_mask, torch.BoolTensor) \
-               and len(view_mask.shape) == 1 \
+               and view_mask.dim() == 1 \
                and view_mask.shape[0] == self.num_items, \
             f"view_mask must be a torch.BoolTensor of size {self.num_items}."
 

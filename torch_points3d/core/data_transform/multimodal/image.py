@@ -8,7 +8,7 @@ from torch_points3d.core.multimodal.image import SameSettingImageData, \
     ImageMapping, ImageData
 from torch_points3d.utils.multimodal import lexunique, lexargunique
 import torchvision.transforms as T
-from .visibility import splatting
+from torch_points3d.core.multimodal.visibility import visibility
 from tqdm.auto import tqdm as tq
 from typing import TypeVar, Union
 from pykeops.torch import LazyTensor
@@ -210,8 +210,7 @@ class MapImages(ImageTransform):
 
         from time import time
         t_sphere_sampling = 0
-        t_projection = 0
-        t_init_torch_pixels = 0
+        t_visibility = 0
         t_coord_pixels = 0
         t_unique_pixels = 0
         t_stack_pixels = 0
@@ -225,91 +224,60 @@ class MapImages(ImageTransform):
             data_sample = sampler(data)
             t_sphere_sampling += time() - start
 
-            # Prepare the projection input parameters
-            xyz_to_img = (data_sample.pos - image.pos.squeeze()).float().numpy()
-            indices = getattr(data_sample, self.key).numpy()
-            img_opk = image.opk.squeeze().float().numpy()
-            linearity = data_sample.linearity.numpy() \
-                if getattr(data, 'linearity', None) is not None \
-                else None
-            planarity = data_sample.planarity.numpy() \
-                if getattr(data, 'planarity', None) is not None \
-                else None
-            scattering = data_sample.scattering.numpy() \
-                if getattr(data, 'scattering', None) is not None \
-                else None
-            normals = data_sample.norm.numpy() \
-                if getattr(data, 'norm', None) is not None \
-                else None
-            img_mask = image.mask.numpy() if image.mask is not None else None
-            empty = self.empty if self.empty is not None else image.r_max + 1
+            # Prepare the visibility model input parameters
+            xyz_to_img = (data_sample.pos - image.pos.squeeze()).float()
+            img_opk = image.opk.squeeze().float()
+            linearity = getattr(data_sample, 'linearity', None)
+            planarity = getattr(data_sample, 'planarity', None)
+            scattering = getattr(data_sample, 'scattering', None)
+            normals = getattr(data_sample, 'norm', None)
 
-            # Projection to build the index, depth and feature maps
+            # Compute the visibility of points wrt camera pose. This
+            # provides us with indices of visible points along with
+            # corresponding pixel coordinates, depth and mapping
+            # features.
             start = time()
-            id_map, depth_map, feat_map = splatting(
-                xyz_to_img,
-                indices,
-                img_opk,
-                linearity=linearity,
-                planarity=planarity,
-                scattering=scattering,
-                normals=normals,
-                img_mask=img_mask,
-                img_size=image.proj_size,
-                voxel=image.voxel,
-                r_max=image.r_max,
-                r_min=image.r_min,
-                growth_k=image.growth_k,
-                growth_r=image.growth_r,
-                empty=empty,
-                no_id=self.no_id,
-                exact=self.exact)
-            t_projection += time() - start
+            out_visi = visibility(
+                xyz_to_img, img_opk, linearity=linearity, planarity=planarity,
+                scattering=scattering, normals=normals, img_mask=image.mask,
+                img_size=image.proj_size, voxel=image.voxel, r_max=image.r_max,
+                r_min=image.r_min, growth_k=image.growth_k,
+                growth_r=image.growth_r, exact=self.exact, method='splatting',
+                use_cuda=False)
 
-            # Convert the id_map to id-xy coordinate soup
-            # First column holds the point indices, subsequent columns
-            # hold the  pixel coordinates. We use this heterogeneous
-            # soup to search for duplicate rows after resolution
-            # coarsening.
-            # NB: no_id pixels are ignored
-            start = time()
-            id_map = torch.from_numpy(id_map)
-            feat_map = torch.from_numpy(feat_map)
-            pix_x_, pix_y_ = torch.where(id_map != self.no_id)
-            point_ids_ = id_map[(pix_x_, pix_y_)]
-            features_ = feat_map[(pix_x_, pix_y_)]
+            # Recover point indices, pixel coordinates and features
+            point_ids_ = data_sample[self.key][out_visi['idx']]
+            pix_x_ = out_visi['x'].long()
+            pix_y_ = out_visi['y'].long()
+            features_ = out_visi['features']
+            t_visibility += time() - start
 
             # Skip image if no mapping was found
             if point_ids_.shape[0] == 0:
                 continue
-            t_init_torch_pixels += time() - start
 
-            # Convert to SameSettingImageData coordinate system with proper
-            # resampling and cropping
+            # Convert to SameSettingImageData coordinate system with
+            # corresponding cropping and resizing
             # TODO: add circular padding here if need be
             start = time()
-            pix_x_ = (pix_x_ // image.proj_upscale).long()
-            pix_y_ = (pix_y_ // image.proj_upscale).long()
+            pix_x_ = pix_x_ // image.proj_upscale
+            pix_y_ = pix_y_ // image.proj_upscale
             pix_x_ = pix_x_ - image.crop_offsets.squeeze()[0]
             pix_y_ = pix_y_ - image.crop_offsets.squeeze()[1]
-            cropped_in_idx = torch.where(
-                (pix_x_ >= 0)
-                & (pix_y_ >= 0)
-                & (pix_x_ < image.crop_size[0])
+            in_crop = torch.where(
+                (pix_x_ >= 0) & (pix_y_ >= 0) & (pix_x_ < image.crop_size[0])
                 & (pix_y_ < image.crop_size[1]))
-            pix_x_ = pix_x_[cropped_in_idx]
-            pix_y_ = pix_y_[cropped_in_idx]
-            point_ids_ = point_ids_[cropped_in_idx]
-            features_ = features_[cropped_in_idx]
+            pix_x_ = pix_x_[in_crop]
+            pix_y_ = pix_y_[in_crop]
+            point_ids_ = point_ids_[in_crop]
+            features_ = features_[in_crop]
             pix_x_ = (pix_x_ // image.downscale).long()
             pix_y_ = (pix_y_ // image.downscale).long()
             t_coord_pixels += time() - start
 
-            # Remove duplicate id-xy in low resolution
+            # Remove duplicate id-xy after image resizing
             # Sort by point id
             start = time()
-            # point_ids_, pix_x_, pix_y_ = lexunique(point_ids_, pix_x_, pix_y_,
-            #                                        use_cuda=True)
             unique_idx = lexargunique(point_ids_, pix_x_, pix_y_, use_cuda=True)
             pix_x_ = pix_x_[unique_idx]
             pix_y_ = pix_y_[unique_idx]
@@ -335,8 +303,7 @@ class MapImages(ImageTransform):
 
         print(f"    Cumulated times")
         print(f"        t_sphere_sampling: {t_sphere_sampling:0.3f}")
-        print(f"        t_projection: {t_projection:0.3f}")
-        print(f"        t_init_torch_pixels: {t_init_torch_pixels:0.3f}")
+        print(f"        t_visibility: {t_visibility:0.3f}")
         print(f"        t_coord_pixels: {t_coord_pixels:0.3f}")
         print(f"        t_unique_pixels: {t_unique_pixels:0.3f}")
         print(f"        t_stack_pixels: {t_stack_pixels:0.3f}")
