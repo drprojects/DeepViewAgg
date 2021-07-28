@@ -160,11 +160,8 @@ class MapImages(ImageTransform):
     """
 
     def __init__(self, ref_size=None, proj_upscale=None, voxel=None, r_max=None,
-                 r_min=None, growth_k=None, growth_r=None, empty=None, no_id=-1,
-                 exact=False):
+                 r_min=None, growth_k=None, growth_r=None, exact=False):
         self.key = MAPPING_KEY
-        self.empty = empty
-        self.no_id = no_id
 
         # Image internal state parameters
         self.ref_size = ref_size
@@ -175,6 +172,7 @@ class MapImages(ImageTransform):
         self.growth_k = growth_k
         self.growth_r = growth_r
         self.exact = exact
+        # TODO: take visibility methods into account
 
     def _process(self, data: Data, images: SameSettingImageData):
         assert hasattr(data, self.key)
@@ -187,12 +185,14 @@ class MapImages(ImageTransform):
             images.ref_size = self.ref_size
         if self.proj_upscale is not None:
             images.proj_upscale = self.proj_upscale
-        if self.voxel is not None:
-            images.voxel = self.voxel
+
         if self.r_max is not None:
             images.r_max = self.r_max
         if self.r_min is not None:
             images.r_min = self.r_min
+
+        if self.voxel is not None:
+            images.voxel = self.voxel
         if self.growth_k is not None:
             images.growth_k = self.growth_k
         if self.growth_r is not None:
@@ -238,11 +238,12 @@ class MapImages(ImageTransform):
             # features.
             start = time()
             out_visi = visibility(
-                xyz_to_img, img_opk, linearity=linearity, planarity=planarity,
-                scattering=scattering, normals=normals, img_mask=image.mask,
-                img_size=image.proj_size, voxel=image.voxel, r_max=image.r_max,
-                r_min=image.r_min, growth_k=image.growth_k,
-                growth_r=image.growth_r, exact=self.exact, method='splatting',
+                xyz_to_img, img_opk, method='splatting', img_mask=image.mask,
+                img_size=image.proj_size, linearity=linearity,
+                planarity=planarity, scattering=scattering, normals=normals,
+                voxel=image.voxel, r_max=image.r_max,
+                r_min=image.r_min, k_swell=image.growth_k,
+                d_swell=image.growth_r, exact=self.exact,
                 use_cuda=False)
 
             # Recover point indices, pixel coordinates and features

@@ -10,7 +10,6 @@ from torch_points3d.utils.multimodal import lexargsort, lexunique, \
 from torch_points3d.utils.multimodal import tensor_idx
 
 
-
 class SameSettingImageData(object):
     """
     Class to hold arrays of images information, along with shared 3D-2D 
@@ -90,6 +89,7 @@ class SameSettingImageData(object):
         self.x = x
         self.mappings = mappings
         self.mask = mask
+        # TODO: take visibility methods into account
 
         self.debug()
 
@@ -333,7 +333,7 @@ class SameSettingImageData(object):
 
             # Apply pixel update
             self.mappings.pixels[:, 0] = w_pix
-        
+
         return self
 
     @property
@@ -420,7 +420,7 @@ class SameSettingImageData(object):
         # Update the mappings
         if self.mappings is not None:
             self.mappings = self.mappings.crop(crop_size, crop_offsets)
-        
+
         return self
 
     @property
@@ -466,7 +466,7 @@ class SameSettingImageData(object):
         if scale > 1:
             self.mappings = self.mappings.downscale_views(scale) \
                 if self.mappings is not None else None
-        
+
         return self
 
     @property
@@ -1097,7 +1097,7 @@ class ImageData:
         assert all(isinstance(im, SameSettingImageData) for im in self), \
             f"All list elements must be of type SameSettingImageData."
         # Remove any empty SameSettingImageData from the list
-#         self._list = [im for im in self._list if im.num_views > 0]
+        #         self._list = [im for im in self._list if im.num_views > 0]
         assert all(im.num_points == self.num_points for im in self), \
             "All SameSettingImageData mappings must refer to the same Data. " \
             "Hence, all must have the same number of points in their mappings."
@@ -1297,7 +1297,7 @@ class ImageBatch(ImageData):
         for h, im in zip(hashes, batches):
             if im.num_points > 0:
                 global_idx = torch.cat(
-                    [torch.arange(cum_pts[il_idx], cum_pts[il_idx+1])
+                    [torch.arange(cum_pts[il_idx], cum_pts[il_idx + 1])
                      for il_idx in il_idx_dict[h]], dim=0)
                 im.mappings.insert_empty_groups(global_idx,
                                                 num_groups=cum_pts[-1])
@@ -1333,7 +1333,7 @@ class ImageBatch(ImageData):
                     ib.to_data_list()):
                 # Restore the point ids in the mappings
                 im.mappings = im.mappings[
-                    self.__cum_pts__[il_idx]:self.__cum_pts__[il_idx+1]]
+                              self.__cum_pts__[il_idx]:self.__cum_pts__[il_idx + 1]]
 
                 # Update the list of MultiSettingImages with each
                 # SameSettingImageData in its original position
@@ -1393,7 +1393,7 @@ class ImageMapping(CSRData):
         # NB: The pointers are marked by non-successive point-image ids.
         #     Watch out for overflow in case the point_ids and
         #     image_ids are too large and stored in 32 bits.
-        composite_ids = CompositeTensor(point_ids, image_ids, 
+        composite_ids = CompositeTensor(point_ids, image_ids,
                                         device=point_ids.device)
         image_pixel_mappings = CSRData(composite_ids.data, pixels, dense=True)
         del composite_ids
@@ -1405,7 +1405,7 @@ class ImageMapping(CSRData):
         point_ids = point_ids[image_pixel_mappings.pointers[1:] - 1]
         if features is not None:
             features = torch_scatter.segment_csr(features,
-                    image_pixel_mappings.pointers, reduce='mean')
+                                                 image_pixel_mappings.pointers, reduce='mean')
 
         # Instantiate the main CSRData object
         # Compute point pointers in the image_ids array
@@ -1726,7 +1726,6 @@ class ImageMapping(CSRData):
 
         return out, img_idx
 
-
     def select_points(self, idx, mode='pick'):
         """
         Update the 3D points sampling. Typically called after a 3D
@@ -1768,7 +1767,7 @@ class ImageMapping(CSRData):
             assert idx.shape[0] == self.num_groups, \
                 f"Merge correspondences has size {idx.shape[0]} but size " \
                 f"{self.num_groups} was expected."
-            assert (torch.arange(idx.max()+1, device=self.device)
+            assert (torch.arange(idx.max() + 1, device=self.device)
                     == torch.unique(idx)).all(), \
                 "Merge correspondences must map to a compact set of " \
                 "indices."
@@ -1782,7 +1781,7 @@ class ImageMapping(CSRData):
             if self.has_features:
                 # Compute composite point-image views ids
                 view_ids = CompositeTensor(point_ids, image_ids,
-                                                device=point_ids.device)
+                                           device=point_ids.device)
                 view_ids = view_ids.data.squeeze()
                 # Average the features per view
                 features = torch_scatter.scatter_mean(self.features,
@@ -1822,7 +1821,7 @@ class ImageMapping(CSRData):
 
             # Convert to CSR format
             out = ImageMapping.from_dense(point_ids, image_ids, pixels,
-                features, num_points=idx.max()+1)
+                                          features, num_points=idx.max() + 1)
         else:
             raise ValueError(f"Unknown point selection mode '{mode}'.")
 
@@ -1896,7 +1895,7 @@ class ImageMapping(CSRData):
 
         # Convert to CSR format
         return ImageMapping.from_dense(point_ids, image_ids, pixels, features,
-            num_points=self.num_groups)
+                                       num_points=self.num_groups)
 
 
 class ImageMappingBatch(ImageMapping, CSRBatch):
