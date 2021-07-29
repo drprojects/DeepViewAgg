@@ -1,5 +1,6 @@
-import numpy as np
+import os.path as osp
 import torch
+import numpy as np
 import torch_scatter
 from torch_geometric.data import Data
 from torch_points3d.core.data_transform import SphereSampling
@@ -237,20 +238,32 @@ class MapImages(ImageTransform):
             # corresponding pixel coordinates, depth and mapping
             # features.
             start = time()
+            # out_visi = visibility(
+            #     xyz_to_img, img_opk, method='splatting', img_mask=image.mask,
+            #     img_size=image.proj_size, linearity=linearity,
+            #     planarity=planarity, scattering=scattering, normals=normals,
+            #     voxel=image.voxel, r_max=image.r_max,
+            #     r_min=image.r_min, k_swell=image.growth_k,
+            #     d_swell=image.growth_r, exact=self.exact,
+            #     use_cuda=False)
+
+            depth_map_path = osp.join(
+                osp.dirname(osp.dirname(image.path[0])), 'depth',
+                osp.basename(image.path[0]).replace('_rgb.png', '_depth.png'))
+
             out_visi = visibility(
-                xyz_to_img, img_opk, method='splatting', img_mask=image.mask,
-                img_size=image.proj_size, linearity=linearity,
-                planarity=planarity, scattering=scattering, normals=normals,
-                voxel=image.voxel, r_max=image.r_max,
-                r_min=image.r_min, k_swell=image.growth_k,
-                d_swell=image.growth_r, exact=self.exact,
-                use_cuda=False)
+                xyz_to_img.cuda(), img_opk.cuda(), method='depth_map',
+                img_mask=image.mask.cuda(), img_size=image.proj_size,
+                linearity=linearity.cuda(), planarity=planarity.cuda(),
+                scattering=scattering.cuda(), normals=normals.cuda(),
+                r_max=image.r_max, r_min=image.r_min, use_cuda=True,
+                depth_map_path=depth_map_path, depth_threshold=0.05)
 
             # Recover point indices, pixel coordinates and features
-            point_ids_ = data_sample[self.key][out_visi['idx']]
-            pix_x_ = out_visi['x'].long()
-            pix_y_ = out_visi['y'].long()
-            features_ = out_visi['features']
+            point_ids_ = data_sample[self.key][out_visi['idx'].cpu()]
+            pix_x_ = out_visi['x'].long().cpu()
+            pix_y_ = out_visi['y'].long().cpu()
+            features_ = out_visi['features'].cpu()
             t_visibility += time() - start
 
             # Skip image if no mapping was found
