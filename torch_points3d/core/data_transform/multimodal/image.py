@@ -55,7 +55,8 @@ class ImageTransform:
         return data_out, images_out
 
     def __repr__(self):
-        return f"{self.__class__.__name__}"
+        attr_repr = ', '.join([f'{k}={v}' for k, v in self.__dict__.items()])
+        return f'{self.__class__.__name__}({attr_repr})'
 
 
 class LoadImages(ImageTransform):
@@ -68,11 +69,12 @@ class LoadImages(ImageTransform):
     """
 
     def __init__(self, ref_size=None, crop_size=None, crop_offsets=None,
-                 downscale=None):
+                 downscale=None, show_progress=False):
         self.ref_size = ref_size
         self.crop_size = crop_size
         self.crop_offsets = crop_offsets
         self.downscale = downscale
+        self.show_progress = show_progress
 
     def _process(self, data: Data, images: SameSettingImageData):
         # Edit SameSettingImageData internal state attributes.
@@ -86,7 +88,8 @@ class LoadImages(ImageTransform):
             images.downscale = self.downscale
 
         # Load images wrt SameSettingImageData internal state
-        images.load()
+        print("    LoadImages...")
+        images.load(show_progress=self.show_progress)
 
         return data, images
 
@@ -156,8 +159,8 @@ class MapImages(ImageTransform):
     Compute the projection of data points into images and return the input data
     augmented with attributes mapping points to pixels in provided images.
 
-    Returns the input data and SameSettingImageData augmented with the point-image-pixel
-    ImageMapping.
+    Returns the input data and SameSettingImageData augmented with the
+    point-image-pixel ImageMapping.
     """
 
     def __init__(self, ref_size=None, proj_upscale=None, voxel=None, r_max=None,
@@ -218,6 +221,7 @@ class MapImages(ImageTransform):
         t_append = 0
 
         # Project each image and gather the point-pixel mappings
+        print("    MapImages...")
         for i_image, image in tq(enumerate(images)):
             # Subsample the surrounding point cloud
             start = time()
@@ -233,6 +237,11 @@ class MapImages(ImageTransform):
             scattering = getattr(data_sample, 'scattering', None)
             normals = getattr(data_sample, 'norm', None)
 
+            # TEMPORARY - read depth map from file for S3DIS images
+            # depth_map_path = osp.join(
+            #     osp.dirname(osp.dirname(image.path[0])), 'depth',
+            #     osp.basename(image.path[0]).replace('_rgb.png', '_depth.png'))
+
             # Compute the visibility of points wrt camera pose. This
             # provides us with indices of visible points along with
             # corresponding pixel coordinates, depth and mapping
@@ -247,28 +256,34 @@ class MapImages(ImageTransform):
             #     d_swell=image.growth_r, exact=self.exact,
             #     use_cuda=False)
 
-            depth_map_path = osp.join(
-                osp.dirname(osp.dirname(image.path[0])), 'depth',
-                osp.basename(image.path[0]).replace('_rgb.png', '_depth.png'))
-
+            # TEMPORARY - manually select the visibility model.
+            # Ultimately, should be done in a cleaner fashion, with a
+            # VisibilityModel class saved in SameSettingImageData
+            # attributes
+            print('MapImages visibility is UNFINISHED')
             out_visi = visibility(
-                xyz_to_img.cuda(), img_opk.cuda(), method='depth_map',
-                img_mask=image.mask.cuda(), img_size=image.proj_size,
-                linearity=linearity.cuda(), planarity=planarity.cuda(),
-                scattering=scattering.cuda(), normals=normals.cuda(),
-                r_max=image.r_max, r_min=image.r_min, use_cuda=True,
-                depth_map_path=depth_map_path, depth_threshold=0.05)
-
-            # Recover point indices, pixel coordinates and features
-            point_ids_ = data_sample[self.key][out_visi['idx'].cpu()]
-            pix_x_ = out_visi['x'].long().cpu()
-            pix_y_ = out_visi['y'].long().cpu()
-            features_ = out_visi['features'].cpu()
-            t_visibility += time() - start
+                xyz_to_img.cuda(), img_opk.cuda(), method='splatting',
+                img_mask=image.mask.cuda() if image.mask is not None else None,
+                img_size=image.proj_size, linearity=linearity.cuda(),
+                planarity=planarity.cuda(), scattering=scattering.cuda(),
+                normals=normals.cuda(),
+                voxel=image.voxel, r_max=image.r_max,
+                r_min=image.r_min, k_swell=image.growth_k,
+                d_swell=image.growth_r, exact=True,
+                use_cuda=True)
 
             # Skip image if no mapping was found
-            if point_ids_.shape[0] == 0:
+            if out_visi['idx'].shape[0] == 0:
                 continue
+
+            # Recover point indices, pixel coordinates and features
+            device = out_visi['x'].device
+            point_ids_ = data_sample[self.key][out_visi['idx']].to(device)
+            pix_x_ = out_visi['x'].long()
+            pix_y_ = out_visi['y'].long()
+            features_ = out_visi['features'].float()
+            del out_visi
+            t_visibility += time() - start
 
             # Convert to SameSettingImageData coordinate system with
             # corresponding cropping and resizing
@@ -287,6 +302,7 @@ class MapImages(ImageTransform):
             features_ = features_[in_crop]
             pix_x_ = (pix_x_ // image.downscale).long()
             pix_y_ = (pix_y_ // image.downscale).long()
+            del in_crop
             t_coord_pixels += time() - start
 
             # Remove duplicate id-xy after image resizing
@@ -297,12 +313,14 @@ class MapImages(ImageTransform):
             pix_y_ = pix_y_[unique_idx]
             point_ids_ = point_ids_[unique_idx]
             features_ = features_[unique_idx]
+            del unique_idx
             t_unique_pixels += time() - start
 
             # Cast pixel coordinates to a dtype minimizing memory use
             start = time()
             pixels_ = torch.stack((pix_x_, pix_y_), dim=1).type(
                 image.pixel_dtype)
+            del pix_x_, pix_y_
             t_stack_pixels += time() - start
 
             # Gather per-image mappings in list structures, only to be
@@ -312,7 +330,7 @@ class MapImages(ImageTransform):
             point_ids.append(point_ids_)
             features.append(features_)
             pixels.append(pixels_)
-            del pixels_, point_ids_
+            del pixels_, features_, point_ids_
             t_append += time() - start
 
         print(f"    Cumulated times")
@@ -327,7 +345,7 @@ class MapImages(ImageTransform):
         delattr(data, SphereSampling.KDTREE_KEY)
 
         # Raise error if no point-image-pixel mapping was found
-        image_ids = torch.LongTensor(image_ids)
+        image_ids = torch.LongTensor(image_ids).to(device)
         if image_ids.shape[0] == 0:
             raise ValueError(
                 "No mappings were found between the 3D points and any "
@@ -348,12 +366,14 @@ class MapImages(ImageTransform):
         seen_image_ids = lexunique(image_ids, use_cuda=True)
         images = images[seen_image_ids]
         image_ids = torch.bucketize(image_ids, seen_image_ids)
+        del seen_image_ids
         print(f"        t_index_image_data: {time() - start:0.3f}")
 
         # Concatenate mappings data
         start = time()
         image_ids = torch.repeat_interleave(
-            image_ids, torch.LongTensor([x.shape[0] for x in point_ids]))
+            image_ids,
+            torch.LongTensor([x.shape[0] for x in point_ids]).to(device))
         point_ids = torch.cat(point_ids)
         features = torch.cat(features)
         pixels = torch.cat(pixels)
@@ -364,9 +384,10 @@ class MapImages(ImageTransform):
             point_ids, image_ids, pixels, features,
             num_points=getattr(data, self.key).numpy().max() + 1)
         print(f"        t_ImageMapping_init: {time() - start:0.3f}\n")
+        print()
 
         # Save the mapping in the SameSettingImageData
-        images.mappings = mappings
+        images.mappings = mappings.cpu()
 
         return data, images
 
@@ -426,7 +447,7 @@ class NeighborhoodBasedMappingFeatures(ImageTransform):
 
         # Move computation to CUDA if required
         restore_input_cpu = False
-        if self.use_cuda and xyz.device.type != 'cuda':
+        if self.use_cuda and xyz.is_cuda:
             restore_input_cpu = True
             xyz = xyz.cuda()
 

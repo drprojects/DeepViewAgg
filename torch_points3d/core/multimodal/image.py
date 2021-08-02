@@ -4,6 +4,7 @@ from PIL import Image
 import torch
 import torch_scatter
 from typing import List
+from tqdm.auto import tqdm as tq
 from torch_points3d.core.multimodal import CSRData, CSRBatch
 from torch_points3d.utils.multimodal import lexargsort, lexunique, \
     lexargunique, CompositeTensor
@@ -661,7 +662,7 @@ class SameSettingImageData(object):
                 f"{mask.shape} instead."
             self._mask = mask.to(self.device)
 
-    def load(self):
+    def load(self, show_progress=False):
         """
         Load images to the 'x' attribute.
 
@@ -676,11 +677,12 @@ class SameSettingImageData(object):
             rollings=self.rollings,
             crop_size=self.crop_size,
             crop_offsets=self.crop_offsets,
-            downscale=self.downscale).to(self.device)
+            downscale=self.downscale,
+            show_progress=show_progress).to(self.device)
         return self
 
     def read_images(self, idx=None, size=None, rollings=None, crop_size=None,
-                    crop_offsets=None, downscale=None):
+                    crop_offsets=None, downscale=None, show_progress=False):
         # TODO: faster read with multiprocessing:
         #  https://stackoverflow.com/questions/19695249/load-just-part-of-an-image-in-python
         #  https://towardsdatascience.com/10x-faster-parallel-python-without-python-multiprocessing-e5017c93cce1
@@ -747,8 +749,8 @@ class SameSettingImageData(object):
                 f"Expected scalar larger than 1 but got {downscale} instead."
 
         # Read images from files
-        images = [Image.open(p).convert('RGB').resize(size)
-                  for p in self.path[idx]]
+        path_enum = tq(self.path[idx]) if show_progress else self.path[idx]
+        images = [Image.open(p).convert('RGB').resize(size) for p in path_enum]
 
         # Local helper to roll a PIL image sideways
         # source: https://pillow.readthedocs.io

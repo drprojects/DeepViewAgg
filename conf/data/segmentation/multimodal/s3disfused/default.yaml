@@ -62,6 +62,7 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
         - transform: LoadImages  # Read images from disk
           params:
                 ref_size: ${data.resolution_2d}
+                show_progress: True
         - transform: NonStaticMask  # Compute acquisition mask
           params:
                 ref_size: ${data.resolution_2d}

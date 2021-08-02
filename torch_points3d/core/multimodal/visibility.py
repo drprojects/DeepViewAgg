@@ -227,9 +227,7 @@ def field_of_view_cuda(x_pix, y_pix, y_min, y_max, img_mask=None):
     return torch.where(in_fov)[0]
 
 
-@torch_to_numba
-@njit(cache=True, nogil=True)
-def project_cpu(
+def project_cpu_kwargs(
         xyz_to_img, img_opk, img_mask=None, img_size=(1024, 512), crop_top=0,
         crop_bottom=0, r_max=30, r_min=0.5, **kwargs):
     """
@@ -247,6 +245,32 @@ def project_cpu(
     assert img_mask is None or img_mask.shape == img_size, \
         f'Expected img_mask to be a torch.BoolTensor of shape ' \
         f'img_size={img_size} but got size={img_mask.shape}.'
+
+    # Wrap around _project_cpu_core because @njit functions do not
+    # handle kwargs
+    return project_cpu(
+        xyz_to_img, img_opk, img_mask=img_mask, img_size=img_size,
+        crop_top=crop_top, crop_bottom=crop_bottom, r_max=r_max, r_min=r_min)
+
+
+@torch_to_numba
+@njit(cache=True, nogil=True)
+def project_cpu(
+        xyz_to_img, img_opk, img_mask=None, img_size=(1024, 512), crop_top=0,
+        crop_bottom=0, r_max=30, r_min=0.5):
+    """
+
+    :param xyz_to_img:
+    :param img_opk:
+    :param img_mask:
+    :param img_size:
+    :param crop_top:
+    :param crop_bottom:
+    :param r_max:
+    :param r_min:
+    :return:
+    """
+    assert img_mask is None or img_mask.shape == img_size
 
     # We store indices in int64 format so we only accept indices up to
     # np.iinfo(np.int64).max
@@ -493,7 +517,7 @@ def bbox_to_xy_grid_cuda(bbox):
     :param bbox:
     :return:
     """
-    assert bbox.dim() == 2 and bbox.shape[1] == 4
+    assert bbox.dim() == 2 and bbox.shape[0] > 0 and bbox.shape[1] == 4
     assert not bbox.is_floating_point(), \
         f"bbox should be an int32 or int64 tensor but received " \
         f"bbox.dtype={bbox.dtype} instead."
@@ -530,9 +554,7 @@ def bbox_to_xy_grid_cuda(bbox):
     return x, y
 
 
-@torch_to_numba
-@njit(cache=True, nogil=True)
-def visibility_from_splatting_cpu(
+def visibility_from_splatting_cpu_kwargs(
         x_proj, y_proj, dist, img_size=(1024, 512), crop_top=0, crop_bottom=0,
         voxel=0.1, k_swell=0.2, d_swell=10, exact=False, **kwargs):
     """Compute visibility model with splatting on the CPU with numpy and
@@ -554,6 +576,42 @@ def visibility_from_splatting_cpu(
     :param exact:
     :return:
     """
+    assert x_proj.shape[0] == y_proj.shape[0] == dist.shape[0] > 0
+
+    # Wrap around visibility_from_splatting because @njit fnctions do
+    # not handle kwargs
+    return visibility_from_splatting(
+        x_proj, y_proj, dist, img_size=img_size, crop_top=crop_top,
+        crop_bottom=crop_bottom, voxel=voxel, k_swell=k_swell, d_swell=d_swell,
+        exact=exact)
+
+
+@torch_to_numba
+@njit(cache=True, nogil=True)
+def visibility_from_splatting(
+        x_proj, y_proj, dist, img_size=(1024, 512), crop_top=0, crop_bottom=0,
+        voxel=0.1, k_swell=0.2, d_swell=10, exact=False):
+    """Compute visibility model with splatting on the CPU with numpy and
+    numba.
+
+    Although top and bottom cropping can be specified, the returned
+    coordinates are expressed in the non-cropped image pixel coordinate
+    system.
+
+    :param x_proj:
+    :param y_proj:
+    :param dist:
+    :param img_size:
+    :param crop_top:
+    :param crop_bottom:
+    :param voxel:
+    :param k_swell:
+    :param d_swell:
+    :param exact:
+    :return:
+    """
+    assert x_proj.shape[0] == y_proj.shape[0] == dist.shape[0] > 0
+
     # Compute splatting masks for equirectangular images
     splat = equirectangular_splat_cpu(
         x_proj, y_proj, dist, img_size=img_size, crop_top=crop_top,
@@ -645,6 +703,8 @@ def visibility_from_splatting_cuda(
     :param exact:
     :return:
     """
+    assert x_proj.shape[0] == y_proj.shape[0] == dist.shape[0] > 0
+
     # Initialization
     device = x_proj.device
     n_points = x_proj.shape[0]
@@ -741,6 +801,8 @@ def visibility_from_depth_map(
     :param depth_threshold:
     :return:
     """
+    assert x_proj.shape[0] == y_proj.shape[0] == dist.shape[0] > 0
+
     # Read the depth map
     assert depth_map_path is not None, f'Please provide depth_map_path.'
     depth_map = read_s3dis_depth_map(depth_map_path, img_size=img_size, empty=-1)
@@ -844,6 +906,8 @@ def visibility_biasutti(
     :param biasutti_threshold:
     :return:
     """
+    assert x_proj.shape[0] == y_proj.shape[0] == dist.shape[0] > 0
+
     # Search k-nearest neighbors in the image pixel coordinate system
     neighbors = k_nn_image_system(
         x_proj, y_proj, k=biasutti_k, x_margin=biasutti_margin,
@@ -955,22 +1019,44 @@ def visibility(
     assert method in METHODS, \
         f'Unknown method {method}, expected one of {METHODS}.'
 
-    if xyz_to_img.device.type == 'cuda':
+    in_device = xyz_to_img.device
+    if xyz_to_img.is_cuda:
         use_cuda = True
     elif not torch.cuda.is_available():
         use_cuda = False
 
     if use_cuda:
+        xyz_to_img = xyz_to_img.cuda()
+        img_opk = img_opk.cuda()  
+        linearity = linearity.cuda() if linearity is not None else None
+        planarity = planarity.cuda() if planarity is not None else None
+        scattering = scattering.cuda() if scattering is not None else None
+        normals = normals.cuda() if normals is not None else None
+        kwargs = {
+            k: v.cuda() if isinstance(v, torch.Tensor) else v
+            for k, v in kwargs.items()}
+
         idx_1, dist, x_proj, y_proj = project_cuda(
-            xyz_to_img, img_opk, **kwargs)
+            xyz_to_img.cuda(), img_opk.cuda(), **kwargs)
     else:
-        idx_1, dist, x_proj, y_proj = project_cpu(xyz_to_img, img_opk, **kwargs)
+        idx_1, dist, x_proj, y_proj = project_cpu_kwargs(
+            xyz_to_img, img_opk, **kwargs)
+
+    # Return if no projections are found
+    if x_proj.shape[0] == 0:
+        out = {}
+        out['idx'] = torch.empty((0,), dtype=torch.long, device=in_device)
+        out['x'] = torch.empty((0,), dtype=torch.long, device=in_device)
+        out['y'] = torch.empty((0,), dtype=torch.long, device=in_device)
+        out['depth'] = torch.empty((0,), dtype=torch.float, device=in_device)
+        out['features'] = torch.empty((0,), dtype=torch.float, device=in_device)
+        return out
 
     if method == 'splatting' and use_cuda:
         idx_2, x_pix, y_pix = visibility_from_splatting_cuda(
             x_proj, y_proj, dist, **kwargs)
     elif method == 'splatting' and not use_cuda:
-        idx_2, x_pix, y_pix = visibility_from_splatting_cpu(
+        idx_2, x_pix, y_pix = visibility_from_splatting_cpu_kwargs(
             x_proj, y_proj, dist, **kwargs)
     elif method == 'depth_map':
         idx_2, x_pix, y_pix = visibility_from_depth_map(
@@ -986,10 +1072,11 @@ def visibility(
     dist = dist[idx_2]
 
     out = {}
-    out['idx'] = idx
-    out['x'] = x_pix
-    out['y'] = y_pix
-    out['depth'] = dist
+    out['idx'] = idx.to(in_device)
+    out['x'] = x_pix.to(in_device)
+    out['y'] = y_pix.to(in_device)
+    out['depth'] = dist.to(in_device)
+    out['features'] = None
 
     # Compute mapping features
     if linearity is not None and planarity is not None \
