@@ -9,6 +9,7 @@ from torch_points3d.core.multimodal import CSRData, CSRBatch
 from torch_points3d.utils.multimodal import lexargsort, lexunique, \
     lexargunique, CompositeTensor
 from torch_points3d.utils.multimodal import tensor_idx
+from torch_points3d.core.multimodal.visibility import VisibilityModel
 
 
 class SameSettingImageData(object):
@@ -17,35 +18,31 @@ class SameSettingImageData(object):
     mapping information.
 
     Attributes
-        path:numpy.ndarray      image paths
-        pos:torch.Tensor        image positions
-        opk:torch.Tensor        image angular poses
+        path:numpy.ndarray          image paths
+        pos:torch.Tensor            image positions
+        opk:torch.Tensor            image angular poses
 
-        ref_size:tuple          initial size of the loaded images and mappings
-        proj_upscale:float      upsampling of projection wrt to ref_size
-        downscale:float         downsampling of images and mappings wrt ref_size
-        rollings:LongTensor     rolling offsets for each image wrt ref_size
-        crop_size:tuple         size of the cropping box wrt ref_size
-        crop_offsets:LongTensor cropping box offsets for each image wrt ref_size
+        ref_size:tuple              initial size of the loaded images and mappings
+        proj_upscale:float          upsampling of projection wrt to ref_size
+        downscale:float             downsampling of images and mappings wrt ref_size
+        rollings:LongTensor         rolling offsets for each image wrt ref_size
+        crop_size:tuple             size of the cropping box wrt ref_size
+        crop_offsets:LongTensor     cropping box offsets for each image wrt ref_size
 
-        voxel:float             voxel resolution
-        r_max:float             radius max
-        r_min:float             radius min
-        growth_k:float          pixel growth factor
-        growth_r:float          pixel growth radius
-
-        x:Tensor                tensor of features
-        mappings:ImageMapping   mappings between 3D points and the images
-        mask:BoolTensor         projection mask
+        x:Tensor                    tensor of features
+        mappings:ImageMapping       mappings between 3D points and the images
+        visibility:VisibilityModel  visibility model used to compute the mappings
+        mask:BoolTensor             projection mask
     """
     _numpy_keys = ['path']
     _torch_keys = ['pos', 'opk', 'crop_offsets', 'rollings']
     _map_key = 'mappings'
     _x_key = 'x'
     _mask_key = 'mask'
+    _visi_key = 'visibility'
     _shared_keys = [
-        'ref_size', 'proj_upscale', 'downscale', 'crop_size', 'voxel',
-        'r_max', 'r_min', 'growth_k', 'growth_r', _mask_key]
+        'ref_size', 'proj_upscale', 'downscale', 'crop_size', _mask_key,
+        _visi_key]
     _own_keys = _numpy_keys + _torch_keys + [_map_key, _x_key]
     _keys = _shared_keys + _own_keys
 
@@ -53,8 +50,7 @@ class SameSettingImageData(object):
             self, path=np.empty(0, dtype='O'), pos=torch.empty([0, 3]),
             opk=torch.empty([0, 3]), ref_size=(512, 256), proj_upscale=2,
             downscale=1, rollings=None, crop_size=None, crop_offsets=None,
-            voxel=0.1, r_max=30, r_min=0.5, growth_k=0.2, growth_r=10, x=None,
-            mappings=None, mask=None, **kwargs):
+            x=None, mappings=None, mask=None, visibility=None, **kwargs):
 
         assert path.shape[0] == pos.shape[0] == opk.shape[0], \
             f"Attributes 'path', 'pos' and 'opk' must have the same length."
@@ -82,14 +78,10 @@ class SameSettingImageData(object):
         self.crop_offsets = crop_offsets if crop_offsets is not None \
             else torch.zeros((self.num_views, 2), dtype=torch.int64)
         self.downscale = downscale
-        self.voxel = voxel
-        self.r_max = r_max
-        self.r_min = r_min
-        self.growth_k = growth_k
-        self.growth_r = growth_r
         self.x = x
         self.mappings = mappings
         self.mask = mask
+        self.visibility = visibility
         # TODO: take visibility methods into account
 
         self.debug()
@@ -164,6 +156,10 @@ class SameSettingImageData(object):
                 f"Discrepancy in the devices of 'pos' and 'mask' attributes." \
                 f" Please use `SameSettingImageData.to()` to set the device."
 
+        if self.visibility is not None:
+            assert isinstance(self.visibility, VisibilityModel)
+            assert self.visibility.img_size == self.proj_size
+
     def to_dict(self):
         return {key: getattr(self, key) for key in self._keys}
 
@@ -201,10 +197,9 @@ class SameSettingImageData(object):
     @ref_size.setter
     def ref_size(self, ref_size):
         ref_size = tuple(ref_size)
-        assert (self.x is None
-                and self.mappings is None
-                and self.mask is None) \
-               or self.ref_size == ref_size, \
+        assert \
+            (self.x is None and self.mappings is None and self.mask is None) \
+            or self.ref_size == ref_size, \
             "Can't directly edit 'ref_size' if 'x', 'mappings' and 'mask' " \
             "are not all None."
         assert len(ref_size) == 2, \
@@ -822,15 +817,11 @@ class SameSettingImageData(object):
             downscale=copy.deepcopy(self.downscale),
             crop_size=copy.deepcopy(self.crop_size),
             crop_offsets=self.crop_offsets[idx],
-            voxel=copy.deepcopy(self.voxel),
-            r_max=copy.deepcopy(self.r_max),
-            r_min=copy.deepcopy(self.r_min),
-            growth_k=copy.deepcopy(self.growth_k),
-            growth_r=copy.deepcopy(self.growth_r),
             x=self.x[idx] if self.x is not None else None,
             mappings=self.mappings.select_images(idx)
             if self.mappings is not None else None,
-            mask=self.mask if self.mask is not None else None)
+            mask=self.mask.clone() if self.mask is not None else None,
+            visibility=copy.deepcopy(self.visibility))
 
     def __iter__(self):
         """
@@ -887,8 +878,10 @@ class SameSettingImageData(object):
         mechanisms.
         """
         # Assert shared keys are the same for all items
-        keys = tuple(set(SameSettingImageData._shared_keys)
-                     - {SameSettingImageData._mask_key})
+        keys = tuple(
+            set(SameSettingImageData._shared_keys)
+            - {SameSettingImageData._mask_key}
+            - {SameSettingImageData._visi_key})
         return hash(tuple(getattr(self, k) for k in keys))
 
     @staticmethod

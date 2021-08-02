@@ -8,8 +8,8 @@ from torch_points3d.core.multimodal.data import MAPPING_KEY
 from torch_points3d.core.multimodal.image import SameSettingImageData, \
     ImageMapping, ImageData
 from torch_points3d.utils.multimodal import lexunique, lexargunique
+import torch_points3d.core.multimodal.visibility as visibility_module
 import torchvision.transforms as T
-from torch_points3d.core.multimodal.visibility import visibility
 from tqdm.auto import tqdm as tq
 from typing import TypeVar, Union
 from pykeops.torch import LazyTensor
@@ -163,20 +163,19 @@ class MapImages(ImageTransform):
     point-image-pixel ImageMapping.
     """
 
-    def __init__(self, ref_size=None, proj_upscale=None, voxel=None, r_max=None,
-                 r_min=None, growth_k=None, growth_r=None, exact=False):
+    def __init__(
+            self, method='SplattingVisibility', proj_upscale=None,
+            ref_size=None, use_cuda=False, **kwargs):
         self.key = MAPPING_KEY
 
         # Image internal state parameters
         self.ref_size = ref_size
         self.proj_upscale = proj_upscale
-        self.voxel = voxel
-        self.r_max = r_max
-        self.r_min = r_min
-        self.growth_k = growth_k
-        self.growth_r = growth_r
-        self.exact = exact
-        # TODO: take visibility methods into account
+
+        # Visibility model parameters
+        self.method = method
+        self.use_cuda = use_cuda and torch.cuda.is_available()
+        self.kwargs = kwargs
 
     def _process(self, data: Data, images: SameSettingImageData):
         assert hasattr(data, self.key)
@@ -184,27 +183,24 @@ class MapImages(ImageTransform):
         assert images.num_views >= 1, \
             "At least one image must be provided."
 
+        # Initialize the input-output device and the device on which
+        # heavy computation should be performed
+        in_device = images.device
+        device = 'cuda' if self.use_cuda else in_device
+
         # Edit SameSettingImageData internal state attributes
         if self.ref_size is not None:
             images.ref_size = self.ref_size
         if self.proj_upscale is not None:
             images.proj_upscale = self.proj_upscale
 
-        if self.r_max is not None:
-            images.r_max = self.r_max
-        if self.r_min is not None:
-            images.r_min = self.r_min
-
-        if self.voxel is not None:
-            images.voxel = self.voxel
-        if self.growth_k is not None:
-            images.growth_k = self.growth_k
-        if self.growth_r is not None:
-            images.growth_r = self.growth_r
-
         # Control the size of any already-existing mask
         if images.mask is not None:
             assert images.mask.shape == images.proj_size
+
+        # Instantiate the visibility model
+        visi_cls = getattr(visibility_module, self.method)
+        visi = visi_cls(img_size=images.proj_size, **self.kwargs)
 
         # Initialize the mapping arrays
         image_ids = []
@@ -225,29 +221,34 @@ class MapImages(ImageTransform):
         for i_image, image in tq(enumerate(images)):
             # Subsample the surrounding point cloud
             start = time()
-            sampler = SphereSampling(image.r_max, image.pos, align_origin=False)
+            sampler = SphereSampling(visi.r_max, image.pos, align_origin=False)
             data_sample = sampler(data)
             t_sphere_sampling += time() - start
 
             # Prepare the visibility model input parameters
-            xyz_to_img = (data_sample.pos - image.pos.squeeze()).float()
-            img_opk = image.opk.squeeze().float()
+            xyz_to_img = (data_sample.pos - image.pos.squeeze()).float().to(device)
+            img_opk = image.opk.squeeze().float().to(device)
             linearity = getattr(data_sample, 'linearity', None)
             planarity = getattr(data_sample, 'planarity', None)
             scattering = getattr(data_sample, 'scattering', None)
             normals = getattr(data_sample, 'norm', None)
+            linearity = linearity.to(device) if linearity is not None else None
+            planarity = planarity.to(device) if planarity is not None else None
+            scattering = scattering.to(device) if scattering is not None else None
+            normals = normals.to(device) if normals is not None else None
+            mask = image.mask.to(device) if image.mask is not None else None
 
             # TEMPORARY - read depth map from file for S3DIS images
-            # depth_map_path = osp.join(
-            #     osp.dirname(osp.dirname(image.path[0])), 'depth',
-            #     osp.basename(image.path[0]).replace('_rgb.png', '_depth.png'))
+            depth_map_path = osp.join(
+                osp.dirname(osp.dirname(image.path[0])), 'depth',
+                osp.basename(image.path[0]).replace('_rgb.png', '_depth.png'))
 
             # Compute the visibility of points wrt camera pose. This
             # provides us with indices of visible points along with
             # corresponding pixel coordinates, depth and mapping
             # features.
             start = time()
-            # out_visi = visibility(
+            # out_vm = visibility(
             #     xyz_to_img, img_opk, method='splatting', img_mask=image.mask,
             #     img_size=image.proj_size, linearity=linearity,
             #     planarity=planarity, scattering=scattering, normals=normals,
@@ -260,29 +261,32 @@ class MapImages(ImageTransform):
             # Ultimately, should be done in a cleaner fashion, with a
             # VisibilityModel class saved in SameSettingImageData
             # attributes
-            print('MapImages visibility is UNFINISHED')
-            out_visi = visibility(
-                xyz_to_img.cuda(), img_opk.cuda(), method='splatting',
-                img_mask=image.mask.cuda() if image.mask is not None else None,
-                img_size=image.proj_size, linearity=linearity.cuda(),
-                planarity=planarity.cuda(), scattering=scattering.cuda(),
-                normals=normals.cuda(),
-                voxel=image.voxel, r_max=image.r_max,
-                r_min=image.r_min, k_swell=image.growth_k,
-                d_swell=image.growth_r, exact=True,
-                use_cuda=True)
+            # out_vm = visibility(
+            #     xyz_to_img.cuda(), img_opk.cuda(), method='splatting',
+            #     img_mask=image.mask.cuda() if image.mask is not None else None,
+            #     img_size=image.proj_size, linearity=linearity.cuda(),
+            #     planarity=planarity.cuda(), scattering=scattering.cuda(),
+            #     normals=normals.cuda(),
+            #     voxel=image.voxel, r_max=image.r_max,
+            #     r_min=image.r_min, k_swell=image.growth_k,
+            #     d_swell=image.growth_r, exact=True,
+            #     use_cuda=True)
+
+            out_vm = visi(
+                xyz_to_img, img_opk, img_mask=mask, linearity=linearity,
+                planarity=planarity, scattering=scattering, normals=normals,
+                depth_map_path=depth_map_path)
 
             # Skip image if no mapping was found
-            if out_visi['idx'].shape[0] == 0:
+            if out_vm['idx'].shape[0] == 0:
                 continue
 
             # Recover point indices, pixel coordinates and features
-            device = out_visi['x'].device
-            point_ids_ = data_sample[self.key][out_visi['idx']].to(device)
-            pix_x_ = out_visi['x'].long()
-            pix_y_ = out_visi['y'].long()
-            features_ = out_visi['features'].float()
-            del out_visi
+            point_ids_ = data_sample[self.key].to(device)[out_vm['idx']]
+            pix_x_ = out_vm['x'].long()
+            pix_y_ = out_vm['y'].long()
+            features_ = out_vm['features'].float()
+            del out_vm
             t_visibility += time() - start
 
             # Convert to SameSettingImageData coordinate system with
@@ -386,8 +390,10 @@ class MapImages(ImageTransform):
         print(f"        t_ImageMapping_init: {time() - start:0.3f}\n")
         print()
 
-        # Save the mapping in the SameSettingImageData
-        images.mappings = mappings.cpu()
+        # Save the mappings and visibility model in the
+        # SameSettingImageData
+        images.mappings = mappings.to(in_device)
+        images.visibility = visi
 
         return data, images
 
@@ -439,17 +445,18 @@ class NeighborhoodBasedMappingFeatures(ImageTransform):
             "At least one of `density` or `occlusion` must be True."
 
     def _process(self, data: Data, images):
+        print("    NeighborhoodBasedMappingFeatures...")
+
         assert isinstance(data, Data)
         assert images.mappings is not None
 
-        # Recover 3D points positions
-        xyz = data.pos
+        # Initialize the input-output device and the device on which
+        # heavy computation should be performed
+        in_device = images.device
+        device = 'cuda' if self.use_cuda else in_device
 
-        # Move computation to CUDA if required
-        restore_input_cpu = False
-        if self.use_cuda and xyz.is_cuda:
-            restore_input_cpu = True
-            xyz = xyz.cuda()
+        # Recover 3D points positions
+        xyz = data.pos.to(device)
 
         # K-NN search with KeOps
         xyz_query_keops = LazyTensor(xyz[:, None, :])
@@ -463,6 +470,8 @@ class NeighborhoodBasedMappingFeatures(ImageTransform):
         #  generalization to other datasets if sensors differ. Investigating the
         #  effect of local noise may help compute a better density heuristic.
         if self.compute_density:
+            print(f"        Density computation...")
+
             densities = []
             for k in self.k_list:
                 # Compute the farthest distance in each neighborhood
@@ -475,11 +484,7 @@ class NeighborhoodBasedMappingFeatures(ImageTransform):
                 voxel_density = 1 / self.voxel**2
                 density = ((k + 1) / v_sphere) / voxel_density
 
-                # Restore CPU input if need be
-                if restore_input_cpu:
-                    density = density.cpu()
-
-                densities.append(density.view(-1, 1))
+                densities.append(density.to(in_device).view(-1, 1))
 
             # Concatenate k-based densities column-wise
             densities = torch.cat(densities, dim=1)
@@ -503,9 +508,9 @@ class NeighborhoodBasedMappingFeatures(ImageTransform):
         #  occlusion and density separately, with their dedicated transforms,
         #  but this would also mean computing the neighbors twice...
         if self.compute_occlusion:
+            print(f"        Occlusion computation...")
 
             # Expand to view-level
-            device = 'cuda' if self.use_cuda else images.mappings.device
             n_points = data.num_nodes
             n_images = torch.max(images.mappings.images) + 1
             pointers = images.mappings.pointers.to(device)
@@ -515,8 +520,8 @@ class NeighborhoodBasedMappingFeatures(ImageTransform):
             image_ids = images.mappings.images.to(device)
 
             # Compute the (very large) dense boolean 2D tensor of views
-            views = torch.zeros((n_points, n_images), dtype=torch.bool,
-                                device=device)
+            views = torch.zeros(
+                (n_points, n_images), dtype=torch.bool, device=device)
             views[point_ids, image_ids] = True
 
             occlusions = []
@@ -533,11 +538,7 @@ class NeighborhoodBasedMappingFeatures(ImageTransform):
                 # accounting for the contribution of the point itself
                 occlusion = views_neigh_seen / (k + 1)
 
-                # Restore CPU input if need be
-                if restore_input_cpu:
-                    occlusion = occlusion.cpu()
-
-                occlusions.append(occlusion.view(-1, 1))
+                occlusions.append(occlusion.to(in_device).view(-1, 1))
 
             # Concatenate k-based occlusions column-wise
             occlusions = torch.cat(occlusions, dim=1)

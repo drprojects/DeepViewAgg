@@ -4,6 +4,7 @@ import torch
 import torch_scatter
 from PIL import Image
 from pykeops.torch import LazyTensor
+from abc import ABC, abstractmethod
 
 
 def torch_to_numba(func):
@@ -227,49 +228,11 @@ def field_of_view_cuda(x_pix, y_pix, y_min, y_max, img_mask=None):
     return torch.where(in_fov)[0]
 
 
-def project_cpu_kwargs(
-        xyz_to_img, img_opk, img_mask=None, img_size=(1024, 512), crop_top=0,
-        crop_bottom=0, r_max=30, r_min=0.5, **kwargs):
-    """
-
-    :param xyz_to_img:
-    :param img_opk:
-    :param img_mask:
-    :param img_size:
-    :param crop_top:
-    :param crop_bottom:
-    :param r_max:
-    :param r_min:
-    :return:
-    """
-    assert img_mask is None or img_mask.shape == img_size, \
-        f'Expected img_mask to be a torch.BoolTensor of shape ' \
-        f'img_size={img_size} but got size={img_mask.shape}.'
-
-    # Wrap around _project_cpu_core because @njit functions do not
-    # handle kwargs
-    return project_cpu(
-        xyz_to_img, img_opk, img_mask=img_mask, img_size=img_size,
-        crop_top=crop_top, crop_bottom=crop_bottom, r_max=r_max, r_min=r_min)
-
-
 @torch_to_numba
 @njit(cache=True, nogil=True)
-def project_cpu(
+def camera_projection_cpu(
         xyz_to_img, img_opk, img_mask=None, img_size=(1024, 512), crop_top=0,
         crop_bottom=0, r_max=30, r_min=0.5):
-    """
-
-    :param xyz_to_img:
-    :param img_opk:
-    :param img_mask:
-    :param img_size:
-    :param crop_top:
-    :param crop_bottom:
-    :param r_max:
-    :param r_min:
-    :return:
-    """
     assert img_mask is None or img_mask.shape == img_size
 
     # We store indices in int64 format so we only accept indices up to
@@ -306,21 +269,9 @@ def project_cpu(
     return indices, dist, x_proj, y_proj
 
 
-def project_cuda(
+def camera_projection_cuda(
         xyz_to_img, img_opk, img_mask=None, img_size=(1024, 512), crop_top=0,
         crop_bottom=0, r_max=30, r_min=0.5, **kwargs):
-    """
-
-    :param xyz_to_img:
-    :param img_opk:
-    :param img_mask:
-    :param img_size:
-    :param crop_top:
-    :param crop_bottom:
-    :param r_max:
-    :param r_min:
-    :return:
-    """
     assert img_mask is None or img_mask.shape == img_size, \
         f'Expected img_mask to be a torch.BoolTensor of shape ' \
         f'img_size={img_size} but got size={img_mask.shape}.'
@@ -357,6 +308,33 @@ def project_cuda(
     y_proj = y_proj[in_fov]
 
     return indices, dist, x_proj, y_proj
+
+
+def camera_projection(
+        xyz_to_img, img_opk, img_mask=None, img_size=(1024, 512), crop_top=0,
+        crop_bottom=0, r_max=30, r_min=0.5, **kwargs):
+    """
+
+    :param xyz_to_img:
+    :param img_opk:
+    :param img_mask:
+    :param img_size:
+    :param crop_top:
+    :param crop_bottom:
+    :param r_max:
+    :param r_min:
+    :param kwargs:
+    :return:
+    """
+    assert img_mask is None or img_mask.shape == img_size, \
+        f'Expected img_mask to be a torch.BoolTensor of shape ' \
+        f'img_size={img_size} but got size={img_mask.shape}.'
+
+    f = camera_projection_cuda if xyz_to_img.is_cuda else camera_projection_cpu
+
+    return f(
+        xyz_to_img, img_opk, img_mask=img_mask, img_size=img_size,
+        crop_top=crop_top, crop_bottom=crop_bottom, r_max=r_max, r_min=r_min)
 
 
 # -------------------------------------------------------------------- #
@@ -554,41 +532,9 @@ def bbox_to_xy_grid_cuda(bbox):
     return x, y
 
 
-def visibility_from_splatting_cpu_kwargs(
-        x_proj, y_proj, dist, img_size=(1024, 512), crop_top=0, crop_bottom=0,
-        voxel=0.1, k_swell=0.2, d_swell=10, exact=False, **kwargs):
-    """Compute visibility model with splatting on the CPU with numpy and
-    numba.
-
-    Although top and bottom cropping can be specified, the returned
-    coordinates are expressed in the non-cropped image pixel coordinate
-    system.
-
-    :param x_proj:
-    :param y_proj:
-    :param dist:
-    :param img_size:
-    :param crop_top:
-    :param crop_bottom:
-    :param voxel:
-    :param k_swell:
-    :param d_swell:
-    :param exact:
-    :return:
-    """
-    assert x_proj.shape[0] == y_proj.shape[0] == dist.shape[0] > 0
-
-    # Wrap around visibility_from_splatting because @njit fnctions do
-    # not handle kwargs
-    return visibility_from_splatting(
-        x_proj, y_proj, dist, img_size=img_size, crop_top=crop_top,
-        crop_bottom=crop_bottom, voxel=voxel, k_swell=k_swell, d_swell=d_swell,
-        exact=exact)
-
-
 @torch_to_numba
 @njit(cache=True, nogil=True)
-def visibility_from_splatting(
+def visibility_from_splatting_cpu(
         x_proj, y_proj, dist, img_size=(1024, 512), crop_top=0, crop_bottom=0,
         voxel=0.1, k_swell=0.2, d_swell=10, exact=False):
     """Compute visibility model with splatting on the CPU with numpy and
@@ -750,6 +696,33 @@ def visibility_from_splatting_cuda(
     return indices, x_pix, y_pix
 
 
+def visibility_from_splatting(
+        x_proj, y_proj, dist, img_size=(1024, 512), crop_top=0, crop_bottom=0,
+        voxel=0.1, k_swell=0.2, d_swell=10, exact=False, **kwargs):
+    """
+
+    :param x_proj:
+    :param y_proj:
+    :param dist:
+    :param img_size:
+    :param crop_top:
+    :param crop_bottom:
+    :param voxel:
+    :param k_swell:
+    :param d_swell:
+    :param exact:
+    :param kwargs:
+    :return:
+    """
+    f = visibility_from_splatting_cuda if x_proj.is_cuda \
+        else visibility_from_splatting_cpu
+
+    return f(
+        x_proj, y_proj, dist, img_size=img_size, crop_top=crop_top,
+        crop_bottom=crop_bottom, voxel=voxel, k_swell=k_swell, d_swell=d_swell,
+        exact=exact)
+
+
 # -------------------------------------------------------------------- #
 #                     Visibility Method - Depth Map                    #
 # -------------------------------------------------------------------- #
@@ -804,6 +777,7 @@ def visibility_from_depth_map(
     assert x_proj.shape[0] == y_proj.shape[0] == dist.shape[0] > 0
 
     # Read the depth map
+    # TODO: only supports S3DIS-type depth map. Extend to other formats
     assert depth_map_path is not None, f'Please provide depth_map_path.'
     depth_map = read_s3dis_depth_map(depth_map_path, img_size=img_size, empty=-1)
     depth_map = depth_map.to(x_proj.device)
@@ -821,7 +795,7 @@ def visibility_from_depth_map(
 # -------------------------------------------------------------------- #
 
 def k_nn_image_system(
-        x_proj, y_proj, k=30, x_margin=None, x_width=None):
+        x_proj, y_proj, k=75, x_margin=None, x_width=None):
     """Compute K-nearest neighbors in for points with coordinates
     (x_proj, y_proj) in the image coordinate system. If x_margin and
     x_width are provided, the image is wrapped along the X coordinates
@@ -889,8 +863,8 @@ def k_nn_image_system(
 
 
 def visibility_biasutti(
-        x_proj, y_proj, dist, img_size=None, biasutti_k=75,
-        biasutti_margin=None, biasutti_threshold=None, **kwargs):
+        x_proj, y_proj, dist, img_size=None, k=75,
+        margin=None, threshold=None, **kwargs):
     """Compute visibility model based Biasutti et al. method as
     described in:
 
@@ -901,26 +875,25 @@ def visibility_biasutti(
     :param y_proj:
     :param dist:
     :param img_size:
-    :param biasutti_k:
-    :param biasutti_margin:
-    :param biasutti_threshold:
+    :param k:
+    :param margin:
+    :param threshold:
     :return:
     """
     assert x_proj.shape[0] == y_proj.shape[0] == dist.shape[0] > 0
 
     # Search k-nearest neighbors in the image pixel coordinate system
     neighbors = k_nn_image_system(
-        x_proj, y_proj, k=biasutti_k, x_margin=biasutti_margin,
-        x_width=img_size[0])
+        x_proj, y_proj, k=k, x_margin=margin, x_width=img_size[0])
 
     # Compute the visibility and recover visible point indices
     dist_nn = dist[neighbors]
     dist_min = dist_nn.min(dim=1).values
     dist_max = dist_nn.max(dim=1).values
-    alpha = torch.exp(-((dist - dist_min) / (dist_max - dist_min))**2)
-    if biasutti_threshold is None:
-        biasutti_threshold = alpha.mean()
-    indices = torch.where(alpha >= biasutti_threshold)[0]
+    alpha = torch.exp(-((dist - dist_min) / (dist_max - dist_min)) ** 2)
+    if threshold is None:
+        threshold = alpha.mean()
+    indices = torch.where(alpha >= threshold)[0]
 
     return indices, x_proj[indices], y_proj[indices]
 
@@ -968,7 +941,7 @@ def orientation_cuda(u, v, requires_scaling=False):
         u = u / (norm_cuda(u) + 1e-4).reshape((-1, 1)).float()
         v = v / (norm_cuda(v) + 1e-4).reshape((-1, 1)).float()
 
-    orientation = (u * v).abs().sum(dim=1)
+    orientation = (u * v).sum(dim=1).abs()
     # orientation[torch.where(orientation > 1)] = 0
 
     return orientation
@@ -977,7 +950,6 @@ def orientation_cuda(u, v, requires_scaling=False):
 def postprocess_features(
         xyz_to_img, y_proj, dist, linearity, planarity, scattering, normals,
         img_size=(1024, 512), r_max=30, r_min=0.5, **kwargs):
-
     # Compute the N x F array of pointwise projection features carrying:
     #     - normalized depth
     #     - linearity
@@ -1027,7 +999,7 @@ def visibility(
 
     if use_cuda:
         xyz_to_img = xyz_to_img.cuda()
-        img_opk = img_opk.cuda()  
+        img_opk = img_opk.cuda()
         linearity = linearity.cuda() if linearity is not None else None
         planarity = planarity.cuda() if planarity is not None else None
         scattering = scattering.cuda() if scattering is not None else None
@@ -1035,12 +1007,8 @@ def visibility(
         kwargs = {
             k: v.cuda() if isinstance(v, torch.Tensor) else v
             for k, v in kwargs.items()}
-
-        idx_1, dist, x_proj, y_proj = project_cuda(
-            xyz_to_img.cuda(), img_opk.cuda(), **kwargs)
-    else:
-        idx_1, dist, x_proj, y_proj = project_cpu_kwargs(
-            xyz_to_img, img_opk, **kwargs)
+    idx_1, dist, x_proj, y_proj = camera_projection(
+        xyz_to_img, img_opk, **kwargs)
 
     # Return if no projections are found
     if x_proj.shape[0] == 0:
@@ -1052,11 +1020,8 @@ def visibility(
         out['features'] = torch.empty((0,), dtype=torch.float, device=in_device)
         return out
 
-    if method == 'splatting' and use_cuda:
-        idx_2, x_pix, y_pix = visibility_from_splatting_cuda(
-            x_proj, y_proj, dist, **kwargs)
-    elif method == 'splatting' and not use_cuda:
-        idx_2, x_pix, y_pix = visibility_from_splatting_cpu_kwargs(
+    if method == 'splatting':
+        idx_2, x_pix, y_pix = visibility_from_splatting(
             x_proj, y_proj, dist, **kwargs)
     elif method == 'depth_map':
         idx_2, x_pix, y_pix = visibility_from_depth_map(
@@ -1086,6 +1051,136 @@ def visibility(
             planarity[idx], scattering[idx], normals[idx], **kwargs)
 
     return out
+
+
+class VisibilityModel(ABC):
+
+    @abstractmethod
+    def __init__(self):
+        pass
+
+    def _camera_projection(self, *args, **kwargs):
+        return camera_projection(*args, **self.__dict__, **kwargs)
+
+    @abstractmethod
+    def _visibility(self):
+        pass
+
+    def _postprocess_features(self, *args):
+        return postprocess_features(*args, **self.__dict__)
+
+    def __call__(
+            self, xyz_to_img, img_opk, img_mask=None, linearity=None,
+            planarity=None, scattering=None, normals=None, **kwargs):
+        """Compute the visibility of a point cloud with respect to a
+        given camera pose.
+
+        :param xyz_to_img:
+        :param img_opk:
+        :param img_mask:
+        :param linearity:
+        :param planarity:
+        :param scattering:
+        :param normals:
+        :return:
+        """
+        in_device = xyz_to_img.device
+
+        # Compute camera projection
+        idx_1, dist, x_proj, y_proj = self._camera_projection(
+            xyz_to_img, img_opk, img_mask=img_mask, **kwargs)
+
+        # Return if no projections are found
+        if x_proj.shape[0] == 0:
+            out = {}
+            out['idx'] = torch.empty((0,), dtype=torch.long, device=in_device)
+            out['x'] = torch.empty((0,), dtype=torch.long, device=in_device)
+            out['y'] = torch.empty((0,), dtype=torch.long, device=in_device)
+            out['depth'] = torch.empty((0,), dtype=torch.float, device=in_device)
+            out['features'] = torch.empty(
+                (0,), dtype=torch.float, device=in_device)
+            return out
+
+        # Compute visibility of projected points
+        idx_2, x_pix, y_pix = self._visibility(x_proj, y_proj, dist, **kwargs)
+
+        # Keep data only for mapped point
+        idx = idx_1[idx_2]
+        dist = dist[idx_2]
+
+        out = {}
+        out['idx'] = idx
+        out['x'] = x_pix
+        out['y'] = y_pix
+        out['depth'] = dist
+        out['features'] = None
+
+        # Compute mapping features
+        if linearity is not None and planarity is not None \
+                and scattering is not None and normals is not None:
+            out['features'] = self._postprocess_features(
+                xyz_to_img[idx], y_proj[idx_2], dist, linearity[idx],
+                planarity[idx], scattering[idx], normals[idx])
+
+        return out
+
+    def __repr__(self):
+        attr_repr = ', '.join([f'{k}={v}' for k, v in self.__dict__.items()])
+        return f'{self.__class__.__name__}({attr_repr})'
+
+
+class SplattingVisibility(VisibilityModel, ABC):
+
+    def __init__(
+            self, img_size=(1024, 512), crop_top=0, crop_bottom=0, r_max=30,
+            r_min=0.5, voxel=0.1, k_swell=0.2, d_swell=10, exact=False):
+        self.img_size = img_size
+        self.crop_top = crop_top
+        self.crop_bottom = crop_bottom
+        self.r_max = r_max
+        self.r_min = r_min
+        self.voxel = voxel
+        self.k_swell = k_swell
+        self.d_swell = d_swell
+        self.exact = exact
+
+    def _visibility(self, *args, **kwargs):
+        return visibility_from_splatting(*args, **self.__dict__, **kwargs)
+
+
+class DepthBasedVisibility(VisibilityModel, ABC):
+
+    def __init__(
+            self, img_size=(1024, 512), crop_top=0, crop_bottom=0, r_max=30,
+            r_min=0.5, depth_threshold=0.05):
+        self.img_size = img_size
+        self.crop_top = crop_top
+        self.crop_bottom = crop_bottom
+        self.r_max = r_max
+        self.r_min = r_min
+        self.depth_threshold = depth_threshold
+
+    def _visibility(self, *args, **kwargs):
+        return visibility_from_depth_map(*args, **self.__dict__, **kwargs)
+
+
+class BiasuttiVisibility(VisibilityModel, ABC):
+
+    def __init__(
+            self, img_size=(1024, 512), crop_top=0, crop_bottom=0, r_max=30,
+            r_min=0.5, k=75, margin=None, threshold=None):
+        self.img_size = img_size
+        self.crop_top = crop_top
+        self.crop_bottom = crop_bottom
+        self.r_max = r_max
+        self.r_min = r_min
+        self.k = k
+        self.margin = margin
+        self.threshold = threshold
+
+    def _visibility(self, *args, **kwargs):
+        return visibility_biasutti(*args, **self.__dict__, **kwargs)
+
 
 # TODO: support other camera models than equirectangular image
 # TODO: support other depth map files formats. For now, only S3DIS format supported
