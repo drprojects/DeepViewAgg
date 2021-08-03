@@ -1,10 +1,13 @@
 from abc import ABC
 
+import sys
 import torch
 import torch.nn as nn
 from torch_scatter import segment_csr, scatter_min, scatter_max
-from torch_points3d.core.common_modules import Seq
+from torch_points3d.core.common_modules import MLP
 import math
+
+_local_modules = sys.modules[__name__]
 
 
 class BimodalCSRPool(nn.Module, ABC):
@@ -33,10 +36,18 @@ class BimodalCSRPool(nn.Module, ABC):
 
     def __init__(self, mode='max', save_last=False, **kwargs):
         super(BimodalCSRPool, self).__init__()
+
         assert mode in self._POOLING_MODES, \
             f"Unsupported mode '{mode}'. Expected one of: {self._POOLING_MODES}"
         self._mode = mode
+
+        # Optional mechanism to keep track of the outputs for debugging
+        # or view-wise loss
         self.save_last = save_last
+        self._last_x_map = None
+        self._last_x_mod = None
+        self._last_idx = None
+        self._last_view_num = None
 
     def forward(self, x_main, x_mod, x_map, csr_idx):
         # Segment_CSR is "the fastest method to apply for grouped
@@ -103,7 +114,13 @@ class HeuristicBimodalCSRPool(nn.Module, ABC):
             f"Feat={feat} is too large. Expected feat<{len(self._FEATURES)}."
         self._feat = feat
 
+        # Optional mechanism to keep track of the outputs for debugging
+        # or view-wise loss
         self.save_last = save_last
+        self._last_x_map = None
+        self._last_x_mod = None
+        self._last_idx = None
+        self._last_view_num = None
 
     def forward(self, x_main, x_mod, x_map, csr_idx):
         # Compute dense indices from CSR indices
@@ -173,26 +190,22 @@ class GroupBimodalCSRPool(nn.Module, ABC):
     F_main = 10
     F_mod = 7
     F_map = 3
-    num_groups = 2
+    n_groups = 2
 
     csr_idx = torch.LongTensor([0, 4, 4, 5, 10, 20])
     x_main = None
     x_mod = torch.rand(V, F_mod)
-    x_map = torch.rand(V, F_map)
+    x = torch.rand(V, F_map)
 
-    module = GroupBimodalCSRPool(in_map=F_map, in_mod=F_mod,
-         num_groups=num_groups, use_mod=False, use_map_min=False,
-         use_map_max=False, use_map_num=False, gating=True,
-         group_scaling=True)
+    module = GroupBimodalCSRPool(in_map=F_map, in_mod=F_mod,num_groups=n_groups)
 
-    module(x_main, x_mod, x_map, csr_idx)
+    module(x_main, x_mod, x, csr_idx)
     """
 
     def __init__(
             self, in_map=None, in_mod=None, num_groups=None, use_mod=False,
-            use_map_min=True, use_map_max=True, use_map_num=True,
             gating=True, group_scaling=True, save_last=False,
-            activation=nn.LeakyReLU, normalization=nn.BatchNorm1d, **kwargs):
+            map_encoder='DeepSetFeat', **kwargs):
         super(GroupBimodalCSRPool, self).__init__()
 
         # Default output feature size used for embeddings
@@ -216,53 +229,33 @@ class GroupBimodalCSRPool(nn.Module, ABC):
         self.in_mod = in_mod
         self.use_mod = use_mod
 
-        # Optional computation mechanisms
-        self.use_map_min = use_map_min
-        self.use_map_max = use_map_max
-        self.use_map_num = use_map_num
-
         # Optional compatibilities scaling mechanism
         self.group_scaling = group_scaling
 
-        # MLP_map embeds raw handcrafted mapping features
-        in_map_mix = in_map * (1 + use_map_min + use_map_max) + use_map_num
+        # E_map embeds raw handcrafted mapping features
         out_map = self.NC_OUT
-        self.MLP_map = nn.Sequential(
-            nn.Linear(in_map_mix, out_map, bias=False),
-            activation(),
-            nn.Linear(out_map, out_map, bias=False),
-            normalization(out_map),
-            activation())
+        E_map_cls = getattr(_local_modules, map_encoder)
+        self.E_map = E_map_cls(in_map, out_map, **kwargs)
 
-        # MLP_mod embeds the modality features in a space used as
+        # E_mod embeds the modality features in a space used as
         # values and to build attention scores in case use_mod=True
-        self.MLP_mod = nn.Sequential(
-            nn.Linear(in_mod, in_mod, bias=False),
-            activation(),
-            nn.Linear(in_mod, in_mod, bias=False),
-            normalization(in_mod),
-            activation())
+        self.E_mod = MLP([in_mod, in_mod, in_mod], bias=False)
 
-        # MLP_mix combines the modality features from MLP_mod and
-        # mapping features from MLP_map in case use_mod=True
+        # E_mix combines the modality features from E_mod and
+        # mapping features from E_map in case use_mod=True
         if self.use_mod:
             in_mix = out_map + in_mod
             out_mix = self.NC_OUT
             mid_mix = nearest_power_of_2((in_mix + out_mix) / 2, out_mix * 2)
-            self.MLP_mix = nn.Sequential(
-                nn.Linear(in_mix, mid_mix, bias=False),
-                activation(),
-                nn.Linear(mid_mix, out_mix, bias=False),
-                normalization(out_mix),
-                activation())
+            self.E_mix = MLP([in_mix, mid_mix, out_mix], bias=False)
 
-        # MLP_score computes the compatibility score for each feature
+        # E_score computes the compatibility score for each feature
         # group, these are to be further normalized to produce
         # final attention scores
-        self.MLP_score = nn.Linear(self.NC_OUT, num_groups, bias=True)
+        self.E_score = nn.Linear(self.NC_OUT, num_groups, bias=True)
 
         # Optional gating mechanism
-        self.Gating = Gating(num_groups, bias=True) if gating else None
+        self.G = Gating(num_groups, bias=True) if gating else None
 
     def forward(self, x_main, x_mod, x_map, csr_idx):
         """
@@ -272,49 +265,36 @@ class GroupBimodalCSRPool(nn.Module, ABC):
         :param csr_idx:
         :return: x_pool, x_seen
         """
-        # Optionally expand x_map with difference-to-min or
-        # difference-to-max or group size features
-        if self.use_map_min:
-            x_map_min = x_map - segment_csr_gather(x_map, csr_idx, reduce='min')
-        else:
-            x_map_min = torch.empty(0, device=x_map.device)
-        if self.use_map_max:
-            x_map_max = x_map - segment_csr_gather(x_map, csr_idx, reduce='max')
-        else:
-            x_map_max = torch.empty(0, device=x_map.device)
-        if self.use_map_num:
-            # Heuristic to normalize in [0,1]
-            x_map_num = torch.sqrt(1 / (csr_idx[1:] - csr_idx[:-1]).float())
-            x_map_num = x_map_num.repeat_interleave(csr_idx[1:] - csr_idx[:-1])
-            x_map_num = x_map_num.view(-1, 1)
-        else:
-            x_map_num = torch.empty(0, device=x_map.device)
-        x_map = torch.cat([x_map, x_map_min, x_map_max, x_map_num], dim=1)
-        x_map = self.MLP_map(x_map)
+        # Compute mapping features : V x F_map
+        x_map = self.E_map(x_map, csr_idx)
 
         # Compute values : V x F_mod
-        x_mod = self.MLP_mod(x_mod)
+        x_mod = self.E_mod(x_mod)
 
         # Compute compatibilities (unscaled scores) : V x num_groups
         if self.use_mod:
-            C = self.MLP_score(self.MLP_score(torch.cat([x_map, x_mod], dim=1)))
+            x_mix = self.E_mix(torch.cat([x_map, x_mod], dim=1))
+            compatibilities = self.E_score(x_mix)
         else:
-            C = self.MLP_score(x_map)
+            compatibilities = self.E_score(x_map)
 
         # Compute attention scores : V x num_groups
-        A = segment_csr_softmax(C, csr_idx, scaling=self.group_scaling)
+        attentions = segment_softmax_csr(
+            compatibilities, csr_idx, scaling=self.group_scaling)
 
         # Apply attention scores : P x F_mod
         x_pool = segment_csr(
-            x_mod * expand_group_feat(A, self.num_groups, self.in_mod),
+            x_mod * expand_group_feat(attentions, self.num_groups, self.in_mod),
             csr_idx, reduce='sum')
 
-        if self.Gating:
+        if self.G:
             # Compute pointwise gating : P x num_groups
-            G = self.Gating(segment_csr(C, csr_idx, reduce='max'))
+            gating = self.G(segment_csr(
+                compatibilities, csr_idx, reduce='max'))
 
             # Apply gating to the features : P x F_mod
-            x_pool = x_pool * expand_group_feat(G, self.num_groups, self.in_mod)
+            x_pool = x_pool * expand_group_feat(
+                gating, self.num_groups, self.in_mod)
 
         # Compute the boolean mask of seen points
         x_seen = csr_idx[1:] > csr_idx[:-1]
@@ -327,18 +307,19 @@ class GroupBimodalCSRPool(nn.Module, ABC):
                 csr_idx.shape[0] - 1, device=x_map.device).repeat_interleave(
                 csr_idx[1:] - csr_idx[:-1])
             self._last_view_num = csr_idx[1:] - csr_idx[:-1]
-            self._last_C = expand_group_feat(C, self.num_groups, self.in_mod)
-            self._last_A = expand_group_feat(A, self.num_groups, self.in_mod)
-            if self.Gating:
-                self._last_G = expand_group_feat(G, self.num_groups, self.in_mod)
+            self._last_C = expand_group_feat(
+                compatibilities, self.num_groups, self.in_mod)
+            self._last_A = expand_group_feat(
+                attentions, self.num_groups, self.in_mod)
+            if self.G:
+                self._last_G = expand_group_feat(
+                    gating, self.num_groups, self.in_mod)
 
         return x_pool, x_seen
 
     def extra_repr(self) -> str:
-        repr_attr = [
-            'num_groups', 'use_mod', 'use_map_min', 'use_map_max',
-            'use_map_num', 'group_scaling', 'save_last']
-        return ", ".join([f'{a}={getattr(self, a)}' for a in repr_attr])
+        repr_attr = ['num_groups', 'use_mod', 'group_scaling', 'save_last']
+        return "\n".join([f'{a}={getattr(self, a)}' for a in repr_attr])
 
 
 class AttentiveBimodalCSRPool(nn.Module, ABC):
@@ -379,21 +360,20 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
     csr_idx = torch.LongTensor([0, 4, 4, 5, 10, 20])
     x_main = torch.rand(N, F_main)
     x_mod = torch.rand(V, F_mod)
-    x_map = torch.rand(V, F_map)
+    x = torch.rand(V, F_map)
 
     module = AttentiveBimodalCSRPool(in_main=F_main, in_map=F_map,
         in_mod=F_mod, in_score=in_score, use_map_min=False, use_map_max=False,
         use_map_num=False, gating=True, dim_scaling=True,
         group_scaling=True)
 
-    module(x_main, x_mod, x_map, csr_idx)
+    module(x_main, x_mod, x, csr_idx)
     """
 
     def __init__(
             self, in_main=None, in_map=None, in_mod=None, in_score=None,
-            use_map_min=False, use_map_max=False, use_map_num=False, gating=True,
-            dim_scaling=True, group_scaling=False, debug=False, save_last=False,
-            activation=nn.LeakyReLU, normalization=nn.BatchNorm1d, **kwargs):
+            gating=True, dim_scaling=True, group_scaling=False, debug=False,
+            save_last=False, map_encoder='DeepSetFeat', **kwargs):
         super(AttentiveBimodalCSRPool, self).__init__()
 
         # Optional mechanism to keep track of the outputs for debugging
@@ -410,19 +390,11 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
         self._last_G = None
         self.debug = debug
         if debug:
-            use_map_min = False
-            use_map_max = False
-            use_map_num = False
             group_scaling = False
             dim_scaling = True
             in_score = 1
             in_map = 1
             in_mod = None
-
-        # Optional key computation mechanisms
-        self.use_map_min = use_map_min
-        self.use_map_max = use_map_max
-        self.use_map_num = use_map_num
 
         # Optional compatibilities scaling mechanism
         self.dim_scaling = dim_scaling
@@ -431,32 +403,20 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
         # Queries computation module
         self.Q = nn.Linear(in_main, in_score, bias=True)
 
-        # Raw handcrafted mapping features are fed to this module, we
-        # let the network preprocess them to its liking before computing
-        # the keys
-        in_map_0 = in_map * (1 + use_map_min + use_map_max) + use_map_num
-        in_map_1 = nearest_power_of_2((in_map_0 + in_score) / 2, min_power=16)
-        in_map_2 = nearest_power_of_2(in_score, min_power=16)
-        if self.debug:
-            in_map_1 = 2
-            in_map_2 = 2
-        self.MLP_map = nn.Sequential(
-            nn.Linear(in_map_0, in_map_1, bias=True),
-            normalization(in_map_1),
-            activation(),
-            nn.Linear(in_map_1, in_map_2, bias=True),
-            normalization(in_map_2),
-            activation())
+        # E_map embeds raw handcrafted mapping features
+        out_map = 32
+        E_map_cls = getattr(_local_modules, map_encoder)
+        self.E_map = E_map_cls(in_map, out_map, **kwargs)
 
         # Keys computation module
         self.mod_in_key = in_mod is not None
         if self.mod_in_key:
-            self.K = nn.Linear(in_map_2 + in_mod, in_score, bias=True)
+            self.K = nn.Linear(out_map + in_mod, in_score, bias=True)
         else:
-            self.K = nn.Linear(in_map_2, in_score, bias=True)
+            self.K = nn.Linear(out_map, in_score, bias=True)
 
         # Optional gating mechanism
-        self.Gating = Gating(1, bias=True) if gating else None
+        self.G = Gating(1, bias=True) if gating else None
 
     def forward(self, x_main, x_mod, x_map, csr_idx):
         """
@@ -466,7 +426,7 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
         :param csr_idx:
         :return: x_pool, x_seen
         """
-        # Artificial x_map and x_mod
+        # Artificial x and x_mod
         if self.debug:
             device = x_map.device
             x_map = torch.rand((x_map.shape[0], 1), device=device)
@@ -474,60 +434,48 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
             x_mod[idx_destroyed] = torch.rand(
                 (idx_destroyed.shape[0], *(x_mod.shape[1:])), device=device)
 
-        # Optionally expand x_map with difference-to-min or
-        # difference-to-max or group size features
-        if self.use_map_min:
-            x_map_min = x_map - segment_csr_gather(x_map, csr_idx, reduce='min')
-        else:
-            x_map_min = torch.empty(0, device=x_map.device)
-        if self.use_map_max:
-            x_map_max = x_map - segment_csr_gather(x_map, csr_idx, reduce='max')
-        else:
-            x_map_max = torch.empty(0, device=x_map.device)
-        if self.use_map_num:
-            # Heuristic to normalize in [0,1]
-            x_map_num = torch.sqrt(1 / (csr_idx[1:] - csr_idx[:-1]).float())
-            x_map_num = x_map_num.repeat_interleave(csr_idx[1:] - csr_idx[:-1])
-            x_map_num = x_map_num.view(-1, 1)
-        else:
-            x_map_num = torch.empty(0, device=x_map.device)
-        x_map = torch.cat([x_map, x_map_min, x_map_max, x_map_num], dim=1)
+        # Compute mapping features : V x F_map
+        x_map = self.E_map(x_map, csr_idx)
 
         # Compute keys : V x D
         if self.mod_in_key:
-            K = self.K(torch.cat([self.MLP_map(x_map), x_mod], dim=1))
+            keys = self.K(torch.cat([self.E_map(x_map), x_mod], dim=1))
         else:
-            K = self.K(self.MLP_map(x_map))
+            keys = self.K(self.E_map(x_map))
+
+        # For MinkowskiEngine and TorchSparse SparseTensors
+        if not isinstance(x_main, torch.Tensor):
+            x_main = x_main.F
 
         # Compute pointwise queries : N x D
-        if isinstance(x_main, torch.Tensor):
-            Q = self.Q(x_main)
-        else:
-            # For MinkowskiEngine and TorchSparse SparseTensors
-            Q = self.Q(x_main.F)
+        queries = self.Q(x_main.F)
 
         # Expand queries to views : V x D
-        Q = torch.repeat_interleave(Q, csr_idx[1:] - csr_idx[:-1], dim=0)
+        queries = torch.repeat_interleave(
+            queries, csr_idx[1:] - csr_idx[:-1], dim=0)
 
         # Compute compatibility scores : V
-        C = (K * Q).sum(dim=1)
+        compatibilities = (keys * queries).sum(dim=1)
 
         # Optionally scale compatibilities by the number of key features
         if self.dim_scaling:
-            C = C / math.sqrt(K.shape[1])
+            compatibilities = compatibilities / math.sqrt(keys.shape[1])
 
         # Compute attentions : V
-        A = segment_csr_softmax(C, csr_idx, scaling=self.group_scaling)
+        attentions = segment_softmax_csr(
+            compatibilities, csr_idx, scaling=self.group_scaling)
 
         # Compute attention-weighted modality features : P x F_mod
-        x_pool = segment_csr(x_mod * A.view(-1, 1), csr_idx, reduce='sum')
+        x_pool = segment_csr(
+            x_mod * attentions.view(-1, 1), csr_idx, reduce='sum')
 
-        if self.Gating:
+        if self.G:
             # Compute pointwise gating : P
-            G = self.Gating(segment_csr(C, csr_idx, reduce='max').view(-1, 1))
+            gating = self.G(segment_csr(
+                compatibilities, csr_idx, reduce='max').view(-1, 1))
 
             # Apply gating to the features : P x F_mod
-            x_pool = x_pool * G.view(-1, 1)
+            x_pool = x_pool * gating.view(-1, 1)
 
         # Compute the boolean mask of seen points
         x_seen = csr_idx[1:] > csr_idx[:-1]
@@ -540,20 +488,134 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
                 csr_idx.shape[0] - 1, device=x_map.device).repeat_interleave(
                 csr_idx[1:] - csr_idx[:-1])
             self._last_view_num = csr_idx[1:] - csr_idx[:-1]
-            self._last_K = K
-            self._last_Q = Q
-            self._last_C = C
-            self._last_A = A
-            if self.Gating:
-                self._last_G = G
+            self._last_K = keys
+            self._last_Q = queries
+            self._last_C = compatibilities
+            self._last_A = attentions
+            if self.G:
+                self._last_G = gating
 
         return x_pool, x_seen
 
     def extra_repr(self) -> str:
-        repr_attr = [
-            'use_map_min', 'use_map_max', 'use_map_num', 'dim_scaling',
-            'group_scaling', 'save_last']
-        return ", ".join([f'{a}={getattr(self, a)}' for a in repr_attr])
+        repr_attr = ['dim_scaling', 'group_scaling', 'save_last']
+        return "\n".join([f'{a}={getattr(self, a)}' for a in repr_attr])
+
+
+class MinMaxDiffSetFeat(nn.Module, ABC):
+    """Produce element-wise set features based on difference-to-min,
+    difference-to-max or set size features.
+
+    Inspired from:
+        DeepSets: https://arxiv.org/abs/1703.06114
+        PointNet: https://arxiv.org/abs/1612.00593
+    """
+
+    def __init__(
+            self, d_in, d_out, use_min=True, use_max=True, use_num=False,
+            **kwargs):
+        super(MinMaxDiffSetFeat, self).__init__()
+
+        # Initialize the MLPs
+        self.d_in = d_in
+        self.d_out = d_out
+        self.use_min = use_min
+        self.use_max = use_max
+        self.use_num = use_num
+        in_mlp = d_in * (1 + self.use_min + self.use_max) + self.use_num
+        self.mlp = MLP([in_mlp, d_out, d_out], bias=False)
+
+    def forward(self, x, csr_idx):
+        # Optionally expand x with difference-to-min or
+        # difference-to-max or group size features
+        if self.use_min:
+            x_map_min = x - segment_gather_csr(x, csr_idx, reduce='min')
+        else:
+            x_map_min = torch.empty(0, device=x.device)
+        if self.use_max:
+            x_map_max = x - segment_gather_csr(x, csr_idx, reduce='max')
+        else:
+            x_map_max = torch.empty(0, device=x.device)
+        if self.use_num:
+            # Heuristic to normalize in [0,1]
+            x_map_num = torch.sqrt(1 / (csr_idx[1:] - csr_idx[:-1]).float())
+            x_map_num = x_map_num.repeat_interleave(csr_idx[1:] - csr_idx[:-1])
+            x_map_num = x_map_num.view(-1, 1)
+        else:
+            x_map_num = torch.empty(0, device=x.device)
+        x_out = torch.cat([x, x_map_min, x_map_max, x_map_num], dim=1)
+        x_out = self.mlp(x_out)
+        return x_out
+
+    def extra_repr(self) -> str:
+        repr_attr = ['use_min', 'use_max', 'use_num']
+        return "\n".join([f'{a}={getattr(self, a)}' for a in repr_attr])
+
+
+class DeepSetFeat(nn.Module, ABC):
+    """Produce element-wise set features based on shared learned
+    features.
+
+    Inspired from:
+        DeepSets: https://arxiv.org/abs/1703.06114
+        PointNet: https://arxiv.org/abs/1612.00593
+    """
+
+    _POOLING_MODES = ['max', 'mean', 'min', 'sum']
+    _FUSION_MODES = ['residual', 'concatenation', 'both']
+
+    def __init__(
+            self, d_in, d_out, pool='max', fusion='concatenation',
+            use_num=False, **kwargs):
+        super(DeepSetFeat, self).__init__()
+
+        # Initialize the set-pooling mechanism to aggregate features of
+        # elements-level features to set-level features
+        assert pool in self._POOLING_MODES, \
+            f"Unsupported pool='{pool}'. Expected one of: {self._POOLING_MODES}"
+        self.f_pool = lambda a, b: segment_csr(a, b, reduce=pool)
+        self.pool = pool
+
+        # Initialize the fusion mechanism to merge set-level and
+        # element-level features
+        if fusion == 'residual':
+            self.f_fusion = lambda a, b: a + b
+        elif fusion == 'concatenation':
+            self.f_fusion = lambda a, b: torch.cat((a, b), dim=-1)
+        elif fusion == 'both':
+            self.f_fusion = lambda a, b: torch.cat((a, a + b), dim=-1)
+        else:
+            raise NotImplementedError(
+                f"Unknown fusion='{fusion}'. Please choose among "
+                f"supported modes: {self._FUSION_MODES}.")
+        self.fusion = fusion
+
+        # Initialize the MLPs
+        self.d_in = d_in
+        self.d_out = d_out
+        self.use_num = use_num
+        self.mlp_elt_1 = MLP([d_in, d_out, d_out], bias=False)
+        in_set_mlp = d_out + self.use_num
+        self.mlp_set = MLP([in_set_mlp, d_out, d_out], bias=False)
+        in_last_mlp = d_out if fusion == 'residual' else d_out * 2
+        self.mlp_elt_2 = MLP([in_last_mlp, d_out, d_out], bias=False)
+
+    def forward(self, x, csr_idx):
+        x = self.mlp_elt_1(x)
+        x_set = self.f_pool(x, csr_idx)
+        if self.use_num:
+            # Heuristic to normalize in [0,1]
+            set_num = torch.sqrt(1 / (csr_idx[1:] - csr_idx[:-1]).float())
+            x_set = torch.cat((x_set, set_num.view(-1, 1)), dim=1)
+        x_set = self.mlp_set(x_set)
+        x_set = gather_csr(x_set, csr_idx)
+        x_out = self.f_fusion(x, x_set)
+        x_out = self.mlp_elt_2(x_out)
+        return x_out
+
+    def extra_repr(self) -> str:
+        repr_attr = ['pool', 'fusion', 'use_num']
+        return "\n".join([f'{a}={getattr(self, a)}' for a in repr_attr])
 
 
 class Gating(nn.Module):
@@ -582,6 +644,8 @@ def nearest_power_of_2(x, min_power=16):
     The `min_power` parameter puts a minimum threshold for the returned
     power.
     """
+    x = int(x)
+
     if x < min_power:
         return min_power
 
@@ -616,8 +680,8 @@ def expand_group_feat(A, num_groups, num_channels):
 
 
 @torch.jit.script
-def segment_csr_softmax(src: torch.Tensor, csr_idx: torch.Tensor,
-        eps: float = 1e-12, scaling: bool = False) -> torch.Tensor:
+def segment_softmax_csr(src: torch.Tensor, csr_idx: torch.Tensor,
+                        eps: float = 1e-12, scaling: bool = False) -> torch.Tensor:
     """Equivalent of scatter_softmax but for CSR indices.
     Based on: torch_scatter/composite/softmax.py
 
@@ -671,21 +735,23 @@ def segment_csr_softmax(src: torch.Tensor, csr_idx: torch.Tensor,
 
 
 @torch.jit.script
-def segment_csr_gather(src: torch.Tensor, csr_idx: torch.Tensor,
-        reduce: str = 'sum') -> torch.Tensor:
-    """Compute the reduced value between same-index elements, for CSR
-    indices, and redistribute them to input elements.
+def gather_csr(src: torch.Tensor, csr_idx: torch.Tensor) -> torch.Tensor:
+    """Gather index-level src values into element-level values based on
+    CSR indices.
+
+    When applied to the output or segment_csr, this redistributes the
+    reduced values to the appropriate segment_csr input elements.
     """
     if not torch.is_floating_point(src):
         raise ValueError(
-            '`segment_csr_gather` can only be computed over tensors with '
+            '`gather_csr` can only be computed over tensors with '
             'floating point data types.')
     if csr_idx.dim() != 1:
         raise ValueError(
-            '`segment_csr_gather can only be computed over 1D CSR indices.')
+            '`gather_csr` can only be computed over 1D CSR indices.')
     if src.dim() > 2:
         raise NotImplementedError(
-            '`segment_csr_gather` can only be computed over 1D or 2D source '
+            '`gather_csr` can only be computed over 1D or 2D source '
             'tensors.')
 
     # Compute dense indices from CSR indices
@@ -696,9 +762,22 @@ def segment_csr_gather(src: torch.Tensor, csr_idx: torch.Tensor,
         dense_idx = dense_idx.view(-1, 1).repeat(1, src.shape[1])
 
     # Center scores maxima near 1 for computation precision
-    reduced_value_per_index = segment_csr(src, csr_idx, reduce=reduce)
-    reduced_value_per_src_element = reduced_value_per_index.gather(0, dense_idx)
-    return reduced_value_per_src_element
+    return src.gather(0, dense_idx)
+
+
+@torch.jit.script
+def segment_gather_csr(src: torch.Tensor, csr_idx: torch.Tensor,
+                       reduce: str = 'sum') -> torch.Tensor:
+    """Compute the reduced value between same-index elements, for CSR
+    indices, and redistribute them to input elements.
+    """
+    # Reduce with segment_csr
+    reduced_per_index = segment_csr(src, csr_idx, reduce=reduce)
+
+    # Expand with gather_csr
+    reduced_per_src_element = gather_csr(reduced_per_index, csr_idx)
+
+    return reduced_per_src_element
 
 
 """
