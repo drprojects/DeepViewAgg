@@ -787,7 +787,7 @@ RGB_D32_max:
 #        define_constants:
 #            in_feat: 32
 #            in_feat_img: 4
-#            in_feat_proj: 8
+#            in_feat_map: 8
 #            strided_k: 2
 #            strided_s: 2
 #            strided_p: 0
@@ -832,13 +832,13 @@ RGB_D32_max:
 #                    mode: max
 #                view_pooling:
 #                    module_name: GroupBimodalCSRPool
-#                    in_proj: in_feat_proj
+#                    in_map: in_feat_map
 #                    in_mod: in_feat
 #                    num_groups: in_feat
 #                    use_mod: False
-#                    proj_min: False
-#                    proj_max: False
-#                    proj_num: False
+#                    use_map_min: False
+#                    use_map_max: False
+#                    use_map_num: False
 #                    gating: False
 #                    group_scaling: False
 #                fusion:
@@ -853,7 +853,7 @@ RGB_D32_instance_basic:
     define_constants:
         in_feat: 32
         in_feat_img: 4
-        in_feat_proj: 8
+        in_feat_map: 8
         strided_k: 2
         strided_s: 2
         strided_p: 0
@@ -898,13 +898,13 @@ RGB_D32_instance_basic:
                 mode: max
             view_pooling:
                 module_name: GroupBimodalCSRPool
-                in_proj: in_feat_proj
+                in_map: in_feat_map
                 in_mod: in_feat
                 num_groups: 1
                 use_mod: False
-                proj_min: False
-                proj_max: False
-                proj_num: False
+                use_map_min: False
+                use_map_max: False
+                use_map_num: False
                 gating: False
                 group_scaling: False
             fusion:
@@ -919,7 +919,7 @@ RGB_D32_feature_basic:
     define_constants:
         in_feat: 32
         in_feat_img: 4
-        in_feat_proj: 8
+        in_feat_map: 8
         strided_k: 2
         strided_s: 2
         strided_p: 0
@@ -963,13 +963,13 @@ RGB_D32_feature_basic:
                 mode: max
             view_pooling:
                 module_name: GroupBimodalCSRPool
-                in_proj: in_feat_proj
+                in_map: in_feat_map
                 in_mod: in_feat
                 num_groups: in_feat
                 use_mod: False
-                proj_min: False
-                proj_max: False
-                proj_num: False
+                use_map_min: False
+                use_map_max: False
+                use_map_num: False
                 gating: False
                 group_scaling: False
             fusion:
@@ -984,7 +984,7 @@ RGB_D32_gp-8-32-32-4_gscale:
     define_constants:
         in_feat: 32
         in_feat_img: 4
-        in_feat_proj: 8
+        in_feat_map: 8
         strided_k: 2
         strided_s: 2
         strided_p: 0
@@ -1028,13 +1028,13 @@ RGB_D32_gp-8-32-32-4_gscale:
                 mode: max
             view_pooling:
                 module_name: GroupBimodalCSRPool
-                in_proj: in_feat_proj
+                in_map: in_feat_map
                 in_mod: in_feat
                 num_groups: in_feat
                 use_mod: False
-                proj_min: False
-                proj_max: False
-                proj_num: False
+                use_map_min: False
+                use_map_max: False
+                use_map_num: False
                 gating: False
                 group_scaling: True
             fusion:
@@ -1119,13 +1119,13 @@ RGB_ResNet18PPM_gp-8-32-32-4_gscale:
                 mode: max
             view_pooling:
                 module_name: GroupBimodalCSRPool
-                in_proj: 8
+                in_map: 8
                 in_mod: 512
                 num_groups: 4
                 use_mod: False
-                proj_min: False
-                proj_max: False
-                proj_num: False
+                use_map_min: False
+                use_map_max: False
+                use_map_num: False
                 gating: False
                 group_scaling: True
             fusion:
@@ -1147,13 +1147,13 @@ RGB_ResNet18PPM_gp-8-32-32-1_gscale:
                 mode: max
             view_pooling:
                 module_name: GroupBimodalCSRPool
-                in_proj: 8
+                in_map: 8
                 in_mod: 512
                 num_groups: 1
                 use_mod: False
-                proj_min: False
-                proj_max: False
-                proj_num: False
+                use_map_min: False
+                use_map_max: False
+                use_map_num: False
                 gating: False
                 group_scaling: True
             fusion:
@@ -1175,13 +1175,13 @@ RGB_ResNet18PPM_gp-8-32-32+mod-1_gscale:
                 mode: max
             view_pooling:
                 module_name: GroupBimodalCSRPool
-                in_proj: 8
+                in_map: 8
                 in_mod: 512
                 num_groups: 1
                 use_mod: True
-                proj_min: False
-                proj_max: False
-                proj_num: False
+                use_map_min: False
+                use_map_max: False
+                use_map_num: False
                 gating: False
                 group_scaling: True
             fusion:
@@ -1203,13 +1203,13 @@ RGB_ResNet18PPM_gp-8-32-32+mod-128-1_gscale:
                 mode: max
             view_pooling:
                 module_name: GroupBimodalCSRPool
-                in_proj: 8
+                in_map: 8
                 in_mod: 512
                 num_groups: 1
                 use_mod: True
-                proj_min: False
-                proj_max: False
-                proj_num: False
+                use_map_min: False
+                use_map_max: False
+                use_map_num: False
                 gating: False
                 group_scaling: True
             fusion:
@@ -1231,15 +1231,131 @@ RGB_ResNet18PPM_gp-8-32-32+mod_512-4_gscale:
                 mode: max
             view_pooling:
                 module_name: GroupBimodalCSRPool
-                in_proj: 8
+                in_map: 8
                 in_mod: 512
                 num_groups: 4
                 use_mod: True
-                proj_min: False
-                proj_max: False
-                proj_num: False
+                use_map_min: False
+                use_map_max: False
+                use_map_num: False
                 gating: False
                 group_scaling: True
+            fusion:
+                module_name: BimodalFusion
+                mode: residual
+            drop_mod: 0.1
+            branching_index: 0
+            
+RGB_ResNet18PPM_g1_DeepSetFeat:
+    # 6.1 M params - 23.8 Mo on the GPU - ~7.2 ko/pixel at training time
+    class: no3d.No3DFeatureFusion
+    down_conv:
+        image:
+            down_conv:
+                module_name: ADE20KResNet18PPM
+                frozen: False
+            atomic_pooling:
+                module_name: BimodalCSRPool
+                mode: max
+            view_pooling:
+                module_name: GroupBimodalCSRPool
+                in_map: 8
+                in_mod: 512
+                num_groups: 1
+                use_mod: True
+                gating: True
+                group_scaling: True
+                map_encoder: DeepSetFeat
+                use_num: True
+                pool: max
+                fusion: concatenation
+            fusion:
+                module_name: BimodalFusion
+                mode: residual
+            drop_mod: 0.1
+            branching_index: 0
+
+RGB_ResNet18PPM_g1_MinMaxDiffSetFeat:
+    # 6.1 M params - 23.8 Mo on the GPU - ~7.2 ko/pixel at training time
+    class: no3d.No3DFeatureFusion
+    down_conv:
+        image:
+            down_conv:
+                module_name: ADE20KResNet18PPM
+                frozen: False
+            atomic_pooling:
+                module_name: BimodalCSRPool
+                mode: max
+            view_pooling:
+                module_name: GroupBimodalCSRPool
+                in_map: 8
+                in_mod: 512
+                num_groups: 1
+                use_mod: True
+                gating: True
+                group_scaling: True
+                map_encoder: MinMaxDiffSetFeat
+                use_min: True
+                use_max: True
+                use_num: True
+            fusion:
+                module_name: BimodalFusion
+                mode: residual
+            drop_mod: 0.1
+            branching_index: 0
+
+RGB_ResNet18PPM_g4_DeepSetFeat:
+    # 6.1 M params - 23.8 Mo on the GPU - ~7.2 ko/pixel at training time
+    class: no3d.No3DFeatureFusion
+    down_conv:
+        image:
+            down_conv:
+                module_name: ADE20KResNet18PPM
+                frozen: False
+            atomic_pooling:
+                module_name: BimodalCSRPool
+                mode: max
+            view_pooling:
+                module_name: GroupBimodalCSRPool
+                in_map: 8
+                in_mod: 512
+                num_groups: 4
+                use_mod: True
+                gating: True
+                group_scaling: True
+                map_encoder: DeepSetFeat
+                use_num: True
+                pool: max
+                fusion: concatenation
+            fusion:
+                module_name: BimodalFusion
+                mode: residual
+            drop_mod: 0.1
+            branching_index: 0
+
+RGB_ResNet18PPM_g4_MinMaxDiffSetFeat:
+    # 6.1 M params - 23.8 Mo on the GPU - ~7.2 ko/pixel at training time
+    class: no3d.No3DFeatureFusion
+    down_conv:
+        image:
+            down_conv:
+                module_name: ADE20KResNet18PPM
+                frozen: False
+            atomic_pooling:
+                module_name: BimodalCSRPool
+                mode: max
+            view_pooling:
+                module_name: GroupBimodalCSRPool
+                in_map: 8
+                in_mod: 512
+                num_groups: 4
+                use_mod: True
+                gating: True
+                group_scaling: True
+                map_encoder: MinMaxDiffSetFeat
+                use_min: True
+                use_max: True
+                use_num: True
             fusion:
                 module_name: BimodalFusion
                 mode: residual

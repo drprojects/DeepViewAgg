@@ -3,10 +3,9 @@ defaults:
   - /data/segmentation/multimodal/s3disfused/default
 
 resolution_3d: 0.05
-resolution_2d: [768, 384]
-padding_2d: 6
+resolution_2d: [256, 128] # [1024, 512]
+padding_2d: 8
 min_size_2d: 64
-exact_splatting_2d: True
 
 multimodal:  # Each modality must be inserted in a dedicated 'multimodal' section
 
@@ -44,7 +43,7 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
                 r_min: ${data.multimodal.settings.r_min}
                 k_swell: ${data.multimodal.settings.growth_k}
                 d_swell: ${data.multimodal.settings.growth_r}
-                exact: ${data.exact_splatting_2d}
+                exact: True
         - transform: NeighborhoodBasedMappingFeatures  # Compute local density and occlusion
           params:
                 k: 50  # empirically-chosen heuristic [30-100] is fine
@@ -58,7 +57,7 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
         - transform: CenterRoll  # Roll images to center mappings
         - transform: PickImagesFromMappingArea  # Remove images with not enough mappings
           params:
-                use_bbox: ${data.exact_splatting_2d}
+                use_bbox: True
         - transform: JitterMappingFeatures  # Mapping features augmentation
           params:
                 sigma: 0.02
@@ -87,7 +86,7 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
         - transform: CenterRoll  # Roll images to center mappings
         - transform: PickImagesFromMappingArea  # Remove images with not enough mappings
           params:
-                use_bbox: ${data.exact_splatting_2d}
+                use_bbox: True
         - transform: ToFloatImage  # Convert uint8 image to float
         #- transform: AddPixelHeightFeature  # Pixel height as image channel
         - transform: Normalize  # Normalize colors based on ADE20K pretrained model

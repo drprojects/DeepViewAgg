@@ -4,11 +4,12 @@ from PIL import Image
 import torch
 import torch_scatter
 from typing import List
+from tqdm.auto import tqdm as tq
 from torch_points3d.core.multimodal import CSRData, CSRBatch
 from torch_points3d.utils.multimodal import lexargsort, lexunique, \
     lexargunique, CompositeTensor
 from torch_points3d.utils.multimodal import tensor_idx
-
+from torch_points3d.core.multimodal.visibility import VisibilityModel
 
 
 class SameSettingImageData(object):
@@ -17,35 +18,31 @@ class SameSettingImageData(object):
     mapping information.
 
     Attributes
-        path:numpy.ndarray      image paths
-        pos:torch.Tensor        image positions
-        opk:torch.Tensor        image angular poses
+        path:numpy.ndarray          image paths
+        pos:torch.Tensor            image positions
+        opk:torch.Tensor            image angular poses
 
-        ref_size:tuple          initial size of the loaded images and mappings
-        proj_upscale:float      upsampling of projection wrt to ref_size
-        downscale:float         downsampling of images and mappings wrt ref_size
-        rollings:LongTensor     rolling offsets for each image wrt ref_size
-        crop_size:tuple         size of the cropping box wrt ref_size
-        crop_offsets:LongTensor cropping box offsets for each image wrt ref_size
+        ref_size:tuple              initial size of the loaded images and mappings
+        proj_upscale:float          upsampling of projection wrt to ref_size
+        downscale:float             downsampling of images and mappings wrt ref_size
+        rollings:LongTensor         rolling offsets for each image wrt ref_size
+        crop_size:tuple             size of the cropping box wrt ref_size
+        crop_offsets:LongTensor     cropping box offsets for each image wrt ref_size
 
-        voxel:float             voxel resolution
-        r_max:float             radius max
-        r_min:float             radius min
-        growth_k:float          pixel growth factor
-        growth_r:float          pixel growth radius
-
-        x:Tensor                tensor of features
-        mappings:ImageMapping   mappings between 3D points and the images
-        mask:BoolTensor         projection mask
+        x:Tensor                    tensor of features
+        mappings:ImageMapping       mappings between 3D points and the images
+        visibility:VisibilityModel  visibility model used to compute the mappings
+        mask:BoolTensor             projection mask
     """
     _numpy_keys = ['path']
     _torch_keys = ['pos', 'opk', 'crop_offsets', 'rollings']
     _map_key = 'mappings'
     _x_key = 'x'
     _mask_key = 'mask'
+    _visi_key = 'visibility'
     _shared_keys = [
-        'ref_size', 'proj_upscale', 'downscale', 'crop_size', 'voxel',
-        'r_max', 'r_min', 'growth_k', 'growth_r', _mask_key]
+        'ref_size', 'proj_upscale', 'downscale', 'crop_size', _mask_key,
+        _visi_key]
     _own_keys = _numpy_keys + _torch_keys + [_map_key, _x_key]
     _keys = _shared_keys + _own_keys
 
@@ -53,8 +50,7 @@ class SameSettingImageData(object):
             self, path=np.empty(0, dtype='O'), pos=torch.empty([0, 3]),
             opk=torch.empty([0, 3]), ref_size=(512, 256), proj_upscale=2,
             downscale=1, rollings=None, crop_size=None, crop_offsets=None,
-            voxel=0.1, r_max=30, r_min=0.5, growth_k=0.2, growth_r=10, x=None,
-            mappings=None, mask=None, **kwargs):
+            x=None, mappings=None, mask=None, visibility=None, **kwargs):
 
         assert path.shape[0] == pos.shape[0] == opk.shape[0], \
             f"Attributes 'path', 'pos' and 'opk' must have the same length."
@@ -82,14 +78,11 @@ class SameSettingImageData(object):
         self.crop_offsets = crop_offsets if crop_offsets is not None \
             else torch.zeros((self.num_views, 2), dtype=torch.int64)
         self.downscale = downscale
-        self.voxel = voxel
-        self.r_max = r_max
-        self.r_min = r_min
-        self.growth_k = growth_k
-        self.growth_r = growth_r
         self.x = x
         self.mappings = mappings
         self.mask = mask
+        self.visibility = visibility
+        # TODO: take visibility methods into account
 
         self.debug()
 
@@ -163,6 +156,10 @@ class SameSettingImageData(object):
                 f"Discrepancy in the devices of 'pos' and 'mask' attributes." \
                 f" Please use `SameSettingImageData.to()` to set the device."
 
+        if getattr(self, 'visibility', None) is not None:
+            assert isinstance(self.visibility, VisibilityModel)
+            assert self.visibility.img_size == self.proj_size
+
     def to_dict(self):
         return {key: getattr(self, key) for key in self._keys}
 
@@ -200,10 +197,9 @@ class SameSettingImageData(object):
     @ref_size.setter
     def ref_size(self, ref_size):
         ref_size = tuple(ref_size)
-        assert (self.x is None
-                and self.mappings is None
-                and self.mask is None) \
-               or self.ref_size == ref_size, \
+        assert \
+            (self.x is None and self.mappings is None and self.mask is None) \
+            or self.ref_size == ref_size, \
             "Can't directly edit 'ref_size' if 'x', 'mappings' and 'mask' " \
             "are not all None."
         assert len(ref_size) == 2, \
@@ -333,7 +329,7 @@ class SameSettingImageData(object):
 
             # Apply pixel update
             self.mappings.pixels[:, 0] = w_pix
-        
+
         return self
 
     @property
@@ -420,7 +416,7 @@ class SameSettingImageData(object):
         # Update the mappings
         if self.mappings is not None:
             self.mappings = self.mappings.crop(crop_size, crop_offsets)
-        
+
         return self
 
     @property
@@ -466,7 +462,7 @@ class SameSettingImageData(object):
         if scale > 1:
             self.mappings = self.mappings.downscale_views(scale) \
                 if self.mappings is not None else None
-        
+
         return self
 
     @property
@@ -661,7 +657,7 @@ class SameSettingImageData(object):
                 f"{mask.shape} instead."
             self._mask = mask.to(self.device)
 
-    def load(self):
+    def load(self, show_progress=False):
         """
         Load images to the 'x' attribute.
 
@@ -676,11 +672,12 @@ class SameSettingImageData(object):
             rollings=self.rollings,
             crop_size=self.crop_size,
             crop_offsets=self.crop_offsets,
-            downscale=self.downscale).to(self.device)
+            downscale=self.downscale,
+            show_progress=show_progress).to(self.device)
         return self
 
     def read_images(self, idx=None, size=None, rollings=None, crop_size=None,
-                    crop_offsets=None, downscale=None):
+                    crop_offsets=None, downscale=None, show_progress=False):
         # TODO: faster read with multiprocessing:
         #  https://stackoverflow.com/questions/19695249/load-just-part-of-an-image-in-python
         #  https://towardsdatascience.com/10x-faster-parallel-python-without-python-multiprocessing-e5017c93cce1
@@ -747,8 +744,8 @@ class SameSettingImageData(object):
                 f"Expected scalar larger than 1 but got {downscale} instead."
 
         # Read images from files
-        images = [Image.open(p).convert('RGB').resize(size)
-                  for p in self.path[idx]]
+        path_enum = tq(self.path[idx]) if show_progress else self.path[idx]
+        images = [Image.open(p).convert('RGB').resize(size) for p in path_enum]
 
         # Local helper to roll a PIL image sideways
         # source: https://pillow.readthedocs.io
@@ -820,15 +817,12 @@ class SameSettingImageData(object):
             downscale=copy.deepcopy(self.downscale),
             crop_size=copy.deepcopy(self.crop_size),
             crop_offsets=self.crop_offsets[idx],
-            voxel=copy.deepcopy(self.voxel),
-            r_max=copy.deepcopy(self.r_max),
-            r_min=copy.deepcopy(self.r_min),
-            growth_k=copy.deepcopy(self.growth_k),
-            growth_r=copy.deepcopy(self.growth_r),
             x=self.x[idx] if self.x is not None else None,
             mappings=self.mappings.select_images(idx)
             if self.mappings is not None else None,
-            mask=self.mask if self.mask is not None else None)
+            mask=self.mask.clone() if self.mask is not None else None,
+            visibility=copy.deepcopy(self.visibility)
+            if hasattr(self, 'visibility') else None)
 
     def __iter__(self):
         """
@@ -885,8 +879,10 @@ class SameSettingImageData(object):
         mechanisms.
         """
         # Assert shared keys are the same for all items
-        keys = tuple(set(SameSettingImageData._shared_keys)
-                     - {SameSettingImageData._mask_key})
+        keys = tuple(
+            set(SameSettingImageData._shared_keys)
+            - {SameSettingImageData._mask_key}
+            - {SameSettingImageData._visi_key})
         return hash(tuple(getattr(self, k) for k in keys))
 
     @staticmethod
@@ -1097,7 +1093,7 @@ class ImageData:
         assert all(isinstance(im, SameSettingImageData) for im in self), \
             f"All list elements must be of type SameSettingImageData."
         # Remove any empty SameSettingImageData from the list
-#         self._list = [im for im in self._list if im.num_views > 0]
+        #         self._list = [im for im in self._list if im.num_views > 0]
         assert all(im.num_points == self.num_points for im in self), \
             "All SameSettingImageData mappings must refer to the same Data. " \
             "Hence, all must have the same number of points in their mappings."
@@ -1297,7 +1293,7 @@ class ImageBatch(ImageData):
         for h, im in zip(hashes, batches):
             if im.num_points > 0:
                 global_idx = torch.cat(
-                    [torch.arange(cum_pts[il_idx], cum_pts[il_idx+1])
+                    [torch.arange(cum_pts[il_idx], cum_pts[il_idx + 1])
                      for il_idx in il_idx_dict[h]], dim=0)
                 im.mappings.insert_empty_groups(global_idx,
                                                 num_groups=cum_pts[-1])
@@ -1333,7 +1329,7 @@ class ImageBatch(ImageData):
                     ib.to_data_list()):
                 # Restore the point ids in the mappings
                 im.mappings = im.mappings[
-                    self.__cum_pts__[il_idx]:self.__cum_pts__[il_idx+1]]
+                              self.__cum_pts__[il_idx]:self.__cum_pts__[il_idx + 1]]
 
                 # Update the list of MultiSettingImages with each
                 # SameSettingImageData in its original position
@@ -1393,7 +1389,7 @@ class ImageMapping(CSRData):
         # NB: The pointers are marked by non-successive point-image ids.
         #     Watch out for overflow in case the point_ids and
         #     image_ids are too large and stored in 32 bits.
-        composite_ids = CompositeTensor(point_ids, image_ids, 
+        composite_ids = CompositeTensor(point_ids, image_ids,
                                         device=point_ids.device)
         image_pixel_mappings = CSRData(composite_ids.data, pixels, dense=True)
         del composite_ids
@@ -1405,7 +1401,7 @@ class ImageMapping(CSRData):
         point_ids = point_ids[image_pixel_mappings.pointers[1:] - 1]
         if features is not None:
             features = torch_scatter.segment_csr(features,
-                    image_pixel_mappings.pointers, reduce='mean')
+                                                 image_pixel_mappings.pointers, reduce='mean')
 
         # Instantiate the main CSRData object
         # Compute point pointers in the image_ids array
@@ -1681,7 +1677,7 @@ class ImageMapping(CSRData):
         if isinstance(view_mask, np.ndarray):
             view_mask = torch.from_numpy(view_mask)
         assert isinstance(view_mask, torch.BoolTensor) \
-               and len(view_mask.shape) == 1 \
+               and view_mask.dim() == 1 \
                and view_mask.shape[0] == self.num_items, \
             f"view_mask must be a torch.BoolTensor of size {self.num_items}."
 
@@ -1726,7 +1722,6 @@ class ImageMapping(CSRData):
 
         return out, img_idx
 
-
     def select_points(self, idx, mode='pick'):
         """
         Update the 3D points sampling. Typically called after a 3D
@@ -1768,7 +1763,7 @@ class ImageMapping(CSRData):
             assert idx.shape[0] == self.num_groups, \
                 f"Merge correspondences has size {idx.shape[0]} but size " \
                 f"{self.num_groups} was expected."
-            assert (torch.arange(idx.max()+1, device=self.device)
+            assert (torch.arange(idx.max() + 1, device=self.device)
                     == torch.unique(idx)).all(), \
                 "Merge correspondences must map to a compact set of " \
                 "indices."
@@ -1782,7 +1777,7 @@ class ImageMapping(CSRData):
             if self.has_features:
                 # Compute composite point-image views ids
                 view_ids = CompositeTensor(point_ids, image_ids,
-                                                device=point_ids.device)
+                                           device=point_ids.device)
                 view_ids = view_ids.data.squeeze()
                 # Average the features per view
                 features = torch_scatter.scatter_mean(self.features,
@@ -1822,7 +1817,7 @@ class ImageMapping(CSRData):
 
             # Convert to CSR format
             out = ImageMapping.from_dense(point_ids, image_ids, pixels,
-                features, num_points=idx.max()+1)
+                                          features, num_points=idx.max() + 1)
         else:
             raise ValueError(f"Unknown point selection mode '{mode}'.")
 
@@ -1896,7 +1891,7 @@ class ImageMapping(CSRData):
 
         # Convert to CSR format
         return ImageMapping.from_dense(point_ids, image_ids, pixels, features,
-            num_points=self.num_groups)
+                                       num_points=self.num_groups)
 
 
 class ImageMappingBatch(ImageMapping, CSRBatch):

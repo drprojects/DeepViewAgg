@@ -62,6 +62,7 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
         - transform: LoadImages  # Read images from disk
           params:
                 ref_size: ${data.resolution_2d}
+                show_progress: True
         - transform: NonStaticMask  # Compute acquisition mask
           params:
                 ref_size: ${data.resolution_2d}
@@ -69,13 +70,15 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
                 n_sample: 5
         - transform: MapImages  # Compute the 3D-2D mapping
           params:
+                method: SplattingVisibility
                 ref_size: ${data.resolution_2d}
                 proj_upscale: ${data.multimodal.settings.proj_upscale}
+                use_cuda: True
                 voxel: ${data.first_subsampling}
                 r_max: ${data.multimodal.settings.r_max}
                 r_min: ${data.multimodal.settings.r_min}
-                growth_k: ${data.multimodal.settings.growth_k}
-                growth_r: ${data.multimodal.settings.growth_r}
+                k_swell: ${data.multimodal.settings.growth_k}
+                d_swell: ${data.multimodal.settings.growth_r}
                 exact: ${data.exact_splatting_2d}
         - transform: NeighborhoodBasedMappingFeatures  # Compute local density and occlusion
           params:

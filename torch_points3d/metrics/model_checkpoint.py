@@ -13,6 +13,7 @@ from torch_points3d.utils.colors import COLORS, colored_print
 from torch_points3d.core.schedulers.lr_schedulers import instantiate_scheduler
 from torch_points3d.core.schedulers.bn_schedulers import instantiate_bn_scheduler
 from torch_points3d.models.model_factory import instantiate_model
+from torch_points3d.utils.config import is_list, fetch_arguments_from_list, getattr_recursive
 
 log = logging.getLogger(__name__)
 
@@ -96,8 +97,29 @@ class Checkpoint:
             # initialize optimizer
             optimizer_config = self.optimizer
             optimizer_cls = getattr(torch.optim, optimizer_config[0])
-            optimizer_params = OmegaConf.create(self.run_config).training.optim.optimizer.params
-            model.optimizer = optimizer_cls(model.parameters(), **optimizer_params)
+            optimizer_opt = OmegaConf.create(self.run_config).training.optim.optimizer
+
+            is_differential = hasattr(optimizer_opt, 'params') \
+                              and hasattr(optimizer_opt.params, 'params') \
+                              and is_list(optimizer_opt.params.params)
+
+            if is_differential:
+                n_optim_groups = len(optimizer_opt.params.params)
+
+                optimizer_params = [
+                    fetch_arguments_from_list(optimizer_opt.params, i, ['params'])
+                    for i in range(n_optim_groups)]
+
+                for i in range(n_optim_groups):
+                    # Recover the parameter group
+                    submodule = getattr_recursive(model, optimizer_params[i]['params'])
+                    optimizer_params[i]['params'] = submodule.parameters()
+
+                model.optimizer = optimizer_cls(optimizer_params)
+
+            else:
+                optimizer_params = getattr(optimizer_opt, "params", {})
+                model.optimizer = optimizer_cls(model.parameters(), **optimizer_params)
 
             # initialize & load schedulersr
             schedulers_out = {}

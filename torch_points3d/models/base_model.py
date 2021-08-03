@@ -304,8 +304,6 @@ class BaseModel(torch.nn.Module, TrackerInterface, DatasetInterface, CheckpointI
                 submodule = getattr_recursive(self, optimizer_params[i]['params'])
                 optimizer_params[i]['params'] = submodule.parameters()
 
-                # Recover the
-
             self._optimizer = optimizer_cls(optimizer_params)
 
         else:

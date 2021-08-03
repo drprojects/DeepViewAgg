@@ -698,7 +698,7 @@ class ADE20KResNet18PPM(nn.Module, ABC):
     Adapted from https://github.com/CSAILVision/semantic-segmentation-pytorch
     """
 
-    def __init__(self, frozen=False, *args, **kwargs):
+    def __init__(self, *args, frozen=False, **kwargs):
         super(ADE20KResNet18PPM, self).__init__()
 
         # Adapt the default config to use ResNet18 + PPM-Deepsup model

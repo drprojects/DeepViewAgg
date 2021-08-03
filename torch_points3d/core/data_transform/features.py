@@ -422,7 +422,7 @@ class PCAComputePointwise(object):
 
         # Move computation to CUDA if required
         restore_input_cpu = False
-        if self._use_cuda and xyz_query.device.type != 'cuda':
+        if self._use_cuda and not xyz_query.is_cuda:
             restore_input_cpu = True
             xyz_query = xyz_query.cuda()
             xyz_search = xyz_search.cuda()

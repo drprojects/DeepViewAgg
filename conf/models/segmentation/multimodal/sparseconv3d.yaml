@@ -1254,7 +1254,7 @@ Res16UNet21-15_ResImage3_light_1_a4_concatenation:
         define_constants:
             in_feat: 32
             in_feat_img: 4
-            in_feat_proj: 8
+            in_feat_map: 8
             in_feat_attention: 4
             block: ResBlock # Can be any of the blocks in modules/MinkowskiEngine/api_modules.py
 
@@ -1299,7 +1299,7 @@ Res16UNet21-15_ResImage3_light_1_a4_concatenation:
                 view_pooling:
                     module_name: AttentiveBimodalCSRPool
                     in_main: in_feat
-                    in_proj: in_feat_proj
+                    in_map: in_feat_map
                     in_score: in_feat_attention
                     gating: True
                 fusion:
@@ -1331,7 +1331,7 @@ Res16UNet21-15_ResImage3_light_1_a8_concatenation:
         define_constants:
             in_feat: 32
             in_feat_img: 4
-            in_feat_proj: 8
+            in_feat_map: 8
             in_feat_attention: 8
             block: ResBlock # Can be any of the blocks in modules/MinkowskiEngine/api_modules.py
 
@@ -1376,7 +1376,7 @@ Res16UNet21-15_ResImage3_light_1_a8_concatenation:
                 view_pooling:
                     module_name: AttentiveBimodalCSRPool
                     in_main: in_feat
-                    in_proj: in_feat_proj
+                    in_map: in_feat_map
                     in_score: in_feat_attention
                     gating: True
                 fusion:
@@ -1408,7 +1408,7 @@ Res16UNet21-15_ResImage6_light_12_a4_concatenation:
         define_constants:
             in_feat: 32
             in_feat_img: 4
-            in_feat_proj: 8
+            in_feat_map: 8
             in_feat_attention: 4
             block: ResBlock # Can be any of the blocks in modules/MinkowskiEngine/api_modules.py
 
@@ -1457,7 +1457,7 @@ Res16UNet21-15_ResImage6_light_12_a4_concatenation:
                 view_pooling:
                     module_name: AttentiveBimodalCSRPool
                     in_main: [ in_feat, in_feat ]
-                    in_proj: in_feat_proj
+                    in_map: in_feat_map
                     in_score: in_feat_attention
                     gating: True
                 fusion:
@@ -1489,7 +1489,7 @@ Res16UNet21-15_ResImage9_light_123_a4_concatenation:
         define_constants:
             in_feat: 32
             in_feat_img: 4
-            in_feat_proj: 8
+            in_feat_map: 8
             in_feat_attention: 4
             block: ResBlock # Can be any of the blocks in modules/MinkowskiEngine/api_modules.py
 
@@ -1539,7 +1539,7 @@ Res16UNet21-15_ResImage9_light_123_a4_concatenation:
                 view_pooling:
                     module_name: AttentiveBimodalCSRPool
                     in_main: [ in_feat, in_feat, 2*in_feat ]
-                    in_proj: in_feat_proj
+                    in_map: in_feat_map
                     in_score: in_feat_attention
                     gating: True
                 fusion:
@@ -1571,7 +1571,7 @@ XYZ+RGB_a4-group_cat-1:
         define_constants:
             in_feat: 32
             in_feat_img: 4
-            in_feat_proj: 8
+            in_feat_map: 8
             in_feat_attention: 4
             block: ResBlock # Can be any of the blocks in modules/MinkowskiEngine/api_modules.py
 
@@ -1616,7 +1616,7 @@ XYZ+RGB_a4-group_cat-1:
                 view_pooling:
                     module_name: AttentiveBimodalCSRPool
                     in_main: in_feat
-                    in_proj: in_feat_proj
+                    in_map: in_feat_map
                     in_score: in_feat_attention
                     gating: True
                     dim_scaling: False
@@ -1650,7 +1650,7 @@ XYZ+RGB_a4-dim_cat-1:
         define_constants:
             in_feat: 32
             in_feat_img: 4
-            in_feat_proj: 8
+            in_feat_map: 8
             in_feat_attention: 4
             block: ResBlock # Can be any of the blocks in modules/MinkowskiEngine/api_modules.py
 
@@ -1695,7 +1695,7 @@ XYZ+RGB_a4-dim_cat-1:
                 view_pooling:
                     module_name: AttentiveBimodalCSRPool
                     in_main: in_feat
-                    in_proj: in_feat_proj
+                    in_map: in_feat_map
                     in_score: in_feat_attention
                     gating: True
                     dim_scaling: True
@@ -1729,7 +1729,7 @@ XYZ+RGB_a4-mod-dim_cat-1:
         define_constants:
             in_feat: 32
             in_feat_img: 4
-            in_feat_proj: 8
+            in_feat_map: 8
             in_feat_attention: 4
             block: ResBlock # Can be any of the blocks in modules/MinkowskiEngine/api_modules.py
 
@@ -1774,7 +1774,7 @@ XYZ+RGB_a4-mod-dim_cat-1:
                 view_pooling:
                     module_name: AttentiveBimodalCSRPool
                     in_main: in_feat
-                    in_proj: in_feat_proj
+                    in_map: in_feat_map
                     in_mod: in_feat
                     in_score: in_feat_attention
                     gating: True
@@ -1809,7 +1809,7 @@ XYZ+RGB_a4-mod-group_cat-1:
         define_constants:
             in_feat: 32
             in_feat_img: 4
-            in_feat_proj: 8
+            in_feat_map: 8
             in_feat_attention: 4
             block: ResBlock # Can be any of the blocks in modules/MinkowskiEngine/api_modules.py
 
@@ -1854,7 +1854,7 @@ XYZ+RGB_a4-mod-group_cat-1:
                 view_pooling:
                     module_name: AttentiveBimodalCSRPool
                     in_main: in_feat
-                    in_proj: in_feat_proj
+                    in_map: in_feat_map
                     in_mod: in_feat
                     in_score: in_feat_attention
                     gating: True
@@ -1889,7 +1889,7 @@ XYZ+RGB_a4-dim-min-max_cat-1:
         define_constants:
             in_feat: 32
             in_feat_img: 4
-            in_feat_proj: 8
+            in_feat_map: 8
             in_feat_attention: 4
             block: ResBlock # Can be any of the blocks in modules/MinkowskiEngine/api_modules.py
 
@@ -1934,10 +1934,10 @@ XYZ+RGB_a4-dim-min-max_cat-1:
                 view_pooling:
                     module_name: AttentiveBimodalCSRPool
                     in_main: in_feat
-                    in_proj: in_feat_proj
+                    in_map: in_feat_map
                     in_score: in_feat_attention
-                    proj_min: True
-                    proj_max: True
+                    use_map_min: True
+                    use_map_max: True
                     gating: True
                     dim_scaling: True
                     group_scaling: False
@@ -1970,7 +1970,7 @@ XYZ+RGB_a4-dim-min-max-num_cat-1:
         define_constants:
             in_feat: 32
             in_feat_img: 4
-            in_feat_proj: 8
+            in_feat_map: 8
             in_feat_attention: 4
             block: ResBlock # Can be any of the blocks in modules/MinkowskiEngine/api_modules.py
 
@@ -2015,11 +2015,11 @@ XYZ+RGB_a4-dim-min-max-num_cat-1:
                 view_pooling:
                     module_name: AttentiveBimodalCSRPool
                     in_main: in_feat
-                    in_proj: in_feat_proj
+                    in_map: in_feat_map
                     in_score: in_feat_attention
-                    proj_min: True
-                    proj_max: True
-                    proj_num: True
+                    use_map_min: True
+                    use_map_max: True
+                    use_map_num: True
                     gating: True
                     dim_scaling: True
                     group_scaling: False
@@ -2052,7 +2052,7 @@ XYZ+RGB_a4-dim-num_cat-1:
         define_constants:
             in_feat: 32
             in_feat_img: 4
-            in_feat_proj: 8
+            in_feat_map: 8
             in_feat_attention: 4
             block: ResBlock # Can be any of the blocks in modules/MinkowskiEngine/api_modules.py
 
@@ -2097,9 +2097,9 @@ XYZ+RGB_a4-dim-num_cat-1:
                 view_pooling:
                     module_name: AttentiveBimodalCSRPool
                     in_main: in_feat
-                    in_proj: in_feat_proj
+                    in_map: in_feat_map
                     in_score: in_feat_attention
-                    proj_num: True
+                    use_map_num: True
                     gating: True
                     dim_scaling: True
                     group_scaling: False
@@ -2132,7 +2132,7 @@ XYZ+RGB_a4-mod-dim_cat-1_debug:
         define_constants:
             in_feat: 32
             in_feat_img: 4
-            in_feat_proj: 8
+            in_feat_map: 8
             in_feat_attention: 4
             block: ResBlock # Can be any of the blocks in modules/MinkowskiEngine/api_modules.py
 
@@ -2177,7 +2177,7 @@ XYZ+RGB_a4-mod-dim_cat-1_debug:
                 view_pooling:
                     module_name: AttentiveBimodalCSRPool
                     in_main: in_feat
-                    in_proj: in_feat_proj
+                    in_map: in_feat_map
                     in_mod: in_feat
                     in_score: in_feat_attention
                     gating: True
@@ -2213,7 +2213,7 @@ XYZ+RGB_a4-mod-dim_cat-1_drop_debug:
         define_constants:
             in_feat: 32
             in_feat_img: 4
-            in_feat_proj: 8
+            in_feat_map: 8
             in_feat_attention: 4
             block: ResBlock # Can be any of the blocks in modules/MinkowskiEngine/api_modules.py
 
@@ -2258,7 +2258,7 @@ XYZ+RGB_a4-mod-dim_cat-1_drop_debug:
                 view_pooling:
                     module_name: AttentiveBimodalCSRPool
                     in_main: in_feat
-                    in_proj: in_feat_proj
+                    in_map: in_feat_map
                     in_mod: in_feat
                     in_score: in_feat_attention
                     gating: True
