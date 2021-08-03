@@ -299,7 +299,7 @@ class UnimodalBranch(nn.Module, ABC):
         if has_multi_setting:
             idx_sorting = mod_data.view_cat_sorting
             x_mod = torch.cat(x_mod, dim=0)[idx_sorting]
-            x_proj = torch.cat(mod_data.mapping_features, dim=0)[idx_sorting]
+            x_map = torch.cat(mod_data.mapping_features, dim=0)[idx_sorting]
 
         # View pooling of the atomic-pooled modality features
 
@@ -308,14 +308,14 @@ class UnimodalBranch(nn.Module, ABC):
         else:
             csr_idx = mod_data.view_csr_indexing
         if self.keep_last_view:
-            # Here we keep track of the latest x_mod, x_proj and csr_idx
+            # Here we keep track of the latest x_mod, x_map and csr_idx
             # in the modality data so as to recover it at the end of a
             # multimodal encoder or UNet. This is necessary when
             # training on a view-level loss.
             mod_data.last_view_x_mod = x_mod
-            mod_data.last_view_x_proj = x_proj
+            mod_data.last_view_x_map = x_map
             mod_data.last_view_csr_idx = csr_idx
-        x_mod, x_seen = self.view_pool(x_3d, x_mod, x_proj, csr_idx)
+        x_mod, x_seen = self.view_pool(x_3d, x_mod, x_map, csr_idx)
 
         # Dropout 3D or modality features
         if self.drop_3d:

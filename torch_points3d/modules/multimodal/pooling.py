@@ -38,16 +38,17 @@ class BimodalCSRPool(nn.Module, ABC):
         self._mode = mode
         self.save_last = save_last
 
-    def forward(self, x_main, x_mod, x_proj, csr_idx):
+    def forward(self, x_main, x_mod, x_map, csr_idx):
         # Segment_CSR is "the fastest method to apply for grouped
         # reductions."
         x_pool = segment_csr(x_mod, csr_idx, reduce=self._mode)
         x_seen = csr_idx[1:] > csr_idx[:-1]
         if self.save_last:
-            self._last_x_proj = x_proj
+            self._last_x_map = x_map
             self._last_x_mod = x_mod
-            self._last_idx = torch.arange(csr_idx.shape[0] - 1, device=x_mod.device
-                ).repeat_interleave(csr_idx[1:] - csr_idx[:-1])
+            self._last_idx = torch.arange(
+                csr_idx.shape[0] - 1, device=x_mod.device).repeat_interleave(
+                csr_idx[1:] - csr_idx[:-1])
             self._last_view_num = csr_idx[1:] - csr_idx[:-1]
         return x_pool, x_seen
 
@@ -104,7 +105,7 @@ class HeuristicBimodalCSRPool(nn.Module, ABC):
 
         self.save_last = save_last
 
-    def forward(self, x_main, x_mod, x_proj, csr_idx):
+    def forward(self, x_main, x_mod, x_map, csr_idx):
         # Compute dense indices from CSR indices
         n_groups = csr_idx.shape[0] - 1
         dense_idx = torch.arange(n_groups, device=x_mod.device
@@ -112,7 +113,8 @@ class HeuristicBimodalCSRPool(nn.Module, ABC):
 
         # Compute the arguments for the min/max heuristic
         # NB: arg_idx will carry '-1' or 'n_points' for unseen points
-        _, arg_idx = self._scatter(x_proj[:, self._feat], dense_idx, dim_size=n_groups)
+        _, arg_idx = self._scatter(
+            x_map[:, self._feat], dense_idx, dim_size=n_groups)
 
         # Pool the modality features based on the heuristic
         # NB: append '0' to x_mod to distribute '0' to unseen points
@@ -122,204 +124,17 @@ class HeuristicBimodalCSRPool(nn.Module, ABC):
         x_seen = csr_idx[1:] > csr_idx[:-1]
 
         if self.save_last:
-            self._last_x_proj = x_proj
+            self._last_x_map = x_map
             self._last_x_mod = x_mod
-            self._last_idx = torch.arange(csr_idx.shape[0] - 1, device=x_mod.device
-                ).repeat_interleave(csr_idx[1:] - csr_idx[:-1])
+            self._last_idx = torch.arange(
+                csr_idx.shape[0] - 1, device=x_mod.device).repeat_interleave(
+                csr_idx[1:] - csr_idx[:-1])
             self._last_view_num = csr_idx[1:] - csr_idx[:-1]
         return x_pool, x_seen
 
     def extra_repr(self) -> str:
         return f'mode={self._mode}, feat={self._FEATURES[self._feat]}, ' \
                f'save_last={self.save_last}'
-
-
-# class GroupBimodalCSRPool(nn.Module, ABC):
-#     """Bimodal pooling modules select and combine information from a
-#     modality to prepare its fusion into the main modality.
-#
-#     The modality pooling may typically be used for atomic-level
-#     aggregation or view-level aggregation. To illustrate, in the case of
-#     image modality, where each 3D point may be mapped to multiple
-#     pixels, in multiple images. The atomic-level corresponds to pixel-
-#     level information, while view-level accounts for multi-image views.
-#
-#     GroupBimodalCSRPool learns to produce a weighting scheme for the
-#     modality features of the same index-group, only based on the
-#     mapping features, optionally from the modality features
-#     themselves and an optional gating mechanism. This differs from the
-#     Key-Query attention mechanism in the sense that the main modality's
-#     features are not used to compute a compatibility score here.
-#
-#     For computation speed reasons, the data and pooling indices are
-#     expected to be provided in a CSR format, where same-index rows are
-#     consecutive and indices hold index-change pointers.
-#
-#     IMPORTANT: the order of 3D points in the main modality is expected
-#     to match that of the indices in the mappings. Any update of the
-#     mappings following a reindexing, reordering or sampling of the 3D
-#     points must be performed prior to the multimodal pooling.
-#
-#     Example:
-#
-#     import torch
-#     from torch_points3d.modules.multimodal.pooling import GroupBimodalCSRPool
-#
-#     N = 5
-#     V = 20
-#     F_main = 10
-#     F_mod = 7
-#     F_proj = 3
-#     num_groups = 2
-#
-#     csr_idx = torch.LongTensor([0, 4, 4, 5, 10, 20])
-#     x_main = None
-#     x_mod = torch.rand(V, F_mod)
-#     x_proj = torch.rand(V, F_proj)
-#
-#     module = GroupBimodalCSRPool(in_proj=F_proj, in_mod=F_mod,
-#          num_groups=num_groups, use_mod=False, proj_min=False,
-#          proj_max=False, proj_num=False, gating=True,
-#          group_scaling=True)
-#
-#     module(x_main, x_mod, x_proj, csr_idx)
-#     """
-#
-#     def __init__(self, in_proj=None, in_mod=None, num_groups=None,
-#                  use_mod=False, proj_min=False, proj_max=False,
-#                  proj_num=False, gating=True, group_scaling=False,
-#                  save_last=False, **kwargs):
-#         super(GroupBimodalCSRPool, self).__init__()
-#
-#         self.save_last = save_last
-#
-#         # Group and channel arguments
-#         assert 1 <= num_groups <= in_mod,\
-#             f"Number of groups must be between 1 and in_mod={in_mod}."
-#         self.num_groups = num_groups
-#         self.in_mod = in_mod
-#         self.use_mod = use_mod
-#
-#         # Optional computation mechanisms
-#         self.proj_min = proj_min
-#         self.proj_max = proj_max
-#         self.proj_num = proj_num
-#
-#         # Optional compatibilities scaling mechanism
-#         self.group_scaling = group_scaling
-#
-#         # Raw handcrafted mapping features are fed to this module, we
-#         # let the network preprocess them to its liking before mixing
-#         # them with other learnt features
-#         in_proj_0 = in_proj * (1 + proj_min + proj_max) + proj_num
-#         # in_proj_1 = nearest_power_of_2((in_proj_0 + num_groups) / 2, min_power=8)
-#         # in_proj_2 = nearest_power_of_2(num_groups, min_power=4)
-#         # in_proj_1 = nearest_power_of_2((in_proj_0 + num_groups) / 2, min_power=8)
-#         # in_proj_2 = nearest_power_of_2(num_groups, min_power=4)
-#         # self.MLP_proj = (
-#         #     Seq().append(nn.Linear(in_proj_0, in_proj_1, bias=True))
-#         #         .append(nn.BatchNorm1d(in_proj_1))
-#         #         .append(nn.ReLU())
-#         #         .append(nn.Linear(in_proj_1, in_proj_2, bias=True))
-#         #         .append(nn.BatchNorm1d(in_proj_2))
-#         #         .append(nn.ReLU()))
-#         # TODO: add dropout in here ?
-#         in_proj_2 = 4
-#         self.MLP_proj = (
-#             Seq().append(nn.Linear(in_proj_0, in_proj_2, bias=True))
-#                 .append(nn.BatchNorm1d(in_proj_2))
-#                 .append(nn.ReLU()))
-#
-#         # Attention scores computation module
-#         if self.use_mod:
-#             in_proj_3 = in_proj_2 + in_mod
-#         else:
-#             in_proj_3 = in_proj_2
-#         # Ease-in the dimensionality reduction to num_groups if need be
-#         if num_groups <= 4 and in_proj_3 > 16:
-#             in_proj_4 = 8
-#             self.MLP_score = (
-#                 Seq().append(nn.Linear(in_proj_3, in_proj_4, bias=True))
-#                     .append(nn.BatchNorm1d(in_proj_4))
-#                     .append(nn.ReLU())
-#                     .append(nn.Linear(in_proj_4, num_groups, bias=True)))
-#         else:
-#             self.MLP_score = nn.Linear(in_proj_3, num_groups, bias=True)
-#
-#         # Optional gating mechanism
-#         self.Gating = Gating(num_groups, bias=True) if gating else None
-#
-#     def forward(self, x_main, x_mod, x_proj, csr_idx):
-#         """
-#         :param x_main: N x F_main
-#         :param x_mod: V x F_mod
-#         :param x_proj: V x F_proj
-#         :param csr_idx:
-#         :return: x_pool, x_seen
-#         """
-#
-#         # Optionally expand x_proj with difference-to-min or
-#         # difference-to-max or group size features
-#         if self.proj_min:
-#             x_proj_min = x_proj - segment_csr_gather(x_proj, csr_idx, reduce='min')
-#         else:
-#             x_proj_min = torch.empty(0, device=x_proj.device)
-#         if self.proj_max:
-#             x_proj_max = x_proj - segment_csr_gather(x_proj, csr_idx, reduce='max')
-#         else:
-#             x_proj_max = torch.empty(0, device=x_proj.device)
-#         if self.proj_num:
-#             # Heuristic to normalize in [0,1]
-#             x_proj_num = torch.sqrt(1 / (csr_idx[1:] - csr_idx[:-1]).float()
-#                 ).repeat_interleave(csr_idx[1:] - csr_idx[:-1]).view(-1, 1)
-#         else:
-#             x_proj_num = torch.empty(0, device=x_proj.device)
-#         x_proj = torch.cat([x_proj, x_proj_min, x_proj_max, x_proj_num], dim=1)
-#
-#         # Compute compatibilities (unscaled scores) : V x num_groups
-#         if self.use_mod:
-#             C = self.MLP_score(torch.cat([self.MLP_proj(x_proj), x_mod], dim=1))
-#         else:
-#             C = self.MLP_score(self.MLP_proj(x_proj))
-#
-#         # Compute attention scores : V x num_groups
-#         A = segment_csr_softmax(C, csr_idx, scaling=self.group_scaling)
-#
-#         # Apply attention scores : P x F_mod
-#         x_pool = segment_csr(
-#             x_mod * expand_group_feat(A, self.num_groups, self.in_mod),
-#             csr_idx, reduce='sum')
-#
-#         if self.Gating:
-#             # Compute pointwise gating : P x num_groups
-#             G = self.Gating(segment_csr(C, csr_idx, reduce='max'))
-#
-#             # Apply gating to the features : P x F_mod
-#             x_pool = x_pool * expand_group_feat(G, self.num_groups, self.in_mod)
-#
-#         # Compute the boolean mask of seen points
-#         x_seen = csr_idx[1:] > csr_idx[:-1]
-#
-#         # Optionally save outputs
-#         if self.save_last:
-#             self._last_x_proj = x_proj
-#             self._last_x_mod = x_mod
-#             self._last_idx = torch.arange(
-#                 csr_idx.shape[0] - 1, device=x_proj.device
-#                 ).repeat_interleave(csr_idx[1:] - csr_idx[:-1])
-#             self._last_view_num = csr_idx[1:] - csr_idx[:-1]
-#             self._last_C = expand_group_feat(C, self.num_groups, self.in_mod)
-#             self._last_A = expand_group_feat(A, self.num_groups, self.in_mod)
-#             if self.Gating:
-#                 self._last_G = expand_group_feat(G, self.num_groups, self.in_mod)
-#
-#         return x_pool, x_seen
-#
-#     def extra_repr(self) -> str:
-#         return f"num_groups={self.num_groups}, use_mod={self.use_mod}, " \
-#             f"proj_min={self.proj_min}, proj_max={self.proj_max}, " \
-#             f"proj_num={self.proj_num}, group_scaling={self.group_scaling}, " \
-#             f"save_last={self.save_last}"
 
 
 class GroupBimodalCSRPool(nn.Module, ABC):
@@ -357,29 +172,42 @@ class GroupBimodalCSRPool(nn.Module, ABC):
     V = 20
     F_main = 10
     F_mod = 7
-    F_proj = 3
+    F_map = 3
     num_groups = 2
 
     csr_idx = torch.LongTensor([0, 4, 4, 5, 10, 20])
     x_main = None
     x_mod = torch.rand(V, F_mod)
-    x_proj = torch.rand(V, F_proj)
+    x_map = torch.rand(V, F_map)
 
-    module = GroupBimodalCSRPool(in_proj=F_proj, in_mod=F_mod,
-         num_groups=num_groups, use_mod=False, proj_min=False,
-         proj_max=False, proj_num=False, gating=True,
+    module = GroupBimodalCSRPool(in_map=F_map, in_mod=F_mod,
+         num_groups=num_groups, use_mod=False, use_map_min=False,
+         use_map_max=False, use_map_num=False, gating=True,
          group_scaling=True)
 
-    module(x_main, x_mod, x_proj, csr_idx)
+    module(x_main, x_mod, x_map, csr_idx)
     """
 
-    def __init__(self, in_proj=None, in_mod=None, num_groups=None,
-                 use_mod=False, proj_min=False, proj_max=False,
-                 proj_num=False, gating=True, group_scaling=False,
-                 save_last=False, **kwargs):
+    def __init__(
+            self, in_map=None, in_mod=None, num_groups=None, use_mod=False,
+            use_map_min=True, use_map_max=True, use_map_num=True,
+            gating=True, group_scaling=True, save_last=False,
+            activation=nn.LeakyReLU, normalization=nn.BatchNorm1d, **kwargs):
         super(GroupBimodalCSRPool, self).__init__()
 
+        # Default output feature size used for embeddings
+        self.NC_OUT = 32
+
+        # Optional mechanism to keep track of the outputs for debugging
+        # or view-wise loss
         self.save_last = save_last
+        self._last_x_map = None
+        self._last_x_mod = None
+        self._last_idx = None
+        self._last_view_num = None
+        self._last_C = None
+        self._last_A = None
+        self._last_G = None
 
         # Group and channel arguments
         assert 1 <= num_groups <= in_mod, \
@@ -389,90 +217,89 @@ class GroupBimodalCSRPool(nn.Module, ABC):
         self.use_mod = use_mod
 
         # Optional computation mechanisms
-        self.proj_min = proj_min
-        self.proj_max = proj_max
-        self.proj_num = proj_num
+        self.use_map_min = use_map_min
+        self.use_map_max = use_map_max
+        self.use_map_num = use_map_num
 
         # Optional compatibilities scaling mechanism
         self.group_scaling = group_scaling
 
-        # Raw handcrafted mapping features are fed to this module, we
-        # let the network preprocess them to its liking before mixing
-        # them with other learnt features
-        in_proj_0 = in_proj * (1 + proj_min + proj_max) + proj_num
-        # in_proj_1 = nearest_power_of_2((in_proj_0 + num_groups) / 2, min_power=8)
-        # in_proj_2 = nearest_power_of_2(num_groups, min_power=4)
-        # in_proj_1 = nearest_power_of_2((in_proj_0 + num_groups) / 2, min_power=8)
-        # in_proj_2 = nearest_power_of_2(num_groups, min_power=4)
-        # self.MLP_proj = (
-        #     Seq().append(nn.Linear(in_proj_0, in_proj_1, bias=True))
-        #         .append(nn.BatchNorm1d(in_proj_1))
-        #         .append(nn.ReLU())
-        #         .append(nn.Linear(in_proj_1, in_proj_2, bias=True))
-        #         .append(nn.BatchNorm1d(in_proj_2))
-        #         .append(nn.ReLU()))
-        # TODO: add dropout in here ?
-        in_proj_2 = 32
-        self.MLP_proj = (
-            Seq().append(nn.Linear(in_proj_0, in_proj_2, bias=False))
-                .append(nn.BatchNorm1d(in_proj_2))
-                .append(nn.ReLU())
-                .append(nn.Linear(in_proj_2, in_proj_2, bias=False))
-                .append(nn.BatchNorm1d(in_proj_2))
-                .append(nn.ReLU()))
+        # MLP_map embeds raw handcrafted mapping features
+        in_map_mix = in_map * (1 + use_map_min + use_map_max) + use_map_num
+        out_map = self.NC_OUT
+        self.MLP_map = nn.Sequential(
+            nn.Linear(in_map_mix, out_map, bias=False),
+            activation(),
+            nn.Linear(out_map, out_map, bias=False),
+            normalization(out_map),
+            activation())
 
-        # Attention scores computation module
+        # MLP_mod embeds the modality features in a space used as
+        # values and to build attention scores in case use_mod=True
+        self.MLP_mod = nn.Sequential(
+            nn.Linear(in_mod, in_mod, bias=False),
+            activation(),
+            nn.Linear(in_mod, in_mod, bias=False),
+            normalization(in_mod),
+            activation())
+
+        # MLP_mix combines the modality features from MLP_mod and
+        # mapping features from MLP_map in case use_mod=True
         if self.use_mod:
-            in_proj_3 = in_proj_2 + in_mod
-        else:
-            in_proj_3 = in_proj_2
-        # Ease-in the dimensionality reduction to num_groups if need be
-        # if num_groups <= 4 and in_proj_3 > 16:
-        #     in_proj_4 = 8
-        #     self.MLP_score = (
-        #         Seq().append(nn.Linear(in_proj_3, in_proj_4, bias=True))
-        #             .append(nn.BatchNorm1d(in_proj_4))
-        #             .append(nn.ReLU())
-        #             .append(nn.Linear(in_proj_4, num_groups, bias=True)))
-        # else:
-        #     self.MLP_score = nn.Linear(in_proj_3, num_groups, bias=True)
-        self.MLP_score = nn.Linear(in_proj_3, num_groups, bias=True)
+            in_mix = out_map + in_mod
+            out_mix = self.NC_OUT
+            mid_mix = nearest_power_of_2((in_mix + out_mix) / 2, out_mix * 2)
+            self.MLP_mix = nn.Sequential(
+                nn.Linear(in_mix, mid_mix, bias=False),
+                activation(),
+                nn.Linear(mid_mix, out_mix, bias=False),
+                normalization(out_mix),
+                activation())
+
+        # MLP_score computes the compatibility score for each feature
+        # group, these are to be further normalized to produce
+        # final attention scores
+        self.MLP_score = nn.Linear(self.NC_OUT, num_groups, bias=True)
 
         # Optional gating mechanism
         self.Gating = Gating(num_groups, bias=True) if gating else None
 
-    def forward(self, x_main, x_mod, x_proj, csr_idx):
+    def forward(self, x_main, x_mod, x_map, csr_idx):
         """
         :param x_main: N x F_main
         :param x_mod: V x F_mod
-        :param x_proj: V x F_proj
+        :param x_map: V x F_map
         :param csr_idx:
         :return: x_pool, x_seen
         """
-
-        # Optionally expand x_proj with difference-to-min or
+        # Optionally expand x_map with difference-to-min or
         # difference-to-max or group size features
-        if self.proj_min:
-            x_proj_min = x_proj - segment_csr_gather(x_proj, csr_idx, reduce='min')
+        if self.use_map_min:
+            x_map_min = x_map - segment_csr_gather(x_map, csr_idx, reduce='min')
         else:
-            x_proj_min = torch.empty(0, device=x_proj.device)
-        if self.proj_max:
-            x_proj_max = x_proj - segment_csr_gather(x_proj, csr_idx, reduce='max')
+            x_map_min = torch.empty(0, device=x_map.device)
+        if self.use_map_max:
+            x_map_max = x_map - segment_csr_gather(x_map, csr_idx, reduce='max')
         else:
-            x_proj_max = torch.empty(0, device=x_proj.device)
-        if self.proj_num:
+            x_map_max = torch.empty(0, device=x_map.device)
+        if self.use_map_num:
             # Heuristic to normalize in [0,1]
-            x_proj_num = torch.sqrt(1 / (csr_idx[1:] - csr_idx[:-1]).float()
-                                    ).repeat_interleave(csr_idx[1:] - csr_idx[:-1]).view(-1, 1)
+            x_map_num = torch.sqrt(1 / (csr_idx[1:] - csr_idx[:-1]).float())
+            x_map_num = x_map_num.repeat_interleave(csr_idx[1:] - csr_idx[:-1])
+            x_map_num = x_map_num.view(-1, 1)
         else:
-            x_proj_num = torch.empty(0, device=x_proj.device)
-        x_proj = torch.cat([x_proj, x_proj_min, x_proj_max, x_proj_num], dim=1)
+            x_map_num = torch.empty(0, device=x_map.device)
+        x_map = torch.cat([x_map, x_map_min, x_map_max, x_map_num], dim=1)
+        x_map = self.MLP_map(x_map)
+
+        # Compute values : V x F_mod
+        x_mod = self.MLP_mod(x_mod)
 
         # Compute compatibilities (unscaled scores) : V x num_groups
         if self.use_mod:
-            C = self.MLP_score(torch.cat([self.MLP_proj(x_proj), x_mod], dim=1))
+            C = self.MLP_score(self.MLP_score(torch.cat([x_map, x_mod], dim=1)))
         else:
-            C = self.MLP_score(self.MLP_proj(x_proj))
+            C = self.MLP_score(x_map)
 
         # Compute attention scores : V x num_groups
         A = segment_csr_softmax(C, csr_idx, scaling=self.group_scaling)
@@ -494,11 +321,11 @@ class GroupBimodalCSRPool(nn.Module, ABC):
 
         # Optionally save outputs
         if self.save_last:
-            self._last_x_proj = x_proj
+            self._last_x_map = x_map
             self._last_x_mod = x_mod
             self._last_idx = torch.arange(
-                csr_idx.shape[0] - 1, device=x_proj.device
-            ).repeat_interleave(csr_idx[1:] - csr_idx[:-1])
+                csr_idx.shape[0] - 1, device=x_map.device).repeat_interleave(
+                csr_idx[1:] - csr_idx[:-1])
             self._last_view_num = csr_idx[1:] - csr_idx[:-1]
             self._last_C = expand_group_feat(C, self.num_groups, self.in_mod)
             self._last_A = expand_group_feat(A, self.num_groups, self.in_mod)
@@ -508,10 +335,10 @@ class GroupBimodalCSRPool(nn.Module, ABC):
         return x_pool, x_seen
 
     def extra_repr(self) -> str:
-        return f"num_groups={self.num_groups}, use_mod={self.use_mod}, " \
-               f"proj_min={self.proj_min}, proj_max={self.proj_max}, " \
-               f"proj_num={self.proj_num}, group_scaling={self.group_scaling}, " \
-               f"save_last={self.save_last}"
+        repr_attr = [
+            'num_groups', 'use_mod', 'use_map_min', 'use_map_max',
+            'use_map_num', 'group_scaling', 'save_last']
+        return ", ".join([f'{a}={getattr(self, a)}' for a in repr_attr])
 
 
 class AttentiveBimodalCSRPool(nn.Module, ABC):
@@ -546,45 +373,56 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
     V = 20
     F_main = 10
     F_mod = 7
-    F_proj = 3
+    F_map = 3
     in_score = 2
 
     csr_idx = torch.LongTensor([0, 4, 4, 5, 10, 20])
     x_main = torch.rand(N, F_main)
     x_mod = torch.rand(V, F_mod)
-    x_proj = torch.rand(V, F_proj)
+    x_map = torch.rand(V, F_map)
 
-    module = AttentiveBimodalCSRPool(in_main=F_main, in_proj=F_proj,
-        in_mod=F_mod, in_score=in_score, proj_min=False, proj_max=False,
-        proj_num=False, gating=True, dim_scaling=True,
+    module = AttentiveBimodalCSRPool(in_main=F_main, in_map=F_map,
+        in_mod=F_mod, in_score=in_score, use_map_min=False, use_map_max=False,
+        use_map_num=False, gating=True, dim_scaling=True,
         group_scaling=True)
 
-    module(x_main, x_mod, x_proj, csr_idx)
+    module(x_main, x_mod, x_map, csr_idx)
     """
 
-    def __init__(self, in_main=None, in_proj=None, in_mod=None,
-                 in_score=None, proj_min=False, proj_max=False,
-                 proj_num=False, gating=True, dim_scaling=True,
-                 group_scaling=False, debug=False, save_last=False,
-                 **kwargs):
+    def __init__(
+            self, in_main=None, in_map=None, in_mod=None, in_score=None,
+            use_map_min=False, use_map_max=False, use_map_num=False, gating=True,
+            dim_scaling=True, group_scaling=False, debug=False, save_last=False,
+            activation=nn.LeakyReLU, normalization=nn.BatchNorm1d, **kwargs):
         super(AttentiveBimodalCSRPool, self).__init__()
 
+        # Optional mechanism to keep track of the outputs for debugging
+        # or view-wise loss
         self.save_last = save_last
+        self._last_x_map = None
+        self._last_x_mod = None
+        self._last_idx = None
+        self._last_view_num = None
+        self._last_Q = None
+        self._last_K = None
+        self._last_C = None
+        self._last_A = None
+        self._last_G = None
         self.debug = debug
         if debug:
-            proj_min = False
-            proj_max = False
-            proj_num = False
+            use_map_min = False
+            use_map_max = False
+            use_map_num = False
             group_scaling = False
             dim_scaling = True
             in_score = 1
-            in_proj = 1
+            in_map = 1
             in_mod = None
 
         # Optional key computation mechanisms
-        self.proj_min = proj_min
-        self.proj_max = proj_max
-        self.proj_num = proj_num
+        self.use_map_min = use_map_min
+        self.use_map_max = use_map_max
+        self.use_map_num = use_map_num
 
         # Optional compatibilities scaling mechanism
         self.dim_scaling = dim_scaling
@@ -596,68 +434,70 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
         # Raw handcrafted mapping features are fed to this module, we
         # let the network preprocess them to its liking before computing
         # the keys
-        in_proj_0 = in_proj * (1 + proj_min + proj_max) + proj_num
-        in_proj_1 = nearest_power_of_2((in_proj_0 + in_score) / 2, min_power=16)
-        in_proj_2 = nearest_power_of_2(in_score, min_power=16)
+        in_map_0 = in_map * (1 + use_map_min + use_map_max) + use_map_num
+        in_map_1 = nearest_power_of_2((in_map_0 + in_score) / 2, min_power=16)
+        in_map_2 = nearest_power_of_2(in_score, min_power=16)
         if self.debug:
-            in_proj_1 = 2
-            in_proj_2 = 2
-        self.MLP_proj = (
-            Seq().append(nn.Linear(in_proj_0, in_proj_1, bias=True))
-                .append(nn.BatchNorm1d(in_proj_1))
-                .append(nn.ReLU())
-                .append(nn.Linear(in_proj_1, in_proj_2, bias=True))
-                .append(nn.BatchNorm1d(in_proj_2))
-                .append(nn.ReLU()))
+            in_map_1 = 2
+            in_map_2 = 2
+        self.MLP_map = nn.Sequential(
+            nn.Linear(in_map_0, in_map_1, bias=True),
+            normalization(in_map_1),
+            activation(),
+            nn.Linear(in_map_1, in_map_2, bias=True),
+            normalization(in_map_2),
+            activation())
 
         # Keys computation module
         self.mod_in_key = in_mod is not None
         if self.mod_in_key:
-            self.K = nn.Linear(in_proj_2 + in_mod, in_score, bias=True)
+            self.K = nn.Linear(in_map_2 + in_mod, in_score, bias=True)
         else:
-            self.K = nn.Linear(in_proj_2, in_score, bias=True)
+            self.K = nn.Linear(in_map_2, in_score, bias=True)
 
         # Optional gating mechanism
         self.Gating = Gating(1, bias=True) if gating else None
 
-    def forward(self, x_main, x_mod, x_proj, csr_idx):
+    def forward(self, x_main, x_mod, x_map, csr_idx):
         """
         :param x_main: N x F_main
         :param x_mod: V x F_mod
-        :param x_proj: V x F_proj
+        :param x_map: V x F_map
         :param csr_idx:
         :return: x_pool, x_seen
         """
-        # Artificial x_proj and x_mod
+        # Artificial x_map and x_mod
         if self.debug:
-            device = x_proj.device
-            x_proj = torch.rand((x_proj.shape[0], 1), device=device)
-            idx_destroyed = torch.where(x_proj < 0.3)[0]
-            x_mod[idx_destroyed] = torch.rand((idx_destroyed.shape[0], *(x_mod.shape[1:])), device=device)
+            device = x_map.device
+            x_map = torch.rand((x_map.shape[0], 1), device=device)
+            idx_destroyed = torch.where(x_map < 0.3)[0]
+            x_mod[idx_destroyed] = torch.rand(
+                (idx_destroyed.shape[0], *(x_mod.shape[1:])), device=device)
 
-        # Optionally expand x_proj with difference-to-min or
+        # Optionally expand x_map with difference-to-min or
         # difference-to-max or group size features
-        if self.proj_min:
-            x_proj_min = x_proj - segment_csr_gather(x_proj, csr_idx, reduce='min')
+        if self.use_map_min:
+            x_map_min = x_map - segment_csr_gather(x_map, csr_idx, reduce='min')
         else:
-            x_proj_min = torch.empty(0, device=x_proj.device)
-        if self.proj_max:
-            x_proj_max = x_proj - segment_csr_gather(x_proj, csr_idx, reduce='max')
+            x_map_min = torch.empty(0, device=x_map.device)
+        if self.use_map_max:
+            x_map_max = x_map - segment_csr_gather(x_map, csr_idx, reduce='max')
         else:
-            x_proj_max = torch.empty(0, device=x_proj.device)
-        if self.proj_num:
+            x_map_max = torch.empty(0, device=x_map.device)
+        if self.use_map_num:
             # Heuristic to normalize in [0,1]
-            x_proj_num = torch.sqrt(1 / (csr_idx[1:] - csr_idx[:-1]).float()
-                ).repeat_interleave(csr_idx[1:] - csr_idx[:-1]).view(-1, 1)
+            x_map_num = torch.sqrt(1 / (csr_idx[1:] - csr_idx[:-1]).float())
+            x_map_num = x_map_num.repeat_interleave(csr_idx[1:] - csr_idx[:-1])
+            x_map_num = x_map_num.view(-1, 1)
         else:
-            x_proj_num = torch.empty(0, device=x_proj.device)
-        x_proj = torch.cat([x_proj, x_proj_min, x_proj_max, x_proj_num], dim=1)
+            x_map_num = torch.empty(0, device=x_map.device)
+        x_map = torch.cat([x_map, x_map_min, x_map_max, x_map_num], dim=1)
 
         # Compute keys : V x D
         if self.mod_in_key:
-            K = self.K(torch.cat([self.MLP_proj(x_proj), x_mod], dim=1))
+            K = self.K(torch.cat([self.MLP_map(x_map), x_mod], dim=1))
         else:
-            K = self.K(self.MLP_proj(x_proj))
+            K = self.K(self.MLP_map(x_map))
 
         # Compute pointwise queries : N x D
         if isinstance(x_main, torch.Tensor):
@@ -694,10 +534,11 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
 
         # Optionally save outputs
         if self.save_last:
-            self._last_x_proj = x_proj
+            self._last_x_map = x_map
             self._last_x_mod = x_mod
-            self._last_idx = torch.arange(csr_idx.shape[0] - 1, device=x_proj.device
-                                          ).repeat_interleave(csr_idx[1:] - csr_idx[:-1])
+            self._last_idx = torch.arange(
+                csr_idx.shape[0] - 1, device=x_map.device).repeat_interleave(
+                csr_idx[1:] - csr_idx[:-1])
             self._last_view_num = csr_idx[1:] - csr_idx[:-1]
             self._last_K = K
             self._last_Q = Q
@@ -709,9 +550,10 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
         return x_pool, x_seen
 
     def extra_repr(self) -> str:
-        return f'proj_min={self.proj_min}, proj_max={self.proj_max}, ' \
-            f'proj_num={self.proj_num}, dim_scaling={self.dim_scaling}, ' \
-            f'group_scaling={self.group_scaling}, save_last={self.save_last}'
+        repr_attr = [
+            'use_map_min', 'use_map_max', 'use_map_num', 'dim_scaling',
+            'group_scaling', 'save_last']
+        return ", ".join([f'{a}={getattr(self, a)}' for a in repr_attr])
 
 
 class Gating(nn.Module):
@@ -719,7 +561,8 @@ class Gating(nn.Module):
     def __init__(self, num_groups, weight=True, bias=True):
         super(Gating, self).__init__()
         self.num_groups = num_groups
-        self.weight = nn.Parameter(torch.ones(1, num_groups)) if weight else None
+        self.weight = nn.Parameter(torch.ones(1, num_groups)) if weight \
+            else None
         self.bias = nn.Parameter(torch.zeros(1, num_groups)) if bias else None
 
     def forward(self, x):
@@ -755,8 +598,9 @@ def group_sizes(num_elements, num_groups):
     """Local helper to compute the group sizes, when distributing
     num_elements across num_groups while keeping group sizes as close
     as possible."""
-    sizes = torch.full((num_groups,), math.floor(num_elements / num_groups),
-                       dtype=torch.long)
+    sizes = torch.full(
+        (num_groups,), math.floor(num_elements / num_groups),
+        dtype=torch.long)
     sizes += torch.arange(num_groups) < num_elements - sizes.sum()
     return sizes
 
@@ -808,11 +652,11 @@ def segment_csr_softmax(src: torch.Tensor, csr_idx: torch.Tensor,
     if scaling:
         num_per_index = (csr_idx[1:] - csr_idx[:-1])
         sqrt_num_per_index = num_per_index.float().sqrt()
-        num_per_src_element = torch.repeat_interleave(sqrt_num_per_index,
-                                                      num_per_index)
+        num_per_src_element = torch.repeat_interleave(
+            sqrt_num_per_index, num_per_index)
         if src.dim() > 1:
-            num_per_src_element = num_per_src_element.view(-1, 1).repeat(1,
-                 src.shape[1])
+            num_per_src_element = num_per_src_element.view(-1, 1).repeat(
+                1, src.shape[1])
 
         centered_scores = centered_scores / num_per_src_element
 
