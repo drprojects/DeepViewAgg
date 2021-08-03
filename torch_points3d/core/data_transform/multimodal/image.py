@@ -239,6 +239,8 @@ class MapImages(ImageTransform):
             mask = image.mask.to(device) if image.mask is not None else None
 
             # TEMPORARY - read depth map from file for S3DIS images
+            # TODO: better handle depth map files if DepthMapBasedVisibility is
+            #  needed for other datasets than S3DIS
             depth_map_path = osp.join(
                 osp.dirname(osp.dirname(image.path[0])), 'depth',
                 osp.basename(image.path[0]).replace('_rgb.png', '_depth.png'))
@@ -248,30 +250,6 @@ class MapImages(ImageTransform):
             # corresponding pixel coordinates, depth and mapping
             # features.
             start = time()
-            # out_vm = visibility(
-            #     xyz_to_img, img_opk, method='splatting', img_mask=image.mask,
-            #     img_size=image.proj_size, linearity=linearity,
-            #     planarity=planarity, scattering=scattering, normals=normals,
-            #     voxel=image.voxel, r_max=image.r_max,
-            #     r_min=image.r_min, k_swell=image.growth_k,
-            #     d_swell=image.growth_r, exact=self.exact,
-            #     use_cuda=False)
-
-            # TEMPORARY - manually select the visibility model.
-            # Ultimately, should be done in a cleaner fashion, with a
-            # VisibilityModel class saved in SameSettingImageData
-            # attributes
-            # out_vm = visibility(
-            #     xyz_to_img.cuda(), img_opk.cuda(), method='splatting',
-            #     img_mask=image.mask.cuda() if image.mask is not None else None,
-            #     img_size=image.proj_size, linearity=linearity.cuda(),
-            #     planarity=planarity.cuda(), scattering=scattering.cuda(),
-            #     normals=normals.cuda(),
-            #     voxel=image.voxel, r_max=image.r_max,
-            #     r_min=image.r_min, k_swell=image.growth_k,
-            #     d_swell=image.growth_r, exact=True,
-            #     use_cuda=True)
-
             out_vm = visi(
                 xyz_to_img, img_opk, img_mask=mask, linearity=linearity,
                 planarity=planarity, scattering=scattering, normals=normals,
