@@ -156,7 +156,7 @@ class SameSettingImageData(object):
                 f"Discrepancy in the devices of 'pos' and 'mask' attributes." \
                 f" Please use `SameSettingImageData.to()` to set the device."
 
-        if self.visibility is not None:
+        if getattr(self, 'visibility', None) is not None:
             assert isinstance(self.visibility, VisibilityModel)
             assert self.visibility.img_size == self.proj_size
 
@@ -821,7 +821,8 @@ class SameSettingImageData(object):
             mappings=self.mappings.select_images(idx)
             if self.mappings is not None else None,
             mask=self.mask.clone() if self.mask is not None else None,
-            visibility=copy.deepcopy(self.visibility))
+            visibility=copy.deepcopy(self.visibility)
+            if hasattr(self, 'visibility') else None)
 
     def __iter__(self):
         """
