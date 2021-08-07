@@ -23,7 +23,7 @@ optim:
                 - ${training.optim.base_lr}
                 - ${training.optim.base_lr}
                 - ${training.optim.base_lr} * 0.1
-                - ${training.optim.base_lr} * 0.01
+                - ${training.optim.base_lr} * 0.1
             weight_decay: 1e-4
             dampening: 0.1
     lr_scheduler: ${lr_scheduler}
