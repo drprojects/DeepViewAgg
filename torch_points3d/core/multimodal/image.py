@@ -434,7 +434,7 @@ class SameSettingImageData(object):
         assert (self.x is None and self.mappings is None) \
                or self.downscale == scale, \
             "Can't directly edit 'downscale' if 'x' or 'mappings' are " \
-            "not both None. Consider using 'update_features_and_scale'."
+            "not both None. Consider using 'update_x_and_scale'."
         assert scale >= 1, \
             f"Expected scalar larger than 1 but got {scale} instead."
         # assert isinstance(scale, int), \
@@ -443,14 +443,14 @@ class SameSettingImageData(object):
         #     f"Expected a power of 2 but got {scale} instead."
         self._downscale = scale
 
-    def update_features_and_scale(self, x):
+    def update_x_and_scale(self, x):
         """
         Update the downscaling state of the SameSettingImageData, WITH
         RESPECT TO ITS CURRENT STATE 'img_size'.
 
         Downscaling 'x' attribute is ambiguous. As such, they are
         expected to be scaled outside of the SameSettingImageData
-        object before being passed to 'update_features_and_scale', for
+        object before being passed to 'update_x_and_scale', for
         'downscale' and 'mappings' to be updated accordingly.
         """
         # Update internal attributes based on the input
@@ -1140,7 +1140,7 @@ class ImageData:
         assert isinstance(x_list, list) \
                and all(isinstance(x, torch.Tensor) for x in x_list), \
             f"Expected a List(torch.Tensor) but got {type(x_list)} instead."
-        self._list = [im.update_features_and_scale(x)
+        self._list = [im.update_x_and_scale(x)
                       for im, x in zip(self, x_list)]
         return self
 

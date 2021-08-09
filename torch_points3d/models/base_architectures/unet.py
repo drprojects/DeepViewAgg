@@ -7,7 +7,7 @@ from torch_points3d.datasets.base_dataset import BaseDataset
 from torch_points3d.core.multimodal.data import MMData, MODALITY_NAMES
 from torch_points3d.models.base_model import BaseModel
 from torch_points3d.modules.multimodal.modules import MultimodalBlockDown, \
-    UnimodalBranch
+    UnimodalBranch, IdentityBranch
 from torch_points3d.utils.config import is_list, get_from_kwargs, \
     fetch_arguments_from_list, flatten_compact_options, fetch_modalities, \
     getattr_recursive
@@ -136,7 +136,7 @@ class UnetBasedModel(BaseModel, ABC):
             down_conv_cls_name, up_conv_cls_name, modules_lib
         )  # Create the factory object
         # construct unet structure
-        has_innermost = hasattr(opt, "innermost") and opt.innermost is not None
+        has_innermost = getattr(opt, "innermost", None) is not None
         if has_innermost:
             assert len(opt.down_conv.down_conv_nn) + 1 \
                    == len(opt.up_conv.up_conv_nn)
@@ -188,7 +188,7 @@ class UnetBasedModel(BaseModel, ABC):
         num_convs = len(down_conv_layers)
 
         unet_block = []
-        has_innermost = hasattr(opt, "innermost") and opt.innermost is not None
+        has_innermost = getattr(opt, "innermost", None) is not None
         if has_innermost:
             assert len(down_conv_layers) + 1 == len(up_conv_layers)
 
@@ -400,7 +400,7 @@ class UnwrappedUnetBasedModel(BaseModel, ABC):
         where the same convolution is given for each layer, and
         arguments are given in lists.
         """
-        self.save_sampling_id = opt.down_conv.save_sampling_id
+        self.save_sampling_id = getattr_recursive(opt, 'down_conv.save_sampling_id', None)
 
         # Factory for creating up and down modules for the main 3D
         # modality
@@ -423,8 +423,7 @@ class UnwrappedUnetBasedModel(BaseModel, ABC):
 
         # Innermost module - 3D conv only
         self.inner_modules = nn.ModuleList()
-        has_innermost = hasattr(opt, "innermost") \
-                          and opt.innermost is not None
+        has_innermost = getattr(opt, "innermost", None) is not None
         if has_innermost:
             inners = self._create_inner_modules(opt.innermost, modules_lib)
             for inner in inners:
@@ -443,15 +442,16 @@ class UnwrappedUnetBasedModel(BaseModel, ABC):
         if self.is_multimodal:
             # Insert identity 3D convolutions to allow branching
             # directly into the raw 3D features
-            down_modules = [nn.Identity(), nn.Identity()] + down_modules
+            down_modules = [Identity(), Identity()] + down_modules
 
             assert len(down_modules) % 2 == 0 and len(down_modules) > 0, \
                 f"Expected an even number of 3D conv modules but got " \
                 f"{len(down_modules)} modules instead."
             n_layers_down = len(down_modules) // 2
 
-            branches = [{m: nn.Identity() for m in self.modalities}
-                        for _ in range(n_layers_down)]
+            branches = [
+                {m: IdentityBranch() for m in self.modalities}
+                for _ in range(n_layers_down)]
 
             for m in self.modalities:
                 # Get the branching indices

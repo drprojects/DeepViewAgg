@@ -538,7 +538,7 @@ class MinMaxDiffSetFeat(nn.Module, ABC):
             x_map_max = torch.empty(0, device=x.device)
         if self.use_num:
             # Heuristic to normalize in [0,1]
-            x_map_num = torch.sqrt(1 / (csr_idx[1:] - csr_idx[:-1]).float())
+            x_map_num = torch.sqrt(1 / (csr_idx[1:] - csr_idx[:-1] + 1e-3))
             x_map_num = x_map_num.repeat_interleave(csr_idx[1:] - csr_idx[:-1])
             x_map_num = x_map_num.view(-1, 1)
         else:
@@ -605,7 +605,7 @@ class DeepSetFeat(nn.Module, ABC):
         x_set = self.f_pool(x, csr_idx)
         if self.use_num:
             # Heuristic to normalize in [0,1]
-            set_num = torch.sqrt(1 / (csr_idx[1:] - csr_idx[:-1]).float())
+            set_num = torch.sqrt(1 / (csr_idx[1:] - csr_idx[:-1] + 1e-3))
             x_set = torch.cat((x_set, set_num.view(-1, 1)), dim=1)
         x_set = self.mlp_set(x_set)
         x_set = gather_csr(x_set, csr_idx)
@@ -702,7 +702,7 @@ def segment_softmax_csr(src: torch.Tensor, csr_idx: torch.Tensor,
 
     # Compute dense indices from CSR indices
     n_groups = csr_idx.shape[0] - 1
-    dense_idx = torch.arange(n_groups).repeat_interleave(
+    dense_idx = torch.arange(n_groups).to(src.device).repeat_interleave(
         csr_idx[1:] - csr_idx[:-1])
     if src.dim() > 1:
         dense_idx = dense_idx.view(-1, 1).repeat(1, src.shape[1])
@@ -756,7 +756,7 @@ def gather_csr(src: torch.Tensor, csr_idx: torch.Tensor) -> torch.Tensor:
 
     # Compute dense indices from CSR indices
     n_groups = csr_idx.shape[0] - 1
-    dense_idx = torch.arange(n_groups).repeat_interleave(
+    dense_idx = torch.arange(n_groups).to(src.device).repeat_interleave(
         csr_idx[1:] - csr_idx[:-1])
     if src.dim() > 1:
         dense_idx = dense_idx.view(-1, 1).repeat(1, src.shape[1])

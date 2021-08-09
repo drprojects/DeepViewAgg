@@ -2,6 +2,7 @@ from abc import ABC
 
 import torch
 import torch.nn as nn
+import torchvision
 import os.path as osp
 import sys
 from torch_points3d.utils.config import *
@@ -45,7 +46,7 @@ class Conv2dWS(nn.Conv2d, ABC):
             bias=bias, padding_mode=padding_mode)
         self.scaled = scaled
 
-    def forward(self, x):
+    def forward(self, x, **kwargs):
         weights = standardize_weights(self.weight, scaled=self.scaled)
         return self._conv_forward(x, weights)
 
@@ -69,7 +70,7 @@ class ConvTranspose2dWS(nn.ConvTranspose2d, ABC):
             bias=bias, padding_mode=padding_mode)
         self.scaled = scaled
 
-    def forward(self, x, output_size=None):
+    def forward(self, x, output_size=None, **kwargs):
         if self.padding_mode != 'zeros':
             raise ValueError('Only `zeros` padding mode is supported for '
                              'ConvTranspose2d')
@@ -95,7 +96,7 @@ class ReLUWS(nn.ReLU, ABC):
     """
     _SCALE = sqrt(2 / (1 - 1 / pi))
 
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
+    def forward(self, input: torch.Tensor, **kwargs) -> torch.Tensor:
         return nn.functional.relu(input, inplace=self.inplace) * self._SCALE
 
     def extra_repr(self) -> str:
@@ -157,7 +158,7 @@ class ResBlock(nn.Module, ABC):
         else:
             self.downsample = None
 
-    def forward(self, x):
+    def forward(self, x, **kwargs):
         out = self.block(x)
         if self.downsample:
             out += self.downsample(x)
@@ -213,7 +214,7 @@ class BottleneckBlock(nn.Module, ABC):
         else:
             self.downsample = None
 
-    def forward(self, x):
+    def forward(self, x, **kwargs):
         out = self.block(x)
         if self.downsample:
             out += self.downsample(x)
@@ -609,7 +610,7 @@ class PrudentSynchronizedBatchNorm2d(SynchronizedBatchNorm2d):
     training time.
     """
 
-    def forward(self, input):
+    def forward(self, input, **kwargs):
         is_training = self.training
         if input.shape[0] == input.shape[2] == input.shape[3] == 1:
             self.training = False
@@ -671,7 +672,7 @@ class PPMFeatMap(nn.Module):
         ppm_new.conv_last = nn.Sequential(*list(ppm_pretrained.conv_last)[:-2])
         return ppm_new
 
-    def forward(self, conv_out, out_size=None):
+    def forward(self, conv_out, out_size=None, **kwargs):
         conv5 = conv_out[-1]
 
         input_size = conv5.size()
@@ -703,7 +704,8 @@ class ADE20KResNet18PPM(nn.Module, ABC):
 
         # Adapt the default config to use ResNet18 + PPM-Deepsup model
         ARCH = 'resnet18dilated-ppm_deepsup'
-        DIR = osp.join(osp.dirname(osp.abspath(__file__)), 'pretrained/ade20k', ARCH)
+        DIR = osp.join(
+            osp.dirname(osp.abspath(__file__)), 'pretrained/ade20k', ARCH)
         cfg.merge_from_file(osp.join(DIR, f'{ARCH}.yaml'))
         cfg.MODEL.arch_encoder = cfg.MODEL.arch_encoder.lower()
         cfg.MODEL.arch_decoder = cfg.MODEL.arch_decoder.lower()
@@ -716,7 +718,8 @@ class ADE20KResNet18PPM(nn.Module, ABC):
             cfg.DIR, 'decoder_' + cfg.TEST.checkpoint)
 
         assert osp.exists(cfg.MODEL.weights_encoder) and \
-               osp.exists(cfg.MODEL.weights_decoder), "checkpoint does not exist!"
+               osp.exists(cfg.MODEL.weights_decoder), \
+            "checkpoint does not exist!"
 
         # Build encoder and decoder from pretrained weights
         self.encoder = ModelBuilder.build_encoder(
@@ -734,7 +737,7 @@ class ADE20KResNet18PPM(nn.Module, ABC):
         self.decoder = PPMFeatMap.from_pretrained(self.decoder)
 
         # If the model is frozen, it will always remain in eval mode
-        # and the parameters will
+        # and the parameters will have requires_grad=False
         self.frozen = frozen
         if self.frozen:
             self.training = False
@@ -757,3 +760,113 @@ class ADE20KResNet18PPM(nn.Module, ABC):
 
     def train(self, mode=True):
         return super(ADE20KResNet18PPM, self).train(mode and not self.frozen)
+
+
+def _instantiate_torchvision_resnet(
+        arch, block, layers, pretrained, progress, **kwargs):
+    """Custom version of torcvision.models.resnet._resnet to support
+    locally-saved pretrained ResNet weights.
+    """
+    model = torchvision.models.resnet.ResNet(block, layers)
+
+    if pretrained:
+
+        model_dir = osp.join(
+            osp.dirname(osp.abspath(__file__)), f'pretrained/imagenet/{arch}')
+        file_name = f'{arch}.pth'
+        file_path = osp.join(model_dir, file_name)
+
+        # Load from local weights
+        if osp.exists(file_path):
+            state_dict = torch.load(file_path)
+
+        # Load ImageNet-pretrained weights from official torchvision URL
+        # and save them locally
+        else:
+            url = torchvision.models.resnet.model_urls[arch]
+            state_dict = torchvision.models.utils.load_state_dict_from_url(
+                url, progress=progress, model_dir=model_dir,
+                file_name=file_name)
+
+        model.load_state_dict(state_dict)
+    return model
+
+
+class ResNet18TruncatedLayer4(nn.Module):
+    _LAYERS = ['layer0', 'layer1', 'layer2', 'layer3', 'layer4']
+
+    def __init__(self, frozen=False, pretrained=True, **kwargs):
+        super(ResNet18TruncatedLayer4, self).__init__()
+
+        # Instantiate the full ResNet
+        resnet18 = _instantiate_torchvision_resnet(
+            'resnet18', torchvision.models.resnet.BasicBlock, [2, 2, 2, 2],
+            pretrained, True, **kwargs)
+
+        # Combine the ResNet first conv1-bn1-relu-maxpool as layer0
+        resnet18.layer0 = nn.Sequential(
+            resnet18.conv1, resnet18.bn1, resnet18.relu, resnet18.maxpool)
+
+        # Combine the selected layers into a nn.Sequenttial
+        self.conv = nn.Sequential(
+            *[getattr(resnet18, layer) for layer in self._LAYERS])
+
+        # If the model is frozen, it will always remain in eval mode
+        # and the parameters will have requires_grad=False
+        self.frozen = frozen
+        if self.frozen:
+            self.training = False
+
+    def forward(self, x, **kwargs):
+        return self.conv(x)
+
+    @property
+    def frozen(self):
+        return self._frozen
+
+    @frozen.setter
+    def frozen(self, frozen):
+        if isinstance(frozen, bool):
+            self._frozen = frozen
+        for p in self.parameters():
+            p.requires_grad = not self.frozen
+
+    def train(self, mode=True):
+        return super(ResNet18TruncatedLayer4, self).train(
+            mode and not self.frozen)
+
+
+class ResNet18TruncatedLayer0(ResNet18TruncatedLayer4):
+    _LAYERS = ['layer0']
+
+
+class ResNet18TruncatedLayer1(ResNet18TruncatedLayer4):
+    _LAYERS = ['layer0', 'layer1']
+
+
+class ResNet18TruncatedLayer2(ResNet18TruncatedLayer4):
+    _LAYERS = ['layer0', 'layer1', 'layer2']
+
+
+class ResNet18TruncatedLayer3(ResNet18TruncatedLayer4):
+    _LAYERS = ['layer0', 'layer1', 'layer2', 'layer3']
+
+
+class ResNet18Layer0(ResNet18TruncatedLayer4):
+    _LAYERS = ['layer0']
+
+
+class ResNet18Layer1(ResNet18TruncatedLayer4):
+    _LAYERS = ['layer1']
+
+
+class ResNet18Layer2(ResNet18TruncatedLayer4):
+    _LAYERS = ['layer2']
+
+
+class ResNet18Layer3(ResNet18TruncatedLayer4):
+    _LAYERS = ['layer3']
+
+
+class ResNet18Layer4(ResNet18TruncatedLayer4):
+    _LAYERS = ['layer4']

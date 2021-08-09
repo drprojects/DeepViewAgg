@@ -21,11 +21,11 @@ train_transforms:
             add_x: False
             add_y: False
             add_z: True
-    - transform: AddFeatsByKeys
+    - transform: AddFeatsByKeys  # No RGB for points
       params:
-            list_add_to_x: [False, True]  # Points have no RGB in multimodal setting
-            feat_names: [rgb, pos_z]
-            delete_feats: [True, True]
+            feat_names: [pos_z, rgb, is_val, linearity, norm, planarity, scattering]
+            list_add_to_x: [True, False, False, False, False, False, False]
+            delete_feats: [True, True, True, True, True, True, True]
     - transform: Center
 
 test_transform:
@@ -34,11 +34,11 @@ test_transform:
             add_x: False
             add_y: False
             add_z: True
-    - transform: AddFeatsByKeys
+    - transform: AddFeatsByKeys  # No RGB for points
       params:
-            list_add_to_x: [False, True]  # Points have no RGB in multimodal setting
-            feat_names: [rgb, pos_z]
-            delete_feats: [True, True]
+            feat_names: [pos_z, rgb, is_val, linearity, norm, planarity, scattering]
+            list_add_to_x: [True, False, False, False, False, False, False]
+            delete_feats: [True, True, True, True, True, True, True]
     - transform: Center
 
 val_transform: ${data.test_transform}
