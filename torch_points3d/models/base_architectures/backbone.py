@@ -1,11 +1,12 @@
 import copy
 from abc import ABC
 from torch import nn
+from torch_points3d.core.common_modules.base_modules import Identity
 from torch_points3d.datasets.base_dataset import BaseDataset
 from torch_points3d.models.base_architectures import ModalityFactory, get_factory
 from torch_points3d.models.base_model import BaseModel
 from torch_points3d.modules.multimodal.modules import MultimodalBlockDown, \
-    UnimodalBranch
+    UnimodalBranch, IdentityBranch
 from torch_points3d.utils.config import is_list, fetch_arguments_from_list, \
     fetch_modalities, getattr_recursive
 from torch_points3d.core.multimodal.data import MODALITY_NAMES
@@ -92,15 +93,16 @@ class BackboneBasedModel(BaseModel, ABC):
             # Insert identity 3D convolutions to allow branching
             # directly into the raw 3D features. This is typically
             # needed for early fusion mechanisms.
-            down_modules = [nn.Identity(), nn.Identity()] + down_modules
+            down_modules = [Identity(), Identity()] + down_modules
 
             assert len(down_modules) % 2 == 0 and len(down_modules) > 0, \
                 f"Expected an even number of 3D conv modules but got " \
                 f"{len(down_modules)} modules instead."
             n_layers_down = len(down_modules) // 2
 
-            branches = [{m: nn.Identity()
-                         for m in self.modalities}] * n_layers_down
+            branches = [
+                {m: IdentityBranch() for m in self.modalities}
+                for _ in range(n_layers_down)]
 
             for m in self.modalities:
                 # Get the branching indices

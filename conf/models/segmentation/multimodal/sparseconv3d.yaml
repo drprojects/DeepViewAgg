@@ -2310,7 +2310,7 @@ XYZ-ResNet18_RGB-ResNet18TruncatedLayer0-nomod-DeepSetFeat:
             down_conv_nn:
               [
                   [ FEAT, in_feat ],
-                  [ in_feat + out_feat_img_0, in_feat ],
+                  [ in_feat + out_feat_img_0 , in_feat ],
 
                   [ in_feat, in_feat ],
                   [ in_feat, in_feat ],

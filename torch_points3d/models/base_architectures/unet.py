@@ -7,7 +7,7 @@ from torch_points3d.datasets.base_dataset import BaseDataset
 from torch_points3d.core.multimodal.data import MMData, MODALITY_NAMES
 from torch_points3d.models.base_model import BaseModel
 from torch_points3d.modules.multimodal.modules import MultimodalBlockDown, \
-    UnimodalBranch
+    UnimodalBranch, IdentityBranch
 from torch_points3d.utils.config import is_list, get_from_kwargs, \
     fetch_arguments_from_list, flatten_compact_options, fetch_modalities, \
     getattr_recursive
@@ -442,15 +442,16 @@ class UnwrappedUnetBasedModel(BaseModel, ABC):
         if self.is_multimodal:
             # Insert identity 3D convolutions to allow branching
             # directly into the raw 3D features
-            down_modules = [nn.Identity(), nn.Identity()] + down_modules
+            down_modules = [Identity(), Identity()] + down_modules
 
             assert len(down_modules) % 2 == 0 and len(down_modules) > 0, \
                 f"Expected an even number of 3D conv modules but got " \
                 f"{len(down_modules)} modules instead."
             n_layers_down = len(down_modules) // 2
 
-            branches = [{m: nn.Identity() for m in self.modalities}
-                        for _ in range(n_layers_down)]
+            branches = [
+                {m: IdentityBranch() for m in self.modalities}
+                for _ in range(n_layers_down)]
 
             for m in self.modalities:
                 # Get the branching indices
@@ -580,8 +581,6 @@ class UnwrappedUnetBasedModel(BaseModel, ABC):
         args = fetch_arguments_from_list(conv_opt, index, SPECIAL_NAMES)
         args["index"] = index
         module = self._module_factories[modality].get_module(flow)
-        print(f'module: {module}')
-        print(f'args: {args}')
         return module(**args)
 
     def forward(self, data, precomputed_down=None, precomputed_up=None,

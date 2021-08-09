@@ -3,7 +3,8 @@ from abc import ABC
 import torch
 import torch.nn as nn
 from torch_points3d.core.multimodal.data import MODALITY_NAMES
-from torch_points3d.core.common_modules.base_modules import Identity
+from torch_points3d.core.common_modules.base_modules import Identity, \
+    BaseModule
 from torchsparse.nn.functional import sphash, sphashquery
 import torch_scatter
 
@@ -47,8 +48,9 @@ class MultimodalBlockDown(nn.Module, ABC):
         # UnwrappedUnetBasedModel)
         # TODO this is for KPConv, is it doing the intended, is it
         #  needed at all ?
-        self.sampler = [getattr(self.down_block, "sampler", None),
-                        getattr(self.conv_block, "sampler", None)]
+        self.sampler = [
+            getattr(self.down_block, "sampler", None),
+            getattr(self.conv_block, "sampler", None)]
 
     def _init_from_kwargs(self, **kwargs):
         """Kwargs are expected to carry fully-fledged modality-specific
@@ -58,7 +60,7 @@ class MultimodalBlockDown(nn.Module, ABC):
             assert (m in MODALITY_NAMES), \
                 f"Invalid kwarg modality '{m}', expected one of " \
                 f"{MODALITY_NAMES}."
-            assert isinstance(kwargs[m], (UnimodalBranch, nn.Identity)), \
+            assert isinstance(kwargs[m], (UnimodalBranch, IdentityBranch)), \
                 f"Expected a UnimodalBranch module for '{m}' modality " \
                 f"but got {type(kwargs[m])} instead."
             setattr(self, m, kwargs[m])
@@ -81,7 +83,8 @@ class MultimodalBlockDown(nn.Module, ABC):
         modality-specific data equipped with corresponding mappings.
         """
         # Conv on the main 3D modality - assumed to reduce 3D resolution
-        mm_data_dict = self.forward_3d_block_down(mm_data_dict, self.down_block)
+        mm_data_dict = self.forward_3d_block_down(
+            mm_data_dict, self.down_block)
 
         for m in self.modalities:
             # TODO: does the modality-driven sequence of updates on x_3d
@@ -92,7 +95,8 @@ class MultimodalBlockDown(nn.Module, ABC):
             mm_data_dict = mod_branch(mm_data_dict, m)
 
         # Conv on the main 3D modality
-        mm_data_dict = self.forward_3d_block_down(mm_data_dict, self.conv_block)
+        mm_data_dict = self.forward_3d_block_down(
+            mm_data_dict, self.conv_block)
 
         return mm_data_dict
 
@@ -119,7 +123,7 @@ class MultimodalBlockDown(nn.Module, ABC):
         selected points with respect to their input order.
         """
         # Leave the input untouched if the 3D conv block is Identity
-        if isinstance(block, nn.Identity):
+        if isinstance(block, Identity):
             return mm_data_dict
 
         # Unpack the multimodal data dictionary
@@ -235,14 +239,15 @@ class UnimodalBranch(nn.Module, ABC):
     mappings cannot be inferred when increasing resolution.
     """
 
-    def __init__(self, conv, atomic_pool, view_pool, fusion, drop_3d=0,
-                 drop_mod=0, keep_last_view=False):
+    def __init__(
+            self, conv, atomic_pool, view_pool, fusion, drop_3d=0, drop_mod=0,
+            keep_last_view=False):
         super(UnimodalBranch, self).__init__()
         self.conv = conv
         self.atomic_pool = atomic_pool
         self.view_pool = view_pool
         self.fusion = fusion
-        self.drop_3d = nn.Dropout(p=drop_3d, inplace=True) \
+        self.drop_3d = nn.Dropout(p=drop_3d, inplace=False) \
             if drop_3d is not None and drop_3d > 0 \
             else None
         self.drop_mod = nn.Dropout(p=drop_mod, inplace=True) \
@@ -268,10 +273,10 @@ class UnimodalBranch(nn.Module, ABC):
         if self.conv:
             if has_multi_setting:
                 for i in range(len(mod_data)):
-                    mod_data[i].update_features_and_scale(
+                    mod_data[i].update_x_and_scale(
                         self.conv(mod_data[i].x, reset_dropout=(i == 0)))
             else:
-                mod_data = mod_data.update_features_and_scale(
+                mod_data = mod_data.update_x_and_scale(
                     self.conv(mod_data.x, reset_dropout=True))
 
         # Extract CSR-arranged atomic features from the feature maps
@@ -344,4 +349,12 @@ class UnimodalBranch(nn.Module, ABC):
             mm_data_dict['x_seen'] = torch.logical_or(
                 x_seen, mm_data_dict['x_seen'])
 
+        return mm_data_dict
+
+
+class IdentityBranch(BaseModule):
+    def __init__(self):
+        super(IdentityBranch, self).__init__()
+
+    def forward(self, mm_data_dict, modality):
         return mm_data_dict
