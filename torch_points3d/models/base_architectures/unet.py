@@ -136,7 +136,7 @@ class UnetBasedModel(BaseModel, ABC):
             down_conv_cls_name, up_conv_cls_name, modules_lib
         )  # Create the factory object
         # construct unet structure
-        has_innermost = hasattr(opt, "innermost") and opt.innermost is not None
+        has_innermost = getattr(opt, "innermost", None) is not None
         if has_innermost:
             assert len(opt.down_conv.down_conv_nn) + 1 \
                    == len(opt.up_conv.up_conv_nn)
@@ -188,7 +188,7 @@ class UnetBasedModel(BaseModel, ABC):
         num_convs = len(down_conv_layers)
 
         unet_block = []
-        has_innermost = hasattr(opt, "innermost") and opt.innermost is not None
+        has_innermost = getattr(opt, "innermost", None) is not None
         if has_innermost:
             assert len(down_conv_layers) + 1 == len(up_conv_layers)
 
@@ -400,7 +400,7 @@ class UnwrappedUnetBasedModel(BaseModel, ABC):
         where the same convolution is given for each layer, and
         arguments are given in lists.
         """
-        self.save_sampling_id = opt.down_conv.save_sampling_id
+        self.save_sampling_id = getattr_recursive(opt, 'down_conv.save_sampling_id', None)
 
         # Factory for creating up and down modules for the main 3D
         # modality
@@ -423,8 +423,7 @@ class UnwrappedUnetBasedModel(BaseModel, ABC):
 
         # Innermost module - 3D conv only
         self.inner_modules = nn.ModuleList()
-        has_innermost = hasattr(opt, "innermost") \
-                          and opt.innermost is not None
+        has_innermost = getattr(opt, "innermost", None) is not None
         if has_innermost:
             inners = self._create_inner_modules(opt.innermost, modules_lib)
             for inner in inners:
@@ -581,6 +580,8 @@ class UnwrappedUnetBasedModel(BaseModel, ABC):
         args = fetch_arguments_from_list(conv_opt, index, SPECIAL_NAMES)
         args["index"] = index
         module = self._module_factories[modality].get_module(flow)
+        print(f'module: {module}')
+        print(f'args: {args}')
         return module(**args)
 
     def forward(self, data, precomputed_down=None, precomputed_up=None,
