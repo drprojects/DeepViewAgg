@@ -2299,6 +2299,7 @@ XYZ-ResNet18_RGB-ResNet18TruncatedLayer0-nomod-DeepSetFeat:
             in_feat_map: 8
             in_feat_attention: 4
             block: ResBlock # Can be any of the blocks in modules/MinkowskiEngine/api_modules.py
+            out_feat_img_0: 64  # out dim of ResNet18Layer0
 
         down_conv:
             module_name: ResNetDown
@@ -2309,7 +2310,7 @@ XYZ-ResNet18_RGB-ResNet18TruncatedLayer0-nomod-DeepSetFeat:
             down_conv_nn:
               [
                   [ FEAT, in_feat ],
-                  [ in_feat + in_feat, in_feat ],
+                  [ in_feat + out_feat_img_0, in_feat ],
 
                   [ in_feat, in_feat ],
                   [ in_feat, in_feat ],
@@ -2334,7 +2335,7 @@ XYZ-ResNet18_RGB-ResNet18TruncatedLayer0-nomod-DeepSetFeat:
                 view_pooling:
                     module_name: GroupBimodalCSRPool
                     in_map: 8
-                    in_mod: 64
+                    in_mod: out_feat_img_0
                     num_groups: 4
                     use_mod: False
                     map_encoder: DeepSetFeat
@@ -2342,8 +2343,8 @@ XYZ-ResNet18_RGB-ResNet18TruncatedLayer0-nomod-DeepSetFeat:
                 fusion:
                     module_name: BimodalFusion
                     mode: concatenation
-                drop_3d: 0.2
-                drop_mod: 0.2
+                drop_3d: None
+                drop_mod: None
                 branching_index: 1
 
         up_conv:
