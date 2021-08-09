@@ -2,6 +2,7 @@ from abc import ABC
 
 import torch
 import torch.nn as nn
+import torchvision
 import os.path as osp
 import sys
 from torch_points3d.utils.config import *
@@ -734,7 +735,7 @@ class ADE20KResNet18PPM(nn.Module, ABC):
         self.decoder = PPMFeatMap.from_pretrained(self.decoder)
 
         # If the model is frozen, it will always remain in eval mode
-        # and the parameters will
+        # and the parameters will have requires_grad=False
         self.frozen = frozen
         if self.frozen:
             self.training = False
@@ -757,3 +758,110 @@ class ADE20KResNet18PPM(nn.Module, ABC):
 
     def train(self, mode=True):
         return super(ADE20KResNet18PPM, self).train(mode and not self.frozen)
+
+
+def _instantiate_torchvision_resnet(arch, block, layers, pretrained, progress, **kwargs):
+    """Custom version of torcvision.models.resnet._resnet to support
+    locally-saved pretrained ResNet weights.
+    """
+    model = torchvision.models.resnet.ResNet(block, layers, **kwargs)
+
+    if pretrained:
+
+        model_dir = osp.join(osp.dirname(osp.abspath(__file__)), f'pretrained/imagenet/{arch}')
+        file_name = f'{arch}.pth'
+        file_path = osp.join(model_dir, file_name)
+
+        # Load from local weights
+        if osp.exists(file_path):
+            state_dict = torch.load(file_path)
+
+        # Load ImageNet-pretrained weights from official torchvision URL
+        # and save them locally
+        else:
+            url = torchvision.models.resnet.model_urls[arch]
+            state_dict = torchvision.models.utils.load_state_dict_from_url(
+                url, progress=progress, model_dir=model_dir, file_name=file_name)
+
+        model.load_state_dict(state_dict)
+    return model
+
+
+class ResNet18TruncatedLayer4(nn.Module):
+    _LAYERS = ['layer0', 'layer1', 'layer2', 'layer3', 'layer4']
+
+    def __init__(self, frozen=False, pretrained=True, **kwargs):
+        super(ResNet18TruncatedLayer4, self).__init__()
+
+        # Instantiate the full ResNet
+        resnet18 = _instantiate_torchvision_resnet(
+            'resnet18', torchvision.models.resnet.BasicBlock, [2, 2, 2, 2],
+            pretrained, True, **kwargs)
+
+        # Combine the ResNet first conv1-bn1-relu-maxpool as layer0
+        resnet18.layer0 = nn.Sequential(
+            resnet18.conv1, resnet18.bn1, resnet18.relu, resnet18.maxpool)
+
+        # Combine the selected layers into a nn.Sequenttial
+        self.conv = nn.Sequential(
+            *[getattr(resnet18, layer) for layer in self._LAYERS])
+
+        # If the model is frozen, it will always remain in eval mode
+        # and the parameters will have requires_grad=False
+        self.frozen = frozen
+        if self.frozen:
+            self.training = False
+
+    def forward(self, x):
+        return self.conv(x)
+
+    @property
+    def frozen(self):
+        return self._frozen
+
+    @frozen.setter
+    def frozen(self, frozen):
+        if isinstance(frozen, bool):
+            self._frozen = frozen
+        for p in self.parameters():
+            p.requires_grad = not self.frozen
+
+    def train(self, mode=True):
+        return super(ResNet18TruncatedLayer4, self).train(
+            mode and not self.frozen)
+
+
+class ResNet18TruncatedLayer0(ResNet18TruncatedLayer4):
+    _LAYERS = ['layer0']
+
+
+class ResNet18TruncatedLayer1(ResNet18TruncatedLayer4):
+    _LAYERS = ['layer0', 'layer1']
+
+
+class ResNet18TruncatedLayer2(ResNet18TruncatedLayer4):
+    _LAYERS = ['layer0', 'layer1', 'layer2']
+
+
+class ResNet18TruncatedLayer3(ResNet18TruncatedLayer4):
+    _LAYERS = ['layer0', 'layer1', 'layer2', 'layer3']
+
+
+class ResNet18Layer0(ResNet18TruncatedLayer4):
+    _LAYERS = ['layer0']
+
+
+class ResNet18Layer1(ResNet18TruncatedLayer4):
+    _LAYERS = ['layer1']
+
+
+class ResNet18Layer2(ResNet18TruncatedLayer4):
+    _LAYERS = ['layer2']
+
+
+class ResNet18Layer3(ResNet18TruncatedLayer4):
+    _LAYERS = ['layer3']
+
+
+class ResNet18Layer4(ResNet18TruncatedLayer4):
+    _LAYERS = ['layer4']
