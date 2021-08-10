@@ -299,11 +299,52 @@ class BaseModel(torch.nn.Module, TrackerInterface, DatasetInterface, CheckpointI
                 fetch_arguments_from_list(optimizer_opt.params, i, ['params'])
                 for i in range(n_optim_groups)]
 
-            for i in range(n_optim_groups):
-                # Recover the parameter group
-                submodule = getattr_recursive(self, optimizer_params[i]['params'])
-                optimizer_params[i]['params'] = submodule.parameters()
+            # for i in range(n_optim_groups):
+            #     # Recover the parameter group
+            #     submodule = getattr_recursive(self, optimizer_params[i]['params'])
+            #     optimizer_params[i]['params'] = submodule.parameters()
 
+            # Initialize lists of parameter names to be used for
+            # overwriting parameter groups. The torch optimizer will
+            # crash if a parameter belongs to multiple groups. For this
+            # reason, we need to make sure that a parameter belongs only
+            # to the last-declared group capturing it.
+            all_params = [n for n, _ in self.named_parameters()]
+            untracked_params = [n for n, _ in self.named_parameters()]
+
+            # Loop through parameters from last to first, so that
+            # overwrites follow the chronological order
+            for i in list(range(n_optim_groups))[::-1]:
+
+                # Recover the submodule name
+                submodule_name = optimizer_params[i]['params']
+                print(submodule_name)
+
+                # Make sure the module exists in the model
+                if not any([x.startswith(submodule_name) for x in all_params]):
+                    raise ValueError(
+                        f'Module {submodule_name} not found among model '
+                        f'modules.')
+
+                # Yet-to-be-tracked parameters captured in the submodule
+                untracked_params_new = []
+                submodule_params = []
+                for x in untracked_params:
+                    if x.startswith(submodule_name):
+                        submodule_params.append(x)
+                    else:
+                        untracked_params_new.append(x)
+                untracked_params = untracked_params_new
+
+                # Recover the actual parameters
+                optimizer_params[i]['params'] = [
+                    p for n, p in self.named_parameters()
+                    if n in submodule_params]
+
+            if len(untracked_params) > 0:
+                raise ValueError(
+                    f'The following parameters are not tracked by the '
+                    f'optimizer: {untracked_params}')
             self._optimizer = optimizer_cls(optimizer_params)
 
         else:
