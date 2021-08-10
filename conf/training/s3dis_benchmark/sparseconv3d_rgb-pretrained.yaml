@@ -20,7 +20,7 @@ optim:
             lr:
                 - ${training.optim.base_lr}
                 - ${training.optim.base_lr}
-                - ${training.optim.base_lr} * 0.1
+                - ${training.optim.base_lr} * 0.01
             momentum: 0.9
             weight_decay: 1e-4
             dampening: 0.1
