@@ -1099,8 +1099,10 @@ class GaussianBlur(TorchvisionTransform):
 class Normalize(TorchvisionTransform):
     """Normalize image colors.
 
-    Default parameters come from ADE20K pretrained models at:
-    https://github.com/CSAILVision/semantic-segmentation-pytorch."""
+    Default parameters set from ImageNet and ADE20K pretrained models:
+    https://github.com/pytorch/vision/issues/39#issuecomment-403701432
+    https://github.com/CSAILVision/semantic-segmentation-pytorch.
+    """
 
     def __init__(self,  mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]):
         self.mean = mean
