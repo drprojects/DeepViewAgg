@@ -106,6 +106,7 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
         - transform: RandomHorizontalFlip
         - transform: ToFloatImage  # Convert uint8 image to float
         - transform: AddPixelHeightFeature  # Pixel height as image channel
+        - transform: Normalize  # Normalize colors
         - transform: CropImageGroups  # Compute cropping groups to minimize embedding cost
           params:
                 padding: ${data.padding_2d}

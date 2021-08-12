@@ -6,12 +6,12 @@ import torchvision
 import os.path as osp
 import sys
 from torch_points3d.utils.config import *
-from torch_points3d.core.common_modules import Seq, Identity
+from torch_points3d.core.common_modules import Seq
 from math import pi, sqrt
 
-from mit_semseg.config import cfg
-from mit_semseg.models import ModelBuilder
-from mit_semseg.lib.nn import SynchronizedBatchNorm2d
+from mit_semseg.config import cfg as MITCfg
+from mit_semseg.models import ModelBuilder as MITModelBuilder
+from mit_semseg.lib.nn import SynchronizedBatchNorm2d as MITSynchronizedBatchNorm2d
 
 
 def standardize_weights(weight, scaled=True):
@@ -605,8 +605,8 @@ class UNet(nn.Module, ABC):
         return x
 
 
-class PrudentSynchronizedBatchNorm2d(SynchronizedBatchNorm2d):
-    """SynchronizedBatchNorm2d with support for (1, C, 1, 1) inputs at
+class PrudentSynchronizedBatchNorm2d(MITSynchronizedBatchNorm2d):
+    """MITSynchronizedBatchNorm2d with support for (1, C, 1, 1) inputs at
     training time.
     """
 
@@ -651,7 +651,7 @@ class PPMFeatMap(nn.Module):
         self.conv_last = nn.Sequential(
             nn.Conv2d(fc_dim + len(pool_scales) * 512, 512,
                       kernel_size=3, padding=1, bias=False),
-            SynchronizedBatchNorm2d(512),
+            MITSynchronizedBatchNorm2d(512),
             nn.ReLU(inplace=True)
         )
 
@@ -663,7 +663,7 @@ class PPMFeatMap(nn.Module):
         # Recover the PPM module
         ppm_new.ppm = ppm_pretrained.ppm
 
-        # Change the PPM SynchronizedBatchNorm2d to PrudentBatchNorm2d
+        # Change the PPM MITSynchronizedBatchNorm2d to PrudentBatchNorm2d
         # to handle single-image batches
         for m in ppm_new.ppm:
             m[2] = PrudentSynchronizedBatchNorm2d.from_pretrained(m[2])
@@ -706,31 +706,31 @@ class ADE20KResNet18PPM(nn.Module, ABC):
         ARCH = 'resnet18dilated-ppm_deepsup'
         DIR = osp.join(
             osp.dirname(osp.abspath(__file__)), 'pretrained/ade20k', ARCH)
-        cfg.merge_from_file(osp.join(DIR, f'{ARCH}.yaml'))
-        cfg.MODEL.arch_encoder = cfg.MODEL.arch_encoder.lower()
-        cfg.MODEL.arch_decoder = cfg.MODEL.arch_decoder.lower()
-        cfg.DIR = DIR
+        MITCfg.merge_from_file(osp.join(DIR, f'{ARCH}.yaml'))
+        MITCfg.MODEL.arch_encoder = MITCfg.MODEL.arch_encoder.lower()
+        MITCfg.MODEL.arch_decoder = MITCfg.MODEL.arch_decoder.lower()
+        MITCfg.DIR = DIR
 
         # Absolute paths of model weights
-        cfg.MODEL.weights_encoder = osp.join(
-            cfg.DIR, 'encoder_' + cfg.TEST.checkpoint)
-        cfg.MODEL.weights_decoder = osp.join(
-            cfg.DIR, 'decoder_' + cfg.TEST.checkpoint)
+        MITCfg.MODEL.weights_encoder = osp.join(
+            MITCfg.DIR, 'encoder_' + MITCfg.TEST.checkpoint)
+        MITCfg.MODEL.weights_decoder = osp.join(
+            MITCfg.DIR, 'decoder_' + MITCfg.TEST.checkpoint)
 
-        assert osp.exists(cfg.MODEL.weights_encoder) and \
-               osp.exists(cfg.MODEL.weights_decoder), \
+        assert osp.exists(MITCfg.MODEL.weights_encoder) and \
+               osp.exists(MITCfg.MODEL.weights_decoder), \
             "checkpoint does not exist!"
 
         # Build encoder and decoder from pretrained weights
-        self.encoder = ModelBuilder.build_encoder(
-            arch=cfg.MODEL.arch_encoder,
-            fc_dim=cfg.MODEL.fc_dim,
-            weights=cfg.MODEL.weights_encoder)
-        self.decoder = ModelBuilder.build_decoder(
-            arch=cfg.MODEL.arch_decoder,
-            fc_dim=cfg.MODEL.fc_dim,
-            num_class=cfg.DATASET.num_class,
-            weights=cfg.MODEL.weights_decoder,
+        self.encoder = MITModelBuilder.build_encoder(
+            arch=MITCfg.MODEL.arch_encoder,
+            fc_dim=MITCfg.MODEL.fc_dim,
+            weights=MITCfg.MODEL.weights_encoder)
+        self.decoder = MITModelBuilder.build_decoder(
+            arch=MITCfg.MODEL.arch_decoder,
+            fc_dim=MITCfg.MODEL.fc_dim,
+            num_class=MITCfg.DATASET.num_class,
+            weights=MITCfg.MODEL.weights_decoder,
             use_softmax=True)
 
         # Convert PPM from a classifier into a feature map extractor
@@ -762,10 +762,124 @@ class ADE20KResNet18PPM(nn.Module, ABC):
         return super(ADE20KResNet18PPM, self).train(mode and not self.frozen)
 
 
+class ADE20KResNet18TruncatedLayer4(nn.Module):
+    """ResNet-18 encoder pretrained on ADE20K with PPM decoder.
+
+    Adapted from https://github.com/CSAILVision/semantic-segmentation-pytorch
+    """
+    _LAYERS = ['layer0', 'layer1', 'layer2', 'layer3', 'layer4']
+
+    def __init__(self, frozen=False, **kwargs):
+        super(ADE20KResNet18TruncatedLayer4, self).__init__()
+
+        # Adapt the default config to use ResNet18 + PPM-Deepsup model
+        ARCH = 'resnet18dilated-ppm_deepsup'
+        DIR = osp.join(
+            osp.dirname(osp.abspath(__file__)), 'pretrained/ade20k', ARCH)
+        MITCfg.merge_from_file(osp.join(DIR, f'{ARCH}.yaml'))
+        MITCfg.MODEL.arch_encoder = MITCfg.MODEL.arch_encoder.lower()
+        MITCfg.DIR = DIR
+
+        # Absolute paths of model weights
+        MITCfg.MODEL.weights_encoder = osp.join(
+            MITCfg.DIR, 'encoder_' + MITCfg.TEST.checkpoint)
+
+        assert osp.exists(MITCfg.MODEL.weights_encoder), \
+            "checkpoint does not exist!"
+
+        # Build encoder from pretrained weights
+        resnet18 = MITModelBuilder.build_encoder(
+            arch=MITCfg.MODEL.arch_encoder,
+            fc_dim=MITCfg.MODEL.fc_dim,
+            weights=MITCfg.MODEL.weights_encoder)
+
+        # Combine the ResNet first conv-bn-relu blocks and maxpool as
+        # layer0
+        resnet18.layer0 = nn.Sequential(
+            resnet18.conv1,
+            resnet18.bn1,
+            resnet18.relu1,
+            resnet18.conv2,
+            resnet18.bn2,
+            resnet18.relu2,
+            resnet18.conv3,
+            resnet18.bn3,
+            resnet18.relu3,
+            resnet18.maxpool)
+
+        # Combine the selected layers into a nn.Sequential
+        self.conv = nn.Sequential(
+            *[getattr(resnet18, layer) for layer in self._LAYERS])
+
+        # If the model is frozen, it will always remain in eval mode
+        # and the parameters will have requires_grad=False
+        self.frozen = frozen
+        if self.frozen:
+            self.training = False
+
+    def forward(self, x, **kwargs):
+        return self.conv(x)
+
+    @property
+    def frozen(self):
+        return self._frozen
+
+    @frozen.setter
+    def frozen(self, frozen):
+        if isinstance(frozen, bool):
+            self._frozen = frozen
+        for p in self.parameters():
+            p.requires_grad = not self.frozen
+
+    def train(self, mode=True):
+        return super(ADE20KResNet18TruncatedLayer4, self).train(
+            mode and not self.frozen)
+
+
+class ADE20KResNet18TruncatedLayer0(ADE20KResNet18TruncatedLayer4):
+    _LAYERS = ['layer0']
+
+
+class ADE20KResNet18TruncatedLayer1(ADE20KResNet18TruncatedLayer4):
+    _LAYERS = ['layer0', 'layer1']
+
+
+class ADE20KResNet18TruncatedLayer2(ADE20KResNet18TruncatedLayer4):
+    _LAYERS = ['layer0', 'layer1', 'layer2']
+
+
+class ADE20KResNet18TruncatedLayer3(ADE20KResNet18TruncatedLayer4):
+    _LAYERS = ['layer0', 'layer1', 'layer2', 'layer3']
+
+
+class ADE20KResNet18Layer0(ADE20KResNet18TruncatedLayer4):
+    _LAYERS = ['layer0']
+
+
+class ADE20KResNet18Layer1(ADE20KResNet18TruncatedLayer4):
+    _LAYERS = ['layer1']
+
+
+class ADE20KResNet18Layer2(ADE20KResNet18TruncatedLayer4):
+    _LAYERS = ['layer2']
+
+
+class ADE20KResNet18Layer3(ADE20KResNet18TruncatedLayer4):
+    _LAYERS = ['layer3']
+
+
+class ADE20KResNet18Layer4(ADE20KResNet18TruncatedLayer4):
+    _LAYERS = ['layer4']
+
+
 def _instantiate_torchvision_resnet(
         arch, block, layers, pretrained, progress, **kwargs):
-    """Custom version of torcvision.models.resnet._resnet to support
-    locally-saved pretrained ResNet weights.
+    """Instantiate ResNet models from torchvision, optionally
+    pretrained on ImageNet. Supported models are 'resnet18', 'resnet34',
+    'resnet50', 'resnet101' and 'resnet152'.
+
+    This is a custom version of torchvision.models.resnet._resnet to
+    support locally-saved pretrained ResNet weights.
     """
     model = torchvision.models.resnet.ResNet(block, layers)
 

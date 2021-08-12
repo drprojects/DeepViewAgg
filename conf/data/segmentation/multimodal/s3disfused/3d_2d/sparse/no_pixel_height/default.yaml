@@ -66,6 +66,7 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
                   saturation: 0.7
         - transform: RandomHorizontalFlip
         - transform: ToFloatImage  # Convert uint8 image to float
+        - transform: Normalize  # Normalize colors
         - transform: CropImageGroups  # Compute cropping groups to minimize embedding cost
           params:
                 padding: ${data.padding_2d}
@@ -83,6 +84,7 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
           params:
                 use_bbox: ${data.exact_splatting_2d}
         - transform: ToFloatImage  # Convert uint8 image to float
+        - transform: Normalize  # Normalize colors
         - transform: CropImageGroups  # Compute cropping groups to minimize embedding cost
           params:
                 padding: ${data.padding_2d}
