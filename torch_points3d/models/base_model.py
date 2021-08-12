@@ -299,11 +299,6 @@ class BaseModel(torch.nn.Module, TrackerInterface, DatasetInterface, CheckpointI
                 fetch_arguments_from_list(optimizer_opt.params, i, ['params'])
                 for i in range(n_optim_groups)]
 
-            # for i in range(n_optim_groups):
-            #     # Recover the parameter group
-            #     submodule = getattr_recursive(self, optimizer_params[i]['params'])
-            #     optimizer_params[i]['params'] = submodule.parameters()
-
             # Initialize lists of parameter names to be used for
             # overwriting parameter groups. The torch optimizer will
             # crash if a parameter belongs to multiple groups. For this

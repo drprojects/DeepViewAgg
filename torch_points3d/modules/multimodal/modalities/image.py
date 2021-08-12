@@ -807,7 +807,7 @@ class ResNet18TruncatedLayer4(nn.Module):
         resnet18.layer0 = nn.Sequential(
             resnet18.conv1, resnet18.bn1, resnet18.relu, resnet18.maxpool)
 
-        # Combine the selected layers into a nn.Sequenttial
+        # Combine the selected layers into a nn.Sequential
         self.conv = nn.Sequential(
             *[getattr(resnet18, layer) for layer in self._LAYERS])
 
