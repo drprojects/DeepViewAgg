@@ -768,6 +768,8 @@ class ADE20KResNet18TruncatedLayer4(nn.Module):
     Adapted from https://github.com/CSAILVision/semantic-segmentation-pytorch
     """
     _LAYERS = ['layer0', 'layer1', 'layer2', 'layer3', 'layer4']
+    _LAYERS_IN = {k: v for k, v in zip(_LAYERS, [3, 128, 64, 128, 256])}
+    _LAYERS_OUT = {k: v for k, v in zip(_LAYERS, [128, 64, 128, 256, 512])}
 
     def __init__(self, frozen=False, **kwargs):
         super(ADE20KResNet18TruncatedLayer4, self).__init__()
@@ -819,6 +821,14 @@ class ADE20KResNet18TruncatedLayer4(nn.Module):
 
     def forward(self, x, **kwargs):
         return self.conv(x)
+
+    @property
+    def input_nc(self):
+        return self._LAYERS_IN[self._LAYERS[0]]
+
+    @property
+    def output_nc(self):
+        return self._LAYERS_OUT[self._LAYERS[-1]]
 
     @property
     def frozen(self):
@@ -908,6 +918,8 @@ def _instantiate_torchvision_resnet(
 
 class ResNet18TruncatedLayer4(nn.Module):
     _LAYERS = ['layer0', 'layer1', 'layer2', 'layer3', 'layer4']
+    _LAYERS_IN = {k: v for k, v in zip(_LAYERS, [3, 64, 64, 128, 256])}
+    _LAYERS_OUT = {k: v for k, v in zip(_LAYERS, [64, 64, 128, 256, 512])}
 
     def __init__(self, frozen=False, pretrained=True, **kwargs):
         super(ResNet18TruncatedLayer4, self).__init__()
@@ -933,6 +945,14 @@ class ResNet18TruncatedLayer4(nn.Module):
 
     def forward(self, x, **kwargs):
         return self.conv(x)
+
+    @property
+    def input_nc(self):
+        return self._LAYERS_IN[self._LAYERS[0]]
+
+    @property
+    def output_nc(self):
+        return self._LAYERS_OUT[self._LAYERS[-1]]
 
     @property
     def frozen(self):
