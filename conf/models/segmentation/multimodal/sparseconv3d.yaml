@@ -2887,7 +2887,7 @@ XYZ-ResNet18_RGB-ADE20KResNet18TruncatedLayer0-1-nomod-DeepSetFeat:
                   [ in_feat, 0, in_feat ],
               ]
 
-XYZ-RGB-L4>L0:
+XYZ-RGB-L4-L0:
     # 28.1 M params - 109.4 Mo on the GPU - ~2.7 ko/pixel at training time
     class: sparseconv3d.APIModel
     conv_type: "SPARSE"
@@ -2962,7 +2962,7 @@ XYZ-RGB-L4>L0:
                   [ in_feat, 0, in_feat ],
               ]
 
-XYZ-RGB-L4>L1:
+XYZ-RGB-L4-L1:
     # 28.1 M params - 109.4 Mo on the GPU - ~2.7 ko/pixel at training time
     class: sparseconv3d.APIModel
     conv_type: "SPARSE"
@@ -3037,7 +3037,7 @@ XYZ-RGB-L4>L1:
                   [ in_feat, 0, in_feat ],
               ]
 
-XYZ-RGB-L4>L2:
+XYZ-RGB-L4-L2:
     # 28.1 M params - 109.4 Mo on the GPU - ~2.7 ko/pixel at training time
     class: sparseconv3d.APIModel
     conv_type: "SPARSE"
@@ -3112,7 +3112,7 @@ XYZ-RGB-L4>L2:
                   [ in_feat, 0, in_feat ],
               ]
 
-XYZ-RGB-L4>L3:
+XYZ-RGB-L4-L3:
     # 28.1 M params - 109.4 Mo on the GPU - ~2.7 ko/pixel at training time
     class: sparseconv3d.APIModel
     conv_type: "SPARSE"
@@ -3187,7 +3187,7 @@ XYZ-RGB-L4>L3:
                   [ in_feat, 0, in_feat ],
               ]
 
-XYZ-RGB-L4>L4:
+XYZ-RGB-L4-L4:
     # 28.1 M params - 109.4 Mo on the GPU - ~2.7 ko/pixel at training time
     class: sparseconv3d.APIModel
     conv_type: "SPARSE"
@@ -3262,7 +3262,7 @@ XYZ-RGB-L4>L4:
                   [ in_feat, 0, in_feat ],
               ]
 
-XYZ-RGB-L4>L5:
+XYZ-RGB-L4-L5:
     # 28.1 M params - 109.4 Mo on the GPU - ~2.7 ko/pixel at training time
     class: sparseconv3d.APIModel
     conv_type: "SPARSE"
