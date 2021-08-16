@@ -25,7 +25,7 @@ class BaseFactory:
         self.module_name_up = module_name_up
         self.modules_lib = modules_lib
 
-    def get_module(self, flow):
+    def get_module(self, flow, index=None):
         if flow.upper() == "UP":
             return getattr(self.modules_lib, self.module_name_up, None)
         else:
@@ -33,8 +33,8 @@ class BaseFactory:
 
 
 def get_factory(model_name, modules_lib) -> BaseFactory:
-    factory_module_cls = getattr(modules_lib, "{}Factory".format(model_name),
-                                 None)
+    factory_module_cls = getattr(
+        modules_lib, "{}Factory".format(model_name), None)
     if factory_module_cls is None:
         factory_module_cls = BaseFactory
     return factory_module_cls
@@ -48,8 +48,9 @@ class ModalityFactory:
         modules.multimodal.modalities.<modality>.module_name
      """
 
-    def __init__(self, modality, module_name, atomic_pooling_name,
-                 view_pooling_name, fusion_name):
+    def __init__(
+            self, modality, module_name, atomic_pooling_name,
+            view_pooling_name, fusion_name):
         self.modality = modality
 
         self.module_name = module_name
@@ -65,27 +66,39 @@ class ModalityFactory:
         self.fusion_lib = importlib.import_module(
             f"torch_points3d.modules.multimodal.fusion")
 
-    def get_module(self, flow):
+    def get_module(self, flow, index=None):
         if flow.upper() == 'ATOMIC':
             # Search for the modality pooling in
             # torch_points3d.modules.multimodal.pooling
-            return getattr(self.pooling_lib, self.atomic_pooling_name, None)
+            lib = self.pooling_lib
+            module = self.atomic_pooling_name
         elif flow.upper() == 'VIEW':
             # Search for the modality pooling in
             # torch_points3d.modules.multimodal.pooling
-            return getattr(self.pooling_lib, self.view_pooling_name, None)
+            lib = self.pooling_lib
+            module = self.view_pooling_name
         elif flow.upper() == 'FUSION':
             #  Search for the modality fusion in
             # torch_points3d.modules.multimodal.fusion
-            return getattr(self.fusion_lib, self.fusion_name, None)
+            lib = self.fusion_lib
+            module = self.fusion_name
         elif flow.upper() == 'UNET':
             # Search for the modality UNet in
             # torch_points3d.modules.multimodal.modalities.{modality}
-            return getattr(self.modality_lib, 'UNet', None)
+            lib = self.modality_lib
+            module = 'UNet'
         else:
             # Search for the modality conv in
             # torch_points3d.modules.multimodal.modalities.{modality}
-            return getattr(self.modality_lib, self.module_name, None)
+            lib = self.modality_lib
+            module = self.module_name
+
+        if not is_list(module):
+            return getattr(lib, module, None)
+        elif index is None:
+            return getattr(lib, module[0], None)
+        else:
+            return getattr(lib, module[index], None)
 
 
 # ----------------------------- UNET BASE ---------------------------- #
@@ -110,16 +123,16 @@ class UnetBasedModel(BaseModel, ABC):
         """
         opt = copy.deepcopy(opt)
         super(UnetBasedModel, self).__init__(opt)
-        self._spatial_ops_dict = {"neighbour_finder": [], "sampler": [],
-                                  "upsample_op": []}
+        self._spatial_ops_dict = {
+            "neighbour_finder": [], "sampler": [], "upsample_op": []}
         # Detect which options format has been used to define the model
         if type(opt.down_conv) is ListConfig \
                 or "down_conv_nn" not in opt.down_conv:
-            self._init_from_layer_list_format(opt, model_type, dataset,
-                                              modules_lib)
+            self._init_from_layer_list_format(
+                opt, model_type, dataset, modules_lib)
         else:
-            self._init_from_compact_format(opt, model_type, dataset,
-                                           modules_lib)
+            self._init_from_compact_format(
+                opt, model_type, dataset, modules_lib)
 
     def _init_from_compact_format(self, opt, model_type, dataset, modules_lib):
         """Create a unetbasedmodel from the compact options format -
@@ -130,16 +143,18 @@ class UnetBasedModel(BaseModel, ABC):
 
         # Factory for creating up and down modules
         factory_module_cls = get_factory(model_type, modules_lib)
-        down_conv_cls_name = getattr_recursive(opt, 'down_conv.module_name', None)
+        down_conv_cls_name = getattr_recursive(
+            opt, 'down_conv.module_name', None)
         up_conv_cls_name = getattr_recursive(opt, 'up_conv.module_name', None)
         self._factory_module = factory_module_cls(
-            down_conv_cls_name, up_conv_cls_name, modules_lib
-        )  # Create the factory object
-        # construct unet structure
+            down_conv_cls_name, up_conv_cls_name, modules_lib)
+
+        # Construct unet structure
         has_innermost = getattr(opt, "innermost", None) is not None
         if has_innermost:
-            assert len(opt.down_conv.down_conv_nn) + 1 \
-                   == len(opt.up_conv.up_conv_nn)
+            num_down = len(opt.down_conv.down_conv_nn)
+            num_up = len(opt.up_conv.up_conv_nn)
+            assert num_down + 1 == num_up
 
             args_up = fetch_arguments_from_list(opt.up_conv, 0, SPECIAL_NAMES)
             args_up["up_conv_cls"] = self._factory_module.get_module("UP")
@@ -149,8 +164,7 @@ class UnetBasedModel(BaseModel, ABC):
                 args_innermost=opt.innermost,
                 modules_lib=modules_lib,
                 submodule=None,
-                innermost=True,
-            )  # add the innermost layer
+                innermost=True, )  # add the innermost layer
         else:
             unet_block = Identity()
 
@@ -171,18 +185,15 @@ class UnetBasedModel(BaseModel, ABC):
             outermost=True)  # add the outermost layer
         self._save_sampling_and_search(self.model)
 
-    def _init_from_layer_list_format(self, opt, model_type, dataset,
-                                     modules_lib):
+    def _init_from_layer_list_format(
+            self, opt, model_type, dataset, modules_lib):
         """Create a unetbasedmodel from the layer list options format -
         where each layer of the unet is specified separately.
         """
-
         get_factory(model_type, modules_lib)
 
-        down_conv_layers = (
-            opt.down_conv if type(opt.down_conv) is ListConfig
+        down_conv_layers = opt.down_conv if type(opt.down_conv) is ListConfig \
             else flatten_compact_options(opt.down_conv)
-        )
         up_conv_layers = opt.up_conv if type(opt.up_conv) is ListConfig \
             else flatten_compact_options(opt.up_conv)
         num_convs = len(down_conv_layers)
@@ -190,41 +201,40 @@ class UnetBasedModel(BaseModel, ABC):
         unet_block = []
         has_innermost = getattr(opt, "innermost", None) is not None
         if has_innermost:
-            assert len(down_conv_layers) + 1 == len(up_conv_layers)
+            assert num_convs + 1 == len(up_conv_layers)
 
             up_layer = dict(up_conv_layers[0])
-            up_layer["up_conv_cls"] = getattr(modules_lib,
-                                              up_layer["module_name"])
+            up_layer["up_conv_cls"] = getattr(
+                modules_lib, up_layer["module_name"])
 
             unet_block = UnetSkipConnectionBlock(
                 args_up=up_layer,
                 args_innermost=opt.innermost,
                 modules_lib=modules_lib,
-                innermost=True,
-            )
+                innermost=True, )
 
         for index in range(num_convs - 1, 0, -1):
             down_layer = dict(down_conv_layers[index])
             up_layer = dict(up_conv_layers[num_convs - index])
 
-            down_layer["down_conv_cls"] = getattr(modules_lib,
-                                                  down_layer["module_name"])
-            up_layer["up_conv_cls"] = getattr(modules_lib,
-                                              up_layer["module_name"])
+            down_layer["down_conv_cls"] = getattr(
+                modules_lib, down_layer["module_name"])
+            up_layer["up_conv_cls"] = getattr(
+                modules_lib, up_layer["module_name"])
 
             unet_block = UnetSkipConnectionBlock(
                 args_up=up_layer,
                 args_down=down_layer,
                 modules_lib=modules_lib,
-                submodule=unet_block,
-            )
+                submodule=unet_block, )
 
         up_layer = dict(up_conv_layers[-1])
         down_layer = dict(down_conv_layers[0])
-        down_layer["down_conv_cls"] = getattr(modules_lib,
-                                              down_layer["module_name"])
-        up_layer["up_conv_cls"] = getattr(modules_lib,
-                                          up_layer["module_name"])
+        down_layer["down_conv_cls"] = getattr(
+            modules_lib, down_layer["module_name"])
+        up_layer["up_conv_cls"] = getattr(
+            modules_lib, up_layer["module_name"])
+
         self.model = UnetSkipConnectionBlock(
             args_up=up_layer, args_down=down_layer, submodule=unet_block,
             outermost=True)
@@ -254,8 +264,8 @@ class UnetBasedModel(BaseModel, ABC):
 
     def _fetch_arguments_up_and_down(self, opt, index):
         # Defines down arguments
-        args_down = fetch_arguments_from_list(opt.down_conv, index,
-                                              SPECIAL_NAMES)
+        args_down = fetch_arguments_from_list(
+            opt.down_conv, index, SPECIAL_NAMES)
         args_down["index"] = index
         args_down["down_conv_cls"] = self._factory_module.get_module("DOWN")
 
@@ -275,15 +285,9 @@ class UnetSkipConnectionBlock(nn.Module, ABC):
     """
 
     def __init__(
-            self,
-            args_up=None,
-            args_down=None,
-            args_innermost=None,
-            modules_lib=None,
-            submodule=None,
-            outermost=False,
-            innermost=False,
-    ):
+            self, args_up=None, args_down=None, args_innermost=None,
+            modules_lib=None, submodule=None, outermost=False,
+            innermost=False):
         """Construct a Unet submodule with skip connections.
         Parameters:
             args_up -- arguments for up convs
@@ -302,7 +306,7 @@ class UnetSkipConnectionBlock(nn.Module, ABC):
         self.innermost = innermost
 
         if innermost:
-            assert outermost == False
+            assert not outermost
             module_name = get_from_kwargs(args_innermost, "module_name")
             inner_module_cls = getattr(modules_lib, module_name)
             self.inner = inner_module_cls(**args_innermost)
@@ -381,8 +385,8 @@ class UnwrappedUnetBasedModel(BaseModel, ABC):
         """
         opt = copy.deepcopy(opt)
         super(UnwrappedUnetBasedModel, self).__init__(opt)
-        self._spatial_ops_dict = {"neighbour_finder": [], "sampler": [],
-                                  "upsample_op": []}
+        self._spatial_ops_dict = {
+            "neighbour_finder": [], "sampler": [], "upsample_op": []}
 
         # Check if one of the supported modalities is present in the
         # config
@@ -392,20 +396,22 @@ class UnwrappedUnetBasedModel(BaseModel, ABC):
         if is_list(opt.down_conv) or "down_conv_nn" not in opt.down_conv:
             raise NotImplementedError
         else:
-            self._init_from_compact_format(opt, model_type, dataset,
-                                           modules_lib)
+            self._init_from_compact_format(
+                opt, model_type, dataset, modules_lib)
 
     def _init_from_compact_format(self, opt, model_type, dataset, modules_lib):
         """Create a unetbasedmodel from the compact options format -
         where the same convolution is given for each layer, and
         arguments are given in lists.
         """
-        self.save_sampling_id = getattr_recursive(opt, 'down_conv.save_sampling_id', None)
+        self.save_sampling_id = getattr_recursive(
+            opt, 'down_conv.save_sampling_id', None)
 
         # Factory for creating up and down modules for the main 3D
         # modality
         factory_module_cls = get_factory(model_type, modules_lib)
-        down_conv_cls_name = getattr_recursive(opt, 'down_conv.module_name', None)
+        down_conv_cls_name = getattr_recursive(
+            opt, 'down_conv.module_name', None)
         up_conv_cls_name = getattr_recursive(opt, 'up_conv.module_name', None)
         self._module_factories = {'main': factory_module_cls(
             down_conv_cls_name, up_conv_cls_name, modules_lib)}
@@ -485,14 +491,14 @@ class UnwrappedUnetBasedModel(BaseModel, ABC):
                         flow='FUSION')
                     drop_3d = getattr(opt.down_conv[m], 'drop_3d', 0)
                     drop_mod = getattr(opt.down_conv[m], 'drop_mod', 0)
-                    keep_last_view = getattr(opt.down_conv[m],
-                                             'keep_last_view', False)
+                    keep_last_view = getattr(
+                        opt.down_conv[m], 'keep_last_view', False)
 
                     # Group modules into a UnimodalBranch and update the
                     # branches at the proper branching point
-                    branches[idx][m] = UnimodalBranch(conv, atomic_pool,
-                        view_pool, fusion, drop_3d=drop_3d, drop_mod=drop_mod,
-                        keep_last_view=keep_last_view)
+                    branches[idx][m] = UnimodalBranch(
+                        conv, atomic_pool, view_pool, fusion, drop_3d=drop_3d,
+                        drop_mod=drop_mod, keep_last_view=keep_last_view)
 
             # Update the down_modules list
             down_modules = [
@@ -580,11 +586,11 @@ class UnwrappedUnetBasedModel(BaseModel, ABC):
         """
         args = fetch_arguments_from_list(conv_opt, index, SPECIAL_NAMES)
         args["index"] = index
-        module = self._module_factories[modality].get_module(flow)
+        module = self._module_factories[modality].get_module(flow, index=index)
         return module(**args)
 
-    def forward(self, data, precomputed_down=None, precomputed_up=None,
-                **kwargs):
+    def forward(
+            self, data, precomputed_down=None, precomputed_up=None, **kwargs):
         """This method does a forward on the Unet assuming symmetrical
         skip connections
 
@@ -600,13 +606,13 @@ class UnwrappedUnetBasedModel(BaseModel, ABC):
         # TODO : expand to handle multimodal data or let child classes handle it ?
         if self.is_multimodal:
             raise NotImplementedError
-        
+
         stack_down = []
         for i in range(1, len(self.down_modules) - 1):
             data = self.down_modules[i](data, precomputed=precomputed_down)
             stack_down.append(data)
         data = self.down_modules[-1](data, precomputed=precomputed_down)
-        
+
         # First down module of multimodal model operates on raw data, 
         # its output is not 'skipped'
         if self.is_multimodal:

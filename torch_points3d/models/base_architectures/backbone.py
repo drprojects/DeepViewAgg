@@ -51,8 +51,8 @@ class BackboneBasedModel(BaseModel, ABC):
         if is_list(opt.down_conv) or self.no_3d_conv and not self.is_multimodal:
             raise NotImplementedError
         else:
-            self._init_from_compact_format(opt, model_type, dataset,
-                                           modules_lib)
+            self._init_from_compact_format(
+                opt, model_type, dataset, modules_lib)
 
     def _init_from_compact_format(self, opt, model_type, dataset, modules_lib):
         """Create a backbonebasedmodel from the compact options format
@@ -66,8 +66,7 @@ class BackboneBasedModel(BaseModel, ABC):
         factory_module_cls = get_factory(model_type, modules_lib)
         down_conv_cls_name = getattr_recursive(opt, 'down_conv.module_name', None)
         self._module_factories = {
-            'main': factory_module_cls(down_conv_cls_name, None, modules_lib)
-        }
+            'main': factory_module_cls(down_conv_cls_name, None, modules_lib)}
 
         # Factories for creating modules for additional modalities
         if self.is_multimodal:
@@ -167,8 +166,7 @@ class BackboneBasedModel(BaseModel, ABC):
 
         self.metric_loss_module, self.miner_module \
             = BaseModel.get_metric_loss_and_miner(
-            getattr(opt, "metric_loss", None), getattr(opt, "miner", None)
-        )
+            getattr(opt, "metric_loss", None), getattr(opt, "miner", None))
 
     def _save_sampling_and_search(self, down_conv):
         sampler = getattr(down_conv, "sampler", None)
