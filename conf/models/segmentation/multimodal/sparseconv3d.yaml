@@ -3510,7 +3510,7 @@ XYZ-RGB-L4-all:
                   [ in_feat, 0, in_feat ],
               ]
 
-XYZ-RGB-L4-all-fullres:
+XYZ-RGB-L4-all-scale-2:
     # 28.1 M params - 109.4 Mo on the GPU - ~2.7 ko/pixel at training time
     class: sparseconv3d.APIModel
     conv_type: "SPARSE"
@@ -3551,7 +3551,7 @@ XYZ-RGB-L4-all-fullres:
             image:
                 down_conv:
                     module_name: [
-                        ADE20KResNet18TruncatedLayer4Resize,
+                        ADE20KResNet18TruncatedLayer4,
                         ModalityIdentity,
                         ModalityIdentity,
                         ModalityIdentity,
@@ -3559,6 +3559,7 @@ XYZ-RGB-L4-all-fullres:
                         ModalityIdentity
                     ]
                     frozen: False
+                    scale_factor: 2
                 atomic_pooling:
                     module_name: BimodalCSRPool
                     mode: max
