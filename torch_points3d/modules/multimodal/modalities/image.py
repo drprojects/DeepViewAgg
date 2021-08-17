@@ -6,12 +6,25 @@ import torchvision
 import os.path as osp
 import sys
 from torch_points3d.utils.config import *
-from torch_points3d.core.common_modules import Seq
+from torch_points3d.core.common_modules import Seq, Identity
 from math import pi, sqrt
 
 from mit_semseg.config import cfg as MITCfg
 from mit_semseg.models import ModelBuilder as MITModelBuilder
 from mit_semseg.lib.nn import SynchronizedBatchNorm2d as MITSynchronizedBatchNorm2d
+
+
+class ModalityIdentity(Identity):
+    """Identiy module for modalities.
+
+    Works just as torch_points3d.core.common_modules.Identity but
+    supports unused kwargs in its `__init__` and `forward`.
+    """
+    def __init__(self, **kwargs):
+        super(ModalityIdentity, self).__init__()
+
+    def forward(self, x, **kwargs):
+        return x
 
 
 def standardize_weights(weight, scaled=True):
