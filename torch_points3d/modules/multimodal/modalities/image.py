@@ -788,14 +788,6 @@ class ADE20KResNet18TruncatedLayer4(nn.Module):
     def __init__(self, frozen=False, scale_factor=None, **kwargs):
         super(ADE20KResNet18TruncatedLayer4, self).__init__()
 
-        # Output will be resized wrt scale_factor if not None.
-        # If scale_factor < 0, the output will be resized to the input
-        # size
-        if scale_factor is not None and scale_factor < 0:
-            scale_factor = torch.prod(torch.LongTensor([
-                self._LAYERS_SCALE[s] for s in self._LAYERS])).item()
-        self.scale_factor = scale_factor
-
         # Adapt the default config to use ResNet18 + PPM-Deepsup model
         ARCH = 'resnet18dilated-ppm_deepsup'
         DIR = osp.join(
@@ -841,6 +833,13 @@ class ADE20KResNet18TruncatedLayer4(nn.Module):
         if self.frozen:
             self.training = False
 
+        # Output will be resized wrt scale_factor if not None.
+        # If scale_factor < 0, the output will be resized to the input
+        # size
+        if scale_factor is not None and scale_factor < 0:
+            scale_factor = self.conv_scale_factor
+        self.scale_factor = scale_factor
+
     def forward(self, x, **kwargs):
         x = self.conv(x)
         if self.scale_factor is not None:
@@ -856,6 +855,11 @@ class ADE20KResNet18TruncatedLayer4(nn.Module):
     @property
     def output_nc(self):
         return self._LAYERS_OUT[self._LAYERS[-1]]
+
+    @property
+    def conv_scale_factor(self):
+        return torch.prod(torch.LongTensor([
+            self._LAYERS_SCALE[s] for s in self._LAYERS])).item()
 
     @property
     def frozen(self):
@@ -913,6 +917,28 @@ class ADE20KResNet18Layer4(ADE20KResNet18TruncatedLayer4):
     _LAYERS = ['layer4']
 
 
+class ADE20KResNet18Pyramid(ADE20KResNet18TruncatedLayer4):
+    def __init__(self, frozen=False, scale_factor=-1, **kwargs):
+        assert scale_factor is not None, \
+            f'scale_factor cannot be None for feature pyramid.'
+        super(ADE20KResNet18Pyramid, self).__init__(
+            frozen=frozen, scale_factor=scale_factor, **kwargs)
+
+    def forward(self, x, **kwargs):
+        feature_pyramid = []
+        output_size = [
+            int(s * self.scale_factor / self.conv_scale_factor)
+            for s in x.shape[2:4]]
+
+        for layer in self.conv:
+            x = layer(x)
+            x_up = nn.functional.interpolate(
+                x, size=output_size, mode='bilinear', align_corners=False)
+            feature_pyramid.append(x_up)
+
+        return torch.cat(feature_pyramid, dim=1)
+
+
 def _instantiate_torchvision_resnet(
         arch, block, layers, pretrained, progress, **kwargs):
     """Instantiate ResNet models from torchvision, optionally
@@ -957,14 +983,6 @@ class ResNet18TruncatedLayer4(nn.Module):
             self, frozen=False, pretrained=True, scale_factor=None, **kwargs):
         super(ResNet18TruncatedLayer4, self).__init__()
 
-        # Output will be resized wrt scale_factor if not None.
-        # If scale_factor < 0, the output will be resized to the input
-        # size
-        if scale_factor is not None and scale_factor < 0:
-            scale_factor = torch.prod(torch.LongTensor([
-                self._LAYERS_SCALE[s] for s in self._LAYERS])).item()
-        self.scale_factor = scale_factor
-
         # Instantiate the full ResNet
         resnet18 = _instantiate_torchvision_resnet(
             'resnet18', torchvision.models.resnet.BasicBlock, [2, 2, 2, 2],
@@ -984,6 +1002,13 @@ class ResNet18TruncatedLayer4(nn.Module):
         if self.frozen:
             self.training = False
 
+        # Output will be resized wrt scale_factor if not None.
+        # If scale_factor < 0, the output will be resized to the input
+        # size
+        if scale_factor is not None and scale_factor < 0:
+            scale_factor = self.conv_scale_factor
+        self.scale_factor = scale_factor
+
     def forward(self, x, **kwargs):
         x = self.conv(x)
         if self.scale_factor is not None:
@@ -999,6 +1024,11 @@ class ResNet18TruncatedLayer4(nn.Module):
     @property
     def output_nc(self):
         return self._LAYERS_OUT[self._LAYERS[-1]]
+
+    @property
+    def conv_scale_factor(self):
+        return torch.prod(torch.LongTensor([
+            self._LAYERS_SCALE[s] for s in self._LAYERS])).item()
 
     @property
     def frozen(self):
@@ -1054,3 +1084,27 @@ class ResNet18Layer3(ResNet18TruncatedLayer4):
 
 class ResNet18Layer4(ResNet18TruncatedLayer4):
     _LAYERS = ['layer4']
+
+
+class ResNet18Pyramid(ResNet18TruncatedLayer4):
+    def __init__(
+            self, frozen=False, pretrained=True, scale_factor=-1, **kwargs):
+        assert scale_factor is not None, \
+            f'scale_factor cannot be None for feature pyramid.'
+        super(ResNet18Pyramid, self).__init__(
+            frozen=frozen, pretrained=pretrained, scale_factor=scale_factor,
+            **kwargs)
+
+    def forward(self, x, **kwargs):
+        feature_pyramid = []
+        output_size = [
+            int(s * self.scale_factor / self.conv_scale_factor)
+            for s in x.shape[2:4]]
+
+        for layer in self.conv:
+            x = layer(x)
+            x_up = nn.functional.interpolate(
+                x, size=output_size, mode='bilinear', align_corners=False)
+            feature_pyramid.append(x_up)
+
+        return torch.cat(feature_pyramid, dim=1)
