@@ -571,9 +571,12 @@ class DeepSetFeat(nn.Module, ABC):
 
         # Initialize the set-pooling mechanism to aggregate features of
         # elements-level features to set-level features
-        assert pool in self._POOLING_MODES, \
-            f"Unsupported pool='{pool}'. Expected one of: {self._POOLING_MODES}"
-        self.f_pool = lambda a, b: segment_csr(a, b, reduce=pool)
+        pool = pool.split('_')
+        assert all([p in self._POOLING_MODES for p in pool]), \
+            f"Unsupported pool='{pool}'. Expected elements of: " \
+            f"{self._POOLING_MODES}"
+        self.f_pool = lambda a, b: torch.cat([
+            segment_csr(a, b, reduce=p) for p in pool], dim=-1)
         self.pool = pool
 
         # Initialize the fusion mechanism to merge set-level and
@@ -595,7 +598,7 @@ class DeepSetFeat(nn.Module, ABC):
         self.d_out = d_out
         self.use_num = use_num
         self.mlp_elt_1 = MLP([d_in, d_out, d_out], bias=False)
-        in_set_mlp = d_out + self.use_num
+        in_set_mlp = d_out * len(self.pool) + self.use_num
         self.mlp_set = MLP([in_set_mlp, d_out, d_out], bias=False)
         in_last_mlp = d_out if fusion == 'residual' else d_out * 2
         self.mlp_elt_2 = MLP([in_last_mlp, d_out, d_out], bias=False)
