@@ -3904,7 +3904,7 @@ XYZ-RGB-pyramid-0_out-128:
                   [ 4*in_feat, 0, 4*in_feat ],
               ]
 
-XYZ-RGB-L4-L0_DeepSetFeat-minmax:
+XYZ-RGB-L4-L0_minmax:
     # 28.1 M params - 109.4 Mo on the GPU - ~2.7 ko/pixel at training time
     class: sparseconv3d.APIModel
     conv_type: "SPARSE"
@@ -3944,7 +3944,7 @@ XYZ-RGB-L4-L0_DeepSetFeat-minmax:
 
             image:
                 down_conv:
-                    module_name: ResNet18TruncatedLayer4
+                    module_name: ADE20KResNet18TruncatedLayer4
                     frozen: False
                 atomic_pooling:
                     module_name: BimodalCSRPool
@@ -4020,7 +4020,7 @@ XYZ-RGB-L4-L0_use-mod:
 
             image:
                 down_conv:
-                    module_name: ResNet18TruncatedLayer4
+                    module_name: ADE20KResNet18TruncatedLayer4
                     frozen: False
                 atomic_pooling:
                     module_name: BimodalCSRPool
@@ -4095,7 +4095,7 @@ XYZ-RGB-L4-L0_g-8:
 
             image:
                 down_conv:
-                    module_name: ResNet18TruncatedLayer4
+                    module_name: ADE20KResNet18TruncatedLayer4
                     frozen: False
                 atomic_pooling:
                     module_name: BimodalCSRPool
