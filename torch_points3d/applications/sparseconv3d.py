@@ -227,6 +227,11 @@ class SparseConv3dUnet(BaseSparseConv3d):
         for i in range(len(self.down_modules) - 1):
             data = self.down_modules[i](data)
 
+            # Early down modules operate on raw data, their output is
+            # not passed in skip connections
+            if i < self.n_early_conv:
+                continue
+
             # Append the 3D data features of each down module, the
             # modality features are discarded, if any.
             if self.is_multimodal:
@@ -241,10 +246,6 @@ class SparseConv3dUnet(BaseSparseConv3d):
             # Discard the modalities used in the down modules, only
             # pointwise features are used in subsequent modules.
             data = data['x_3d']
-            
-            # First down module of multimodal model operates on raw data, 
-            # its output is not 'skipped'
-            stack_down.pop(0)
 
         # TODO : Manage the inner module
 

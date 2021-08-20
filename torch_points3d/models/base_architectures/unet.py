@@ -439,16 +439,22 @@ class UnwrappedUnetBasedModel(BaseModel, ABC):
 
         # Down modules - 3D conv only
         down_modules = []
-        for i in range(len(opt.down_conv.down_conv_nn)):
+        num_down_conv = len(opt.down_conv.down_conv_nn)
+        for i in range(num_down_conv):
             down_conv_3d = self._build_module(opt.down_conv, i, flow="DOWN")
             self._save_sampling_and_search(down_conv_3d)
             down_modules.append(down_conv_3d)
+
+        # Number of early modules with no 3D conv and no skip-connections
+        self._n_early_conv = getattr(
+            opt.down_conv, 'n_early_conv', int(self.is_multimodal))
 
         # Down modules - modality-specific branches
         if self.is_multimodal:
             # Insert identity 3D convolutions to allow branching
             # directly into the raw 3D features
-            down_modules = [Identity(), Identity()] + down_modules
+            early_modules = [Identity() for _ in range(self.n_early_conv * 2)]
+            down_modules = early_modules + down_modules
 
             assert len(down_modules) % 2 == 0 and len(down_modules) > 0, \
                 f"Expected an even number of 3D conv modules but got " \
@@ -517,6 +523,7 @@ class UnwrappedUnetBasedModel(BaseModel, ABC):
                 self._save_upsample(up_module)
                 self.up_modules.append(up_module)
 
+        # Loss
         self.metric_loss_module, self.miner_module = \
             BaseModel.get_metric_loss_and_miner(
                 getattr(opt, "metric_loss", None), getattr(opt, "miner", None))
@@ -589,6 +596,10 @@ class UnwrappedUnetBasedModel(BaseModel, ABC):
         module = self._module_factories[modality].get_module(flow, index=index)
         return module(**args)
 
+    @property
+    def n_early_conv(self):
+        return self._n_early_conv
+
     def forward(
             self, data, precomputed_down=None, precomputed_up=None, **kwargs):
         """This method does a forward on the Unet assuming symmetrical
@@ -608,15 +619,10 @@ class UnwrappedUnetBasedModel(BaseModel, ABC):
             raise NotImplementedError
 
         stack_down = []
-        for i in range(1, len(self.down_modules) - 1):
+        for i in range(len(self.down_modules) - 1):
             data = self.down_modules[i](data, precomputed=precomputed_down)
             stack_down.append(data)
         data = self.down_modules[-1](data, precomputed=precomputed_down)
-
-        # First down module of multimodal model operates on raw data, 
-        # its output is not 'skipped'
-        if self.is_multimodal:
-            stack_down.pop(0)
 
         if not isinstance(self.inner_modules[0], Identity):
             stack_down.append(data)
