@@ -74,8 +74,22 @@ class LateFeatureFusion(APIModel):
         self.loss_names = ["loss_seg"]
 
     def forward(self, *args, **kwargs):
+        # 3D backbone
         features_3d = self.backbone_3d(self.input.data).x
+
+        # Need to pass self.input equipped with features_3d to
+        # modality-specific backbone, but would prefer not cloning the
+        # input batch. So just temporarily change the self.input.data.x
+        # and restore it later on.
+        input_x_backup = self.input.data.x
+        self.input.data.x = features_3d
+
+        # Modality-specific backbone
         features_no3d = self.backbone_no3d(self.input).x
+
+        # Restore self.input.data.x
+        self.input.data.x = input_x_backup
+
         features = self.fusion(features_3d, features_no3d)
         logits = self.head(features)
         self.output = F.log_softmax(logits, dim=-1)

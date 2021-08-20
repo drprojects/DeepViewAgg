@@ -1,5 +1,6 @@
 KNOWN_MODULES = {
-    'ADE20KResNet18PPM': 512
+    'ADE20KResNet18PPM': 512,
+    'ADE20KResNet18TruncatedLayer4': 512,
 }
 
 def extract_output_nc(model_config):
