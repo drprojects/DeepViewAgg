@@ -203,7 +203,7 @@ class GroupBimodalCSRPool(nn.Module, ABC):
     """
 
     def __init__(
-            self, in_map=None, in_mod=None, num_groups=None, use_mod=False,
+            self, in_map=None, in_mod=None, num_groups=1, use_mod=False,
             gating=True, group_scaling=True, save_last=False, nc_inner=32,
             map_encoder='DeepSetFeat', **kwargs):
         super(GroupBimodalCSRPool, self).__init__()
@@ -233,9 +233,8 @@ class GroupBimodalCSRPool(nn.Module, ABC):
         self.group_scaling = group_scaling
 
         # E_map embeds raw handcrafted mapping features
-        out_map = self.nc_inner
         E_map_cls = getattr(_local_modules, map_encoder)
-        self.E_map = E_map_cls(in_map, out_map, **kwargs)
+        self.E_map = E_map_cls(in_map, nc_inner, **kwargs)
 
         # E_mod embeds the modality features in a space used as
         # values and to build attention scores in case use_mod=True
@@ -244,15 +243,15 @@ class GroupBimodalCSRPool(nn.Module, ABC):
         # E_mix combines the modality features from E_mod and
         # mapping features from E_map in case use_mod=True
         if self.use_mod:
-            in_mix = out_map + in_mod
-            out_mix = self.nc_inner
+            in_mix = nc_inner + in_mod
+            out_mix = nc_inner
             mid_mix = nearest_power_of_2((in_mix + out_mix) / 2, out_mix * 2)
             self.E_mix = MLP([in_mix, mid_mix, out_mix], bias=False)
 
         # E_score computes the compatibility score for each feature
         # group, these are to be further normalized to produce
         # final attention scores
-        self.E_score = nn.Linear(self.nc_inner, num_groups, bias=True)
+        self.E_score = nn.Linear(nc_inner, num_groups, bias=True)
 
         # Optional gating mechanism
         self.G = Gating(num_groups, bias=True) if gating else None
@@ -288,7 +287,7 @@ class GroupBimodalCSRPool(nn.Module, ABC):
             csr_idx, reduce='sum')
 
         if self.G:
-            # Compute pointwise gating : P x num_groups
+            # Compute pointwise gating for each group : P x num_groups
             gating = self.G(segment_csr(
                 compatibilities, csr_idx, reduce='max'))
 
@@ -355,7 +354,7 @@ class QKVBimodalCSRPool(nn.Module, ABC):
     F_main = 10
     F_mod = 7
     F_map = 3
-    in_score = 2
+    nc_qk = 2
 
     csr_idx = torch.LongTensor([0, 4, 4, 5, 10, 20])
     x_main = torch.rand(N, F_main)
@@ -363,7 +362,7 @@ class QKVBimodalCSRPool(nn.Module, ABC):
     x = torch.rand(V, F_map)
 
     module = AttentiveBimodalCSRPool(in_main=F_main, in_map=F_map,
-        in_mod=F_mod, in_score=in_score, use_map_min=False, use_map_max=False,
+        in_mod=F_mod, nc_qk=nc_qk, use_map_min=False, use_map_max=False,
         use_map_num=False, gating=True, dim_scaling=True,
         group_scaling=True)
 
@@ -371,10 +370,14 @@ class QKVBimodalCSRPool(nn.Module, ABC):
     """
 
     def __init__(
-            self, in_main=None, in_map=None, in_mod=None, in_score=None,
-            gating=True, dim_scaling=True, group_scaling=False, debug=False,
-            save_last=False, map_encoder='DeepSetFeat', **kwargs):
+            self, in_main=None, in_map=None, in_mod=None, num_groups=1,
+            use_mod_q=False, use_mod_k=False, nc_qk=8, gating=True,
+            dim_scaling=True, group_scaling=False, debug=False,
+            save_last=False, nc_inner=32, map_encoder='DeepSetFeat', **kwargs):
         super(QKVBimodalCSRPool, self).__init__()
+
+        # Default output feature size used for embeddings
+        self.nc_inner = nc_inner
 
         # Optional mechanism to keep track of the outputs for debugging
         # or view-wise loss
@@ -392,31 +395,59 @@ class QKVBimodalCSRPool(nn.Module, ABC):
         if debug:
             group_scaling = False
             dim_scaling = True
-            in_score = 1
+            nc_qk = 1
             in_map = 1
             in_mod = None
+
+        # Group and channel arguments
+        assert 1 <= num_groups <= in_mod, \
+            f"Number of groups must be between 1 and in_mod={in_mod}."
+        self.num_groups = num_groups
+        self.in_mod = in_mod
+        self.nc_qk = nc_qk
+        self.use_mod_q = use_mod_q
+        self.use_mod_k = use_mod_k
 
         # Optional compatibilities scaling mechanism
         self.dim_scaling = dim_scaling
         self.group_scaling = group_scaling
 
-        # Queries computation module
-        self.Q = nn.Linear(in_main, in_score, bias=True)
+        # E_main embeds the main modality features in a space used as
+        # queries and to build attention scores in case use_mod=True
+        self.E_main = MLP([in_main, nc_inner, nc_inner], bias=False)
 
         # E_map embeds raw handcrafted mapping features
-        out_map = 32
         E_map_cls = getattr(_local_modules, map_encoder)
-        self.E_map = E_map_cls(in_map, out_map, **kwargs)
+        self.E_map = E_map_cls(in_map, nc_inner, **kwargs)
+
+        # E_mod embeds the modality features in a space used as
+        # values and to build attention scores in case use_mod=True
+        self.E_mod = MLP([in_mod, in_mod, in_mod], bias=False)
+
+        # E_mix_Q combines the modality features from E_mod and
+        # mapping features from E_map in case use_mod_q=True
+        if self.use_mod_q:
+            in_mix = nc_inner + in_mod
+            out_mix = nc_inner
+            mid_mix = nearest_power_of_2((in_mix + out_mix) / 2, out_mix * 2)
+            self.E_mix_Q = MLP([in_mix, mid_mix, out_mix], bias=False)
+
+        # Queries computation module
+        self.Q = nn.Linear(nc_inner, nc_qk * num_groups, bias=True)
+
+        # E_mix_K combines the modality features from E_mod and
+        # mapping features from E_map in case use_mod_q=True
+        if self.use_mod_k:
+            in_mix = nc_inner + in_mod
+            out_mix = nc_inner
+            mid_mix = nearest_power_of_2((in_mix + out_mix) / 2, out_mix * 2)
+            self.E_mix_K = MLP([in_mix, mid_mix, out_mix], bias=False)
 
         # Keys computation module
-        self.mod_in_key = in_mod is not None
-        if self.mod_in_key:
-            self.K = nn.Linear(out_map + in_mod, in_score, bias=True)
-        else:
-            self.K = nn.Linear(out_map, in_score, bias=True)
+        self.K = nn.Linear(nc_inner, nc_qk * num_groups, bias=True)
 
         # Optional gating mechanism
-        self.G = Gating(1, bias=True) if gating else None
+        self.G = Gating(num_groups, bias=True) if gating else None
 
     def forward(self, x_main, x_mod, x_map, csr_idx):
         """
@@ -434,48 +465,71 @@ class QKVBimodalCSRPool(nn.Module, ABC):
             x_mod[idx_destroyed] = torch.rand(
                 (idx_destroyed.shape[0], *(x_mod.shape[1:])), device=device)
 
-        # Compute mapping features : V x F_map
-        x_map = self.E_map(x_map, csr_idx)
-
-        # Compute keys : V x D
-        if self.mod_in_key:
-            keys = self.K(torch.cat([self.E_map(x_map), x_mod], dim=1))
-        else:
-            keys = self.K(self.E_map(x_map))
-
         # For MinkowskiEngine and TorchSparse SparseTensors
         if not isinstance(x_main, torch.Tensor):
             x_main = x_main.F
 
-        # Compute pointwise queries : N x D
-        queries = self.Q(x_main.F)
+        # Compute main features : P x F_main
+        x_main = self.E_main(x_main)
 
-        # Expand queries to views : V x D
-        queries = torch.repeat_interleave(
-            queries, csr_idx[1:] - csr_idx[:-1], dim=0)
+        # Compute mapping features : V x F_map
+        x_map = self.E_map(x_map, csr_idx)
 
-        # Compute compatibility scores : V
-        compatibilities = (keys * queries).sum(dim=1)
+        # Compute modality features : V x F_mod
+        x_mod = self.E_mod(x_mod)
+
+        # Compute keys : V x (D x num_groups)
+        if self.use_mod_k:
+            x_mix = self.E_mix_K(torch.cat([x_map, x_mod], dim=1))
+            keys = self.K(x_mix)
+        else:
+            keys = self.K(x_map)
+
+        # Compute queries : V x (D x num_groups)
+        if self.use_mod_q:
+            # Expand x_main to views : V x F_main
+            x_main_q = torch.repeat_interleave(
+                x_main, csr_idx[1:] - csr_idx[:-1], dim=0)
+
+            # Compute view-wise queries : V x (D x num_groups)
+            x_mix = self.E_mix_Q(torch.cat([x_main_q, x_mod], dim=1))
+            keys = self.Q(x_mix)
+        else:
+            # Compute pointwise queries : N x (D x num_groups)
+            queries = self.Q(x_main)
+
+            # Expand queries to views : V x (D x num_groups)
+            queries = torch.repeat_interleave(
+                queries, csr_idx[1:] - csr_idx[:-1], dim=0)
+
+        # Compute compatibility scores : V x num_groups
+        keys_per_group = keys.reshape(
+            keys.shape[0], self.num_groups, self.nc_qk)
+        queries_per_group = queries.reshape(
+            queries.shape[0], self.num_groups, self.nc_qk)
+        compatibilities = (keys_per_group * queries_per_group).sum(dim=2)
 
         # Optionally scale compatibilities by the number of key features
         if self.dim_scaling:
-            compatibilities = compatibilities / math.sqrt(keys.shape[1])
+            compatibilities = compatibilities / math.sqrt(self.nc_qk)
 
-        # Compute attentions : V
+        # Compute attention scores : V x num_groups
         attentions = segment_softmax_csr(
             compatibilities, csr_idx, scaling=self.group_scaling)
 
-        # Compute attention-weighted modality features : P x F_mod
+        # Apply attention scores : P x F_mod
         x_pool = segment_csr(
-            x_mod * attentions.view(-1, 1), csr_idx, reduce='sum')
+            x_mod * expand_group_feat(attentions, self.num_groups, self.in_mod),
+            csr_idx, reduce='sum')
 
         if self.G:
-            # Compute pointwise gating : P
+            # Compute pointwise gating for each group : P x num_groups
             gating = self.G(segment_csr(
-                compatibilities, csr_idx, reduce='max').view(-1, 1))
+                compatibilities, csr_idx, reduce='max'))
 
             # Apply gating to the features : P x F_mod
-            x_pool = x_pool * gating.view(-1, 1)
+            x_pool = x_pool * expand_group_feat(
+                gating, self.num_groups, self.in_mod)
 
         # Compute the boolean mask of seen points
         x_seen = csr_idx[1:] > csr_idx[:-1]

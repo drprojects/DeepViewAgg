@@ -293,12 +293,12 @@ class UnimodalBranch(nn.Module, ABC):
         # Atomic pooling of the modality features on each
         # separate setting
         if has_multi_setting:
-            x_mod = [self.atomic_pool(x_3d, x, None, a_idx)[0]
-                     for x, a_idx
-                     in zip(x_mod, mod_data.atomic_csr_indexing)]
+            x_mod = [
+                self.atomic_pool(x_3d, x, None, a_idx)[0]
+                for x, a_idx in zip(x_mod, mod_data.atomic_csr_indexing)]
         else:
-            x_mod = self.atomic_pool(x_3d, x_mod, None,
-                                     mod_data.atomic_csr_indexing)[0]
+            x_mod = self.atomic_pool(
+                x_3d, x_mod, None, mod_data.atomic_csr_indexing)[0]
 
         # For multi-setting data, concatenate view-level features from
         # each input modality setting and sort them to a CSR-friendly

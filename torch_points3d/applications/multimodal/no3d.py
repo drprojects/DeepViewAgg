@@ -67,12 +67,13 @@ class No3DEncoder(BackboneBasedModel, ABC):
         -----------
         data: MMData object
         """
+        data = data.to(self.device)
         self.input = {
-            'x_3d': None,
+            'x_3d': getattr(data, 'x', None),
             'x_seen': None,
-            'modalities': data.to(self.device).modalities}
+            'modalities': data.modalities}
         if data.pos is not None:
-            self.xyz = data.to(self.device).pos
+            self.xyz = data.pos
 
     def forward(self, data, *args, **kwargs):
         """Run forward pass. Expects a MMData object for input, with
