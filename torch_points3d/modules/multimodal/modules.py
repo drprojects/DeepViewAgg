@@ -5,6 +5,7 @@ import torch.nn as nn
 from torch_points3d.core.multimodal.data import MODALITY_NAMES
 from torch_points3d.core.common_modules.base_modules import Identity, \
     BaseModule
+from torch_points3d.modules.multimodal.dropout import ModalityDropout
 from torchsparse.nn.functional import sphash, sphashquery
 import torch_scatter
 
@@ -241,16 +242,17 @@ class UnimodalBranch(nn.Module, ABC):
 
     def __init__(
             self, conv, atomic_pool, view_pool, fusion, drop_3d=0, drop_mod=0,
-            keep_last_view=False):
+            hard_drop=False, keep_last_view=False):
         super(UnimodalBranch, self).__init__()
         self.conv = conv
         self.atomic_pool = atomic_pool
         self.view_pool = view_pool
         self.fusion = fusion
-        self.drop_3d = nn.Dropout(p=drop_3d, inplace=False) \
+        drop_cls = ModalityDropout if hard_drop else nn.Dropout
+        self.drop_3d = drop_cls(p=drop_3d, inplace=False) \
             if drop_3d is not None and drop_3d > 0 \
             else None
-        self.drop_mod = nn.Dropout(p=drop_mod, inplace=True) \
+        self.drop_mod = drop_cls(p=drop_mod, inplace=True) \
             if drop_mod is not None and drop_mod > 0 \
             else None
         self.keep_last_view = keep_last_view
