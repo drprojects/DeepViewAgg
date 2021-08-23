@@ -4655,6 +4655,6 @@ XYZ-RGB-L4-late-QKV:
                     fusion: concatenation
                 fusion:
                     module_name: BimodalFusion
-                    mode: residual
+                    mode: modality
                 drop_mod: 0.1
                 branching_index: 0
