@@ -2927,7 +2927,7 @@ XYZ-RGB-L4-L0:
 
             image:
                 down_conv:
-                    module_name: ResNet18TruncatedLayer4
+                    module_name:ADE20KResNet18TruncatedLayer4
                     frozen: False
                 atomic_pooling:
                     module_name: BimodalCSRPool
@@ -3002,7 +3002,7 @@ XYZ-RGB-L4-L1:
 
             image:
                 down_conv:
-                    module_name: ResNet18TruncatedLayer4
+                    module_name:ADE20KResNet18TruncatedLayer4
                     frozen: False
                 atomic_pooling:
                     module_name: BimodalCSRPool
@@ -3077,7 +3077,7 @@ XYZ-RGB-L4-L2:
 
             image:
                 down_conv:
-                    module_name: ResNet18TruncatedLayer4
+                    module_name:ADE20KResNet18TruncatedLayer4
                     frozen: False
                 atomic_pooling:
                     module_name: BimodalCSRPool
@@ -3152,7 +3152,7 @@ XYZ-RGB-L4-L3:
 
             image:
                 down_conv:
-                    module_name: ResNet18TruncatedLayer4
+                    module_name:ADE20KResNet18TruncatedLayer4
                     frozen: False
                 atomic_pooling:
                     module_name: BimodalCSRPool
@@ -3227,7 +3227,7 @@ XYZ-RGB-L4-L4:
 
             image:
                 down_conv:
-                    module_name: ResNet18TruncatedLayer4
+                    module_name:ADE20KResNet18TruncatedLayer4
                     frozen: False
                 atomic_pooling:
                     module_name: BimodalCSRPool
@@ -3302,7 +3302,7 @@ XYZ-RGB-L4-L5:
 
             image:
                 down_conv:
-                    module_name: ResNet18TruncatedLayer4
+                    module_name:ADE20KResNet18TruncatedLayer4
                     frozen: False
                 atomic_pooling:
                     module_name: BimodalCSRPool
@@ -4511,4 +4511,80 @@ XYZ-RGB-L4-late:
                     mode: residual
                 drop_mod: 0.1
                 branching_index: 0
+
+XYZ-RGB-L4-L0_pool-inner-64:
+    # 28.1 M params - 109.4 Mo on the GPU - ~2.7 ko/pixel at training time
+    class: sparseconv3d.APIModel
+    conv_type: "SPARSE"
+    backend: "torchsparse"
+    backbone: # backbone offset specific for Sparse conv application builder
+        define_constants:
+            in_feat: 32
+            in_feat_img: 4
+            in_feat_map: 8
+            in_feat_attention: 4
+            block: ResBlock # Can be any of the blocks in modules/MinkowskiEngine/api_modules.py
+            out_feat_img_0: 512  # out dim of ResNet18Layer4
+
+        down_conv:
+            module_name: ResNetDown
+            block: block
+            N: [ 0,0,  0,2,  0,2,  0,2,  0,2 ]
+            kernel_size: [ 3,3,  2,3,  2,3,  2,3,  2,3 ]
+            stride: [ 1,1,  2,1,  2,1,  2,1,  2,1 ]
+            down_conv_nn:
+              [
+                  [ FEAT + out_feat_img_0, in_feat ],
+                  [ in_feat , in_feat ],
+
+                  [ in_feat, in_feat ],
+                  [ in_feat, in_feat ],
+
+                  [ in_feat, 2*in_feat ],
+                  [ 2*in_feat, 2*in_feat ],
+
+                  [ 2*in_feat, 4*in_feat ],
+                  [ 4*in_feat, 4*in_feat ],
+
+                  [ 4*in_feat, 8*in_feat ],
+                  [ 8*in_feat, 8*in_feat ],
+              ]
+
+            image:
+                down_conv:
+                    module_name:ADE20KResNet18TruncatedLayer4
+                    frozen: False
+                atomic_pooling:
+                    module_name: BimodalCSRPool
+                    mode: max
+                view_pooling:
+                    module_name: GroupBimodalCSRPool
+                    in_map: 8
+                    in_mod: out_feat_img_0
+                    num_groups: 4
+                    use_mod: False
+                    map_encoder: DeepSetFeat
+                    use_num: True
+                    nc_inner: 64
+                fusion:
+                    module_name: BimodalFusion
+                    mode: concatenation
+                drop_3d: None
+                drop_mod: None
+                branching_index: 0
+
+        up_conv:
+            block: block
+            module_name: ResNetUp
+            N: [ 1, 1, 1, 1, 1 ]
+            kernel_size: [ 2, 2, 2, 2, 3 ]
+            stride: [ 2, 2, 2, 2, 1 ]
+            up_conv_nn:
+              [
+                  [ 8*in_feat, 4*in_feat, 4*in_feat ],
+                  [ 4*in_feat, 2*in_feat, 3*in_feat ],
+                  [ 3*in_feat, in_feat, 2*in_feat ],
+                  [ 2*in_feat, in_feat, in_feat ],
+                  [ in_feat, 0, in_feat ],
+              ]
 

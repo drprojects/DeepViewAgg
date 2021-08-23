@@ -204,12 +204,12 @@ class GroupBimodalCSRPool(nn.Module, ABC):
 
     def __init__(
             self, in_map=None, in_mod=None, num_groups=None, use_mod=False,
-            gating=True, group_scaling=True, save_last=False,
+            gating=True, group_scaling=True, save_last=False, nc_inner=32,
             map_encoder='DeepSetFeat', **kwargs):
         super(GroupBimodalCSRPool, self).__init__()
 
         # Default output feature size used for embeddings
-        self.NC_OUT = 32
+        self.nc_inner = nc_inner
 
         # Optional mechanism to keep track of the outputs for debugging
         # or view-wise loss
@@ -233,7 +233,7 @@ class GroupBimodalCSRPool(nn.Module, ABC):
         self.group_scaling = group_scaling
 
         # E_map embeds raw handcrafted mapping features
-        out_map = self.NC_OUT
+        out_map = self.nc_inner
         E_map_cls = getattr(_local_modules, map_encoder)
         self.E_map = E_map_cls(in_map, out_map, **kwargs)
 
@@ -245,14 +245,14 @@ class GroupBimodalCSRPool(nn.Module, ABC):
         # mapping features from E_map in case use_mod=True
         if self.use_mod:
             in_mix = out_map + in_mod
-            out_mix = self.NC_OUT
+            out_mix = self.nc_inner
             mid_mix = nearest_power_of_2((in_mix + out_mix) / 2, out_mix * 2)
             self.E_mix = MLP([in_mix, mid_mix, out_mix], bias=False)
 
         # E_score computes the compatibility score for each feature
         # group, these are to be further normalized to produce
         # final attention scores
-        self.E_score = nn.Linear(self.NC_OUT, num_groups, bias=True)
+        self.E_score = nn.Linear(self.nc_inner, num_groups, bias=True)
 
         # Optional gating mechanism
         self.G = Gating(num_groups, bias=True) if gating else None
@@ -322,7 +322,7 @@ class GroupBimodalCSRPool(nn.Module, ABC):
         return "\n".join([f'{a}={getattr(self, a)}' for a in repr_attr])
 
 
-class AttentiveBimodalCSRPool(nn.Module, ABC):
+class QKVBimodalCSRPool(nn.Module, ABC):
     """Bimodal pooling modules select and combine information from a
     modality to prepare its fusion into the main modality.
 
@@ -374,7 +374,7 @@ class AttentiveBimodalCSRPool(nn.Module, ABC):
             self, in_main=None, in_map=None, in_mod=None, in_score=None,
             gating=True, dim_scaling=True, group_scaling=False, debug=False,
             save_last=False, map_encoder='DeepSetFeat', **kwargs):
-        super(AttentiveBimodalCSRPool, self).__init__()
+        super(QKVBimodalCSRPool, self).__init__()
 
         # Optional mechanism to keep track of the outputs for debugging
         # or view-wise loss
