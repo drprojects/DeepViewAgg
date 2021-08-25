@@ -306,13 +306,10 @@ class GroupBimodalCSRPool(nn.Module, ABC):
                 csr_idx.shape[0] - 1, device=x_map.device).repeat_interleave(
                 csr_idx[1:] - csr_idx[:-1])
             self._last_view_num = csr_idx[1:] - csr_idx[:-1]
-            self._last_C = expand_group_feat(
-                compatibilities, self.num_groups, self.in_mod)
-            self._last_A = expand_group_feat(
-                attentions, self.num_groups, self.in_mod)
+            self._last_C = compatibilities
+            self._last_A = attentions
             if self.G:
-                self._last_G = expand_group_feat(
-                    gating, self.num_groups, self.in_mod)
+                self._last_G = gating
 
         return x_pool, x_seen
 
