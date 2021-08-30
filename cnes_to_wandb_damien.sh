@@ -8,6 +8,7 @@ folder=scratch/wandb/segmentation/multimodal/s3disfused/3d_2d/sparse/no_pixel_he
 exp=____
 
 # Print results even when not finished
+ll -t $folder
 cat ~/$folder/$exp/wandb/dry*/output.log | grep "\(test_miou =\)\|\(val_miou =\)\|\(EPOCH \)"
 tail -30 ~/$folder/$exp/wandb/dry*/output.log
 
