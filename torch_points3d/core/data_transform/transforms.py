@@ -76,7 +76,8 @@ class PointCloudFusion(object):
             return Data()
         data = Batch.from_data_list(data_list)
         delattr(data, "batch")
-        delattr(data, "ptr")
+        if hasattr(object, "ptr"):
+            delattr(object, "ptr")
         return data
 
     def __call__(self, data_list: List[Data]):
