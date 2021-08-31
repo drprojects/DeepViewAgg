@@ -304,6 +304,31 @@ class NormalFeature(object):
         return data
 
 
+def batch_pca(xyz):
+    """
+    Compute the PCA of a batch of point clouds of size (*, N, M).
+    """
+    assert 2 <= xyz.dim() <= 3
+    xyz = xyz.unsqueeze(0) if xyz.dim() == 2 else xyz
+
+    pos_centered = xyz - xyz.mean(dim=1).unsqueeze(1)
+    cov_matrix = pos_centered.transpose(1, 2).bmm(pos_centered) / pos_centered.shape[1]
+    eval, evec = torch.symeig(cov_matrix, eigenvectors=True)
+
+    # If Nan values are computed, return equal eigenvalues and
+    # Identity eigenvectors
+    idx_nan = torch.where(torch.logical_and(
+        eval.isnan().any(1), evec.flatten(1).isnan().any(1)))
+    eval[idx_nan] = torch.ones(3, dtype=eval.dtype, device=xyz.device)
+    evec[idx_nan] = torch.eye(3, dtype=evec.dtype, device=xyz.device)
+
+    # Precision errors may cause close-to-zero eigenvalues to be
+    # negative. Hard-code these to zero
+    eval[torch.where(eval < 0)] = 0
+
+    return eval, evec
+
+
 class PCACompute(object):
     r"""
     compute `Principal Component Analysis <https://en.wikipedia.org/wiki/Principal_component_analysis>`__ of a point cloud :math:`x_1,\dots, x_n`.
@@ -323,44 +348,13 @@ class PCACompute(object):
     """
 
     def __call__(self, data):
-        pos_centered = data.pos - data.pos.mean(axis=0)
-        cov_matrix = pos_centered.T.mm(pos_centered) / len(pos_centered)
-        eig, v = torch.symeig(cov_matrix, eigenvectors=True)
-        
-        # If Nan values are computed, return equal eigenvalues and 
-        # Identity eigenvectors
-        if torch.any(torch.isnan(eig)) or torch.any(torch.isnan(v)):
-            print("NaN values found in PCACompute results. Falling back to "
-                  "default eigendecomposition results.")
-            eig = torch.ones(3)
-            v = torch.eye(3)
-            
-        # Precision errors may cause close-to-zero eigenvalues to be 
-        # negative. Hard-code these to zero
-        eig[torch.where(eig < 0)] = 0
-        
-        data.eigenvalues = eig
-        data.eigenvectors = v
+        eval, evec = batch_pca(data.pos)
+        data.eigenvalues = eval.squeeze(0)
+        data.eigenvectors = evec.squeeze(0)
         return data
 
     def __repr__(self):
         return "{}()".format(self.__class__.__name__)
-
-
-def run_pca(neighbors, xyz):
-    pca = PCACompute()
-    eigenvalues = []
-    eigenvectors = []
-    for idx in neighbors:
-        # PCA on the local neighborhood
-        res = pca(Data(pos=xyz[idx]))
-        # Eigenvalues are assumed to be sorted in ascending order
-        eigenvalues.append(res.eigenvalues.unsqueeze(0))
-        # Eigenvectors are assumed to be unit-normalized
-        eigenvectors.append(res.eigenvectors.T.flatten().unsqueeze(0))
-    eigenvalues = torch.cat(eigenvalues, dim=0)
-    eigenvectors = torch.cat(eigenvectors, dim=0)
-    return eigenvalues, eigenvectors
 
 
 class PCAComputePointwise(object):
@@ -402,16 +396,15 @@ class PCAComputePointwise(object):
 
     def __init__(
             self, num_neighbors=40, r=None, use_full_pos=False, use_cuda=False,
-            workers=None, use_faiss=False, ncells=None, nprobes=10):
+            use_faiss=True, ncells=None, nprobes=10, chunk_size=1000000):
         self.num_neighbors = num_neighbors
         self.r = r
         self.use_full_pos = use_full_pos
-        self.workers = int(workers) if workers is not None and workers >= 2 \
-            else 0
         self.use_cuda = use_cuda and torch.cuda.is_available()
         self.use_faiss = use_faiss and self.use_cuda
         self.ncells = ncells
         self.nprobes = nprobes
+        self.chunk_size = chunk_size
 
     def _process(self, data: Data):
         assert getattr(data, 'pos', None) is not None, \
@@ -426,9 +419,8 @@ class PCAComputePointwise(object):
         xyz_search = data.full_pos if self.use_full_pos else data.pos
 
         # Move computation to CUDA if required
-        restore_input_cpu = False
+        input_device = xyz_query.device
         if self.use_cuda and not xyz_query.is_cuda and not self.use_faiss:
-            restore_input_cpu = True
             xyz_query = xyz_query.cuda()
             xyz_search = xyz_search.cuda()
 
@@ -461,28 +453,23 @@ class PCAComputePointwise(object):
 
         print('    computing eigenvalues...')
         # Compute PCA for each neighborhood
-        if self.workers < 2:
-            eigenvalues, eigenvectors = run_pca(neighbors, xyz=xyz_search)
-
-        else:
-            parallel_pca = functools.partial(run_pca, xyz=xyz_search)
-            chunk_size = math.ceil(neighbors.shape[0] / self.workers)
-            chunks = [
-                neighbors[i * chunk_size: (i + 1) * chunk_size]
-                for i in range(self.workers)]
-            out = Parallel(n_jobs=self.workers)(
-                delayed(parallel_pca)(chunk) for chunk in chunks)
-            eigenvalues, eigenvectors = [
-                torch.cat(x, dim=0) for x in list(zip(*out))]
-
-        # Restore to CPU if need be
-        if restore_input_cpu:
-            eigenvalues = eigenvalues.cpu()
-            eigenvectors = eigenvectors.cpu()
+        # Note: this is surprisingly slow on GPU, so better run on CPU
+        eigenvalues = []
+        eigenvectors = []
+        n_chunks = math.ceil(neighbors.shape[0] / self.chunk_size)
+        for i in range(n_chunks):
+            xyz_neigh_batch = xyz_search[
+                neighbors[i * self.chunk_size: (i + 1) * self.chunk_size]]
+            eval, evec = batch_pca(xyz_neigh_batch.cpu())
+            evec = evec.transpose(2, 1).flatten(1)
+            eigenvalues.append(eval)
+            eigenvectors.append(evec)
+        eigenvalues = torch.cat(eigenvalues, dim=0)
+        eigenvectors = torch.cat(eigenvectors, dim=0)
 
         # Save eigendecomposition results in data attributes
-        data.eigenvalues = eigenvalues
-        data.eigenvectors = eigenvectors
+        data.eigenvalues = eigenvalues.to(input_device)
+        data.eigenvectors = eigenvectors.to(input_device)
 
         print('    done')
 
