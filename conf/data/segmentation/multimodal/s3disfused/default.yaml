@@ -22,17 +22,17 @@ pre_collate_transform:
     - transform: GridSampling3D    # Samples on a grid
       params:
             size: ${data.first_subsampling}
-            setattr_full_pos: True  # Required to keep the full-resolution points for later local features computation
+            # setattr_full_pos: True  # Required to keep the full-resolution points for later local features computation
     - transform: SaveOriginalPosId    # Required so that one can recover the multimodal mappings after the transforms
       params:
             key: ${data.multimodal.settings.mapping_key}
     - transform: PCAComputePointwise
       params:
             num_neighbors: 50  # heuristic: at least 30
-            r: 0.1  # heuristic: 2 * voxel
-            use_full_pos: True
+            # r: 0.1  # heuristic: 2 * voxel  -  NB: using r will force CPU computation
+            # use_full_pos: True  # use if GridSampling3D.setattr_full_pos = True
             use_cuda: True
-            #workers: 6  # careful with your RAM usage
+            # workers: 6  # careful with your RAM usage
     - transform: EigenFeatures
       params:
             norm: True
@@ -41,7 +41,8 @@ pre_collate_transform:
             scattering: True
     - transform: RemoveAttributes
       params:
-            attr_names: [full_pos, eigenvalues, eigenvectors]
+            # attr_names: [full_pos, eigenvalues, eigenvectors]
+            attr_names: [eigenvalues, eigenvectors]
 
 multimodal:  # Each modality must be inserted in a dedicated 'multimodal' section
 
