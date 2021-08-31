@@ -34,7 +34,7 @@ pre_collate_transform:
             use_cuda: True
             use_faiss: True
             nprobes: 10
-             workers: 3  # careful with your RAM usage
+            # workers: 6  # careful with your RAM usage
     - transform: EigenFeatures
       params:
             norm: True
