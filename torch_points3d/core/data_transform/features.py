@@ -24,7 +24,7 @@ from torch_points3d.utils.config import is_list
 from torch_points3d.utils import is_iterable
 from torch_points3d.utils.geometry import euler_angles_to_rotation_matrix
 from torch_points3d.core.spatial_ops.neighbour_finder import \
-    RadiusNeighbourFinder
+    RadiusNeighbourFinder, FAISSGPUKNNNeighbourFinder
 
 
 class Random3AxisRotation(object):
@@ -402,13 +402,16 @@ class PCAComputePointwise(object):
 
     def __init__(
             self, num_neighbors=40, r=None, use_full_pos=False, use_cuda=False,
-            workers=None):
+            workers=None, use_faiss=False, ncells=None, nprobes=10):
         self.num_neighbors = num_neighbors
         self.r = r
         self.use_full_pos = use_full_pos
         self.workers = int(workers) if workers is not None and workers >= 2 \
             else 0
         self.use_cuda = use_cuda and torch.cuda.is_available()
+        self.use_faiss = use_faiss and self.use_cuda
+        self.ncells = ncells
+        self.nprobes = nprobes
 
     def _process(self, data: Data):
         assert getattr(data, 'pos', None) is not None, \
@@ -417,19 +420,31 @@ class PCAComputePointwise(object):
                or getattr(data, 'full_pos', None) is not None, \
             "Data must contain a 'full_pos' attribute."
 
+        print('    computing neighbors...')
         # Recover the query and search clouds
         xyz_query = data.pos
         xyz_search = data.full_pos if self.use_full_pos else data.pos
 
         # Move computation to CUDA if required
         restore_input_cpu = False
-        if self.use_cuda and not xyz_query.is_cuda:
+        if self.use_cuda and not xyz_query.is_cuda and not self.use_faiss:
             restore_input_cpu = True
             xyz_query = xyz_query.cuda()
             xyz_search = xyz_search.cuda()
 
         # Compute the neighborhoods
-        if self.r is None:
+        if self.r is not None:
+            # Radius-NN search with torch_points_kernel
+            sampler = RadiusNeighbourFinder(
+                self.r, self.num_neighbors, conv_type='DENSE')
+            neighbors = sampler.find_neighbours(
+                xyz_search.unsqueeze(0), xyz_query.unsqueeze(0))[0]
+        elif self.use_faiss:
+            # K-NN search with FAISS
+            nn_finder = FAISSGPUKNNNeighbourFinder(
+                self.num_neighbors, ncells=self.ncells, nprobes=self.nprobes)
+            neighbors = nn_finder(xyz_search, xyz_query, None, None)
+        else:
             # K-NN search with KeOps. If the number of points is greater
             # than 16 millions, KeOps requires double precision.
             if xyz_search.shape[0] > 1.6e7:
@@ -443,20 +458,14 @@ class PCAComputePointwise(object):
             # raise NotImplementedError(
             #     "Fast K-NN search has not been implemented yet. Please "
             #     "consider using radius search instead.")
-        else:
-            # Radius-NN search with torch_points_kernel
-            sampler = RadiusNeighbourFinder(
-                self.r, self.num_neighbors, conv_type='DENSE')
-            neighbors = sampler.find_neighbours(
-                xyz_search.unsqueeze(0), xyz_query.unsqueeze(0))[0]
 
+        print('    computing eigenvalues...')
         # Compute PCA for each neighborhood
         if self.workers < 2:
             eigenvalues, eigenvectors = run_pca(neighbors, xyz=xyz_search)
 
         else:
             parallel_pca = functools.partial(run_pca, xyz=xyz_search)
-
             chunk_size = math.ceil(neighbors.shape[0] / self.workers)
             chunks = [
                 neighbors[i * chunk_size: (i + 1) * chunk_size]
@@ -474,6 +483,8 @@ class PCAComputePointwise(object):
         # Save eigendecomposition results in data attributes
         data.eigenvalues = eigenvalues
         data.eigenvectors = eigenvectors
+
+        print('    done')
 
         return data
 

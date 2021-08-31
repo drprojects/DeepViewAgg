@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import List, Union, cast
 import torch
+import numpy as np
+import faiss
 from torch_geometric.nn import knn, radius
 import torch_points_kernels as tp
 
@@ -45,6 +47,83 @@ class KNNNeighbourFinder(BaseNeighbourFinder):
 
     def find_neighbours(self, x, y, batch_x, batch_y):
         return knn(x, y, self.k, batch_x, batch_y)
+
+
+class FAISSGPUKNNNeighbourFinder(BaseNeighbourFinder):
+    def __init__(self, k, ncells=None, nprobes=10):
+        """
+        KNN on GPU with Facebook AI Similarity Search.
+
+        Allows fast computation of KNN based on a voronoi-based division
+        of search space and using GPU. Can be faster than sklearn under
+        certain conditions:
+            - k < 1024
+            - nprobes < 1024
+            - ncells tuned to training set size, typically with
+            sqrt-like rule
+
+        ncells controls the number of Voronoi cells created to divide
+        the search space. These are built with k-means on the training
+        set and act as the leaves of a kdtree. A heuristic was built to
+        meet needs of two regimes, one for 'small' datasets of <10**7
+        points and the other for 'larger' datasets of >10**7 points.
+        ncells may not be optimal for any dataset, this does not affect
+        accuracy much, but does affect speed.
+
+        nprobes controls the number of cells visited during search. The
+        larger, the slower but also the more accurate the neighbors.
+
+        setting nprobes=1 is faster but causes erroneous neighborhoods
+        at Voronoi cells boundaries.
+        """
+        self.k = k
+        self.ncells = ncells
+        self.nprobes = nprobes
+
+    def find_neighbours(self, x, y, batch_x, batch_y):
+        if batch_x is not None or batch_y is not None:
+            raise NotImplementedError(
+                "FAISSGPUKNNNeighbourFinder does not support batches yet")
+
+        x = x.view(-1, 1) if x.dim() == 1 else x
+        y = y.view(-1, 1) if y.dim() == 1 else y
+        x, y = x.contiguous(), y.contiguous()
+
+        # FAISS-GPU consumes numpy arrays
+        x_np = x.cpu().numpy()
+        y_np = y.cpu().numpy()
+
+        # Initialization
+        n_fit = x_np.shape[0]
+        d = x_np.shape[1]
+        nprobe = self.nprobes
+        gpu = faiss.StandardGpuResources()
+
+        # Heuristics to prevent k from being too large
+        k_max = 1024
+        k = min(self.k, n_fit, k_max)
+
+        # Heuristic to parameterize the number of cells for FAISS index,
+        # if not provided
+        ncells = self.ncells
+        if ncells is None:
+            f1 = 3.5 * np.sqrt(n_fit)
+            f2 = 1.6 * np.sqrt(n_fit)
+            p = 1 / (1 + np.exp(2 * 10 ** 6 - n_fit))
+            ncells = int(p * f1 + (1 - p) * f2)
+
+        # Building a GPU IVFFlat index + Flat quantizer
+        torch.cuda.empty_cache()
+        quantizer = faiss.IndexFlatL2(d)  # the quantizer index
+        index = faiss.IndexIVFFlat(quantizer, d, ncells, faiss.METRIC_L2)  # the main index
+        gpu_index_flat = faiss.index_cpu_to_gpu(gpu, 0, index)  # pass index it to GPU
+        gpu_index_flat.train(x_np)  # fit the cells to the training set distribution
+        gpu_index_flat.add(x_np)
+
+        # Querying the K-NN
+        gpu_index_flat.setNumProbes(nprobe)
+        return torch.LongTensor(
+            gpu_index_flat.search(y_np, k)[1], device=x.device)
 
 
 class DilatedKNNNeighbourFinder(BaseNeighbourFinder):

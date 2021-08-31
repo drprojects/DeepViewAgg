@@ -54,4 +54,7 @@ pip install --upgrade git+https://github.com/mit-han-lab/torchsparse.git
 conda install jupyterlab "ipywidgets=7.5"
 jupyter labextension install @jupyter-widgets/jupyterlab-manager plotlywidget@4.14.1
 
+# Install FAISS
+conda install -c conda-forge faiss-gpu=1.6.5
+
 ### Make tp3d_dev kernel accessible on jupyterlab
