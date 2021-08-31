@@ -33,8 +33,8 @@ pre_collate_transform:
             # use_full_pos: True  # Possible if GridSampling3D.setattr_full_pos = True
             use_cuda: True
             use_faiss: True
-            nprobes: 1
-            # workers: 6  # careful with your RAM usage
+            nprobes: 10
+             workers: 3  # careful with your RAM usage
     - transform: EigenFeatures
       params:
             norm: True
