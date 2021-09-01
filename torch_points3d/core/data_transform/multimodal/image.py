@@ -4,6 +4,8 @@ import numpy as np
 import torch_scatter
 from torch_geometric.data import Data
 from torch_points3d.core.data_transform import SphereSampling
+from torch_points3d.core.spatial_ops.neighbour_finder import \
+    FAISSGPUKNNNeighbourFinder
 from torch_points3d.core.multimodal.data import MAPPING_KEY
 from torch_points3d.core.multimodal.image import SameSettingImageData, \
     ImageMapping, ImageData
@@ -165,8 +167,9 @@ class MapImages(ImageTransform):
 
     def __init__(
             self, method='SplattingVisibility', proj_upscale=None,
-            ref_size=None, use_cuda=False, **kwargs):
+            ref_size=None, use_cuda=False, verbose=False, **kwargs):
         self.key = MAPPING_KEY
+        self.verbose = verbose
 
         # Image internal state parameters
         self.ref_size = ref_size
@@ -219,10 +222,13 @@ class MapImages(ImageTransform):
         # Project each image and gather the point-pixel mappings
         print("    MapImages...")
         for i_image, image in tq(enumerate(images)):
+            print(f'    {torch.cuda.memory_allocated(0)}')
             # Subsample the surrounding point cloud
+            torch.cuda.synchronize()
             start = time()
             sampler = SphereSampling(visi.r_max, image.pos, align_origin=False)
             data_sample = sampler(data)
+            torch.cuda.synchronize()
             t_sphere_sampling += time() - start
 
             # Prepare the visibility model input parameters
@@ -265,6 +271,7 @@ class MapImages(ImageTransform):
             pix_y_ = out_vm['y'].long()
             features_ = out_vm['features'].float()
             del out_vm
+            torch.cuda.synchronize()
             t_visibility += time() - start
 
             # Convert to SameSettingImageData coordinate system with
@@ -285,6 +292,7 @@ class MapImages(ImageTransform):
             pix_x_ = (pix_x_ // image.downscale).long()
             pix_y_ = (pix_y_ // image.downscale).long()
             del in_crop
+            torch.cuda.synchronize()
             t_coord_pixels += time() - start
 
             # Remove duplicate id-xy after image resizing
@@ -296,6 +304,7 @@ class MapImages(ImageTransform):
             point_ids_ = point_ids_[unique_idx]
             features_ = features_[unique_idx]
             del unique_idx
+            torch.cuda.synchronize()
             t_unique_pixels += time() - start
 
             # Cast pixel coordinates to a dtype minimizing memory use
@@ -303,6 +312,7 @@ class MapImages(ImageTransform):
             pixels_ = torch.stack((pix_x_, pix_y_), dim=1).type(
                 image.pixel_dtype)
             del pix_x_, pix_y_
+            torch.cuda.synchronize()
             t_stack_pixels += time() - start
 
             # Gather per-image mappings in list structures, only to be
@@ -313,15 +323,17 @@ class MapImages(ImageTransform):
             features.append(features_)
             pixels.append(pixels_)
             del pixels_, features_, point_ids_
+            torch.cuda.synchronize()
             t_append += time() - start
 
-        print(f"    Cumulated times")
-        print(f"        t_sphere_sampling: {t_sphere_sampling:0.3f}")
-        print(f"        t_visibility: {t_visibility:0.3f}")
-        print(f"        t_coord_pixels: {t_coord_pixels:0.3f}")
-        print(f"        t_unique_pixels: {t_unique_pixels:0.3f}")
-        print(f"        t_stack_pixels: {t_stack_pixels:0.3f}")
-        print(f"        t_append: {t_append:0.3f}")
+        if self.verbose:
+            print(f"    Cumulated times")
+            print(f"        t_sphere_sampling: {t_sphere_sampling:0.3f}")
+            print(f"        t_visibility: {t_visibility:0.3f}")
+            print(f"        t_coord_pixels: {t_coord_pixels:0.3f}")
+            print(f"        t_unique_pixels: {t_unique_pixels:0.3f}")
+            print(f"        t_stack_pixels: {t_stack_pixels:0.3f}")
+            print(f"        t_append: {t_append:0.3f}")
 
         # Drop the KD-tree attribute saved in data by the SphereSampling
         delattr(data, SphereSampling.KDTREE_KEY)
@@ -339,9 +351,9 @@ class MapImages(ImageTransform):
                 "transformation.")
 
         # Reindex seen images
-        # We want all images present in the mappings and in SameSettingImageData to
-        # have been seen. If an image has not been seen, we remove it
-        # here.
+        # We want all images present in the mappings and in
+        # SameSettingImageData to have been seen. If an image has not
+        # been seen, we remove it here.
         # NB: The reindexing here relies on the fact that `unique`
         #  values are expected to be returned sorted.
         start = time()
@@ -349,7 +361,9 @@ class MapImages(ImageTransform):
         images = images[seen_image_ids]
         image_ids = torch.bucketize(image_ids, seen_image_ids)
         del seen_image_ids
-        print(f"        t_index_image_data: {time() - start:0.3f}")
+        if self.verbose:
+            torch.cuda.synchronize()
+            print(f"        t_index_image_data: {time() - start:0.3f}")
 
         # Concatenate mappings data
         start = time()
@@ -357,16 +371,22 @@ class MapImages(ImageTransform):
             image_ids,
             torch.LongTensor([x.shape[0] for x in point_ids]).to(device))
         point_ids = torch.cat(point_ids)
-        features = torch.cat(features)
         pixels = torch.cat(pixels)
-        print(f"        t_concat_dense_mappings_data: {time() - start:0.3f}")
+        # Cat on the features may blow up GPU memory, so do it on CPU
+        features = torch.cat([f.cpu() for f in features]).to(device)
+        if self.verbose:
+            torch.cuda.synchronize()
+            print(f"        t_concat_dense_mappings_data: {time() - start:0.3f}")
 
         start = time()
         mappings = ImageMapping.from_dense(
             point_ids, image_ids, pixels, features,
             num_points=getattr(data, self.key).numpy().max() + 1)
-        print(f"        t_ImageMapping_init: {time() - start:0.3f}\n")
-        print()
+        del point_ids, image_ids, pixels, features
+        if self.verbose:
+            torch.cuda.synchronize()
+            print(f"        t_ImageMapping_init: {time() - start:0.3f}\n")
+            print()
 
         # Save the mappings and visibility model in the
         # SameSettingImageData
@@ -412,13 +432,19 @@ class NeighborhoodBasedMappingFeatures(ImageTransform):
         If True, the computation will be carried on CUDA.
     """
 
-    def __init__(self, k=20, voxel=None, density=True, occlusion=True,
-                 use_cuda=False):
+    def __init__(
+            self, k=20, voxel=None, density=True, occlusion=True,
+            use_cuda=False, use_faiss=True, ncells=None, nprobes=10,
+            verbose=False):
         self.k_list = sorted(k) if isinstance(k, list) else [k]
         self.voxel = voxel if voxel is not None else 1
         self.compute_density = density
         self.compute_occlusion = occlusion
+        self.use_faiss = use_faiss and torch.cuda.is_available()
         self.use_cuda = use_cuda and torch.cuda.is_available()
+        self.ncells = ncells
+        self.nprobes = nprobes
+        self.verbose = verbose
         assert density or occlusion, \
             "At least one of `density` or `occlusion` must be True."
 
@@ -431,24 +457,34 @@ class NeighborhoodBasedMappingFeatures(ImageTransform):
         # Initialize the input-output device and the device on which
         # heavy computation should be performed
         in_device = images.device
-        device = 'cuda' if self.use_cuda else in_device
+        device = 'cuda' if self.use_cuda or self.use_faiss else in_device
 
         # Recover 3D points positions
         xyz = data.pos.to(device)
 
-        # K-NN search with KeOps
-        xyz_query_keops = LazyTensor(xyz[:, None, :])
-        xyz_search_keops = LazyTensor(xyz[None, :, :])
-        d_keops = ((xyz_query_keops - xyz_search_keops) ** 2).sum(dim=2)
-        neighbors = d_keops.argKmin(self.k_list[-1], dim=1)
-        del xyz_query_keops, xyz_search_keops, d_keops
+        # K-NN search
+        if self.verbose:
+            print(f"        KNN search...")
+        if self.use_faiss:
+            # K-NN search with FAISS
+            nn_finder = FAISSGPUKNNNeighbourFinder(
+                self.k_list[-1], ncells=self.ncells, nprobes=self.nprobes)
+            neighbors = nn_finder(xyz, xyz, None, None)
+        else:
+            # K-NN search with KeOps
+            xyz_query_keops = LazyTensor(xyz[:, None, :])
+            xyz_search_keops = LazyTensor(xyz[None, :, :])
+            d_keops = ((xyz_query_keops - xyz_search_keops) ** 2).sum(dim=2)
+            neighbors = d_keops.argKmin(self.k_list[-1], dim=1)
+            del xyz_query_keops, xyz_search_keops, d_keops
 
         # Density computation
         # TODO: density is sensitive to noise level in the dataset, may affect
         #  generalization to other datasets if sensors differ. Investigating the
         #  effect of local noise may help compute a better density heuristic.
         if self.compute_density:
-            print(f"        Density computation...")
+            if self.verbose:
+                print(f"        Density computation...")
 
             densities = []
             for k in self.k_list:
@@ -486,7 +522,8 @@ class NeighborhoodBasedMappingFeatures(ImageTransform):
         #  occlusion and density separately, with their dedicated transforms,
         #  but this would also mean computing the neighbors twice...
         if self.compute_occlusion:
-            print(f"        Occlusion computation...")
+            if self.verbose:
+                print(f"        Occlusion computation...")
 
             # Expand to view-level
             n_points = data.num_nodes

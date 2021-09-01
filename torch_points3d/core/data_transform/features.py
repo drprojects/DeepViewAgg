@@ -401,7 +401,7 @@ class PCAComputePointwise(object):
         self.r = r
         self.use_full_pos = use_full_pos
         self.use_cuda = use_cuda and torch.cuda.is_available()
-        self.use_faiss = use_faiss and self.use_cuda
+        self.use_faiss = use_faiss and torch.cuda.is_available()
         self.ncells = ncells
         self.nprobes = nprobes
         self.chunk_size = chunk_size
@@ -413,7 +413,6 @@ class PCAComputePointwise(object):
                or getattr(data, 'full_pos', None) is not None, \
             "Data must contain a 'full_pos' attribute."
 
-        print('    computing neighbors...')
         # Recover the query and search clouds
         xyz_query = data.pos
         xyz_search = data.full_pos if self.use_full_pos else data.pos
@@ -451,7 +450,6 @@ class PCAComputePointwise(object):
             #     "Fast K-NN search has not been implemented yet. Please "
             #     "consider using radius search instead.")
 
-        print('    computing eigenvalues...')
         # Compute PCA for each neighborhood
         # Note: this is surprisingly slow on GPU, so better run on CPU
         eigenvalues = []
@@ -470,8 +468,6 @@ class PCAComputePointwise(object):
         # Save eigendecomposition results in data attributes
         data.eigenvalues = eigenvalues.to(input_device)
         data.eigenvectors = eigenvectors.to(input_device)
-
-        print('    done')
 
         return data
 

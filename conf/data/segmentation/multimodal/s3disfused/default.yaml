@@ -87,7 +87,8 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
                 voxel: ${data.first_subsampling}
                 density: True
                 occlusion: True
-                use_cuda: True
+                use_faiss: True
+                nprobes: 10
 
     train_transforms:
         - transform: SelectMappingFromPointId  # Select mappings after 3D points sampling
