@@ -159,6 +159,10 @@ def equirectangular_projection_cpu(
     w_pix = ((width - 1) * (1 - t / np.pi) / 2) % width
     h_pix = ((height - 1) * p / np.pi) % height
 
+    # Nan values may appear in extreme cases, set them to zero
+    w_pix[np.where(np.isnan(w_pix))] = 0
+    h_pix[np.where(np.isnan(h_pix))] = 0
+
     return w_pix, h_pix
 
 
