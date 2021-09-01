@@ -1389,8 +1389,8 @@ class ImageMapping(CSRData):
         # NB: The pointers are marked by non-successive point-image ids.
         #     Watch out for overflow in case the point_ids and
         #     image_ids are too large and stored in 32 bits.
-        composite_ids = CompositeTensor(point_ids, image_ids,
-                                        device=point_ids.device)
+        composite_ids = CompositeTensor(
+            point_ids, image_ids, device=point_ids.device)
         image_pixel_mappings = CSRData(composite_ids.data, pixels, dense=True)
         del composite_ids
 
@@ -1400,8 +1400,8 @@ class ImageMapping(CSRData):
         image_ids = image_ids[image_pixel_mappings.pointers[1:] - 1]
         point_ids = point_ids[image_pixel_mappings.pointers[1:] - 1]
         if features is not None:
-            features = torch_scatter.segment_csr(features,
-                                                 image_pixel_mappings.pointers, reduce='mean')
+            features = torch_scatter.segment_csr(
+                features, image_pixel_mappings.pointers, reduce='mean')
 
         # Instantiate the main CSRData object
         # Compute point pointers in the image_ids array
@@ -1425,8 +1425,8 @@ class ImageMapping(CSRData):
 
         # Compress point_ids by taking the last value of each pointer
         point_ids = point_ids[mapping.pointers[1:] - 1]
-        mapping = mapping.insert_empty_groups(point_ids,
-                                              num_groups=num_points)
+        mapping = mapping.insert_empty_groups(
+            point_ids, num_groups=num_points)
 
         return mapping
 
@@ -1582,17 +1582,13 @@ class ImageMapping(CSRData):
         if isinstance(out.values[1], CSRBatch):
             sizes = out.values[1].__sizes__
             out.values[1] = CSRBatch(
-                ids,
-                torch.stack((pix_x, pix_y), dim=1).type(pix_dtype),
-                dense=True
-            )
+                ids, torch.stack((pix_x, pix_y), dim=1).type(pix_dtype),
+                dense=True)
             out.values[1].__sizes__ = sizes
         elif isinstance(out.values[1], CSRData):
             out.values[1] = CSRData(
-                ids,
-                torch.stack((pix_x, pix_y), dim=1).type(pix_dtype),
-                dense=True
-            )
+                ids, torch.stack((pix_x, pix_y), dim=1).type(pix_dtype),
+                dense=True)
         else:
             raise NotImplementedError(
                 "The atomic-level mappings must be either a CSRData or "
@@ -1635,8 +1631,8 @@ class ImageMapping(CSRData):
         # idx_gen so that the desired output can be computed with simple
         # indexation idx_gen[images]. This avoids using map() or
         # numpy.vectorize alternatives.
-        idx_gen = torch.full((idx.max() + 1,), -1, dtype=torch.int64,
-                             device=self.device)
+        idx_gen = torch.full(
+            (idx.max() + 1,), -1, dtype=torch.int64, device=self.device)
         idx_gen = idx_gen.scatter_(
             0, idx, torch.arange(idx.shape[0], device=self.device))
         out.images = idx_gen[out.images]
@@ -1697,8 +1693,8 @@ class ImageMapping(CSRData):
         # using map() or numpy.vectorize alternatives.
         img_idx = torch.unique(out.images)
         if img_idx.shape[0] < self.images.max() + 1:
-            idx_gen = torch.full((img_idx.max() + 1,), -1, dtype=torch.int64,
-                                 device=self.device)
+            idx_gen = torch.full(
+                (img_idx.max() + 1,), -1, dtype=torch.int64, device=self.device)
             idx_gen = idx_gen.scatter_(
                 0, img_idx, torch.arange(img_idx.shape[0], device=self.device))
             out.images = idx_gen[out.images]
@@ -1776,12 +1772,12 @@ class ImageMapping(CSRData):
             # Merge view-level mapping features
             if self.has_features:
                 # Compute composite point-image views ids
-                view_ids = CompositeTensor(point_ids, image_ids,
-                                           device=point_ids.device)
+                view_ids = CompositeTensor(
+                    point_ids, image_ids, device=point_ids.device)
                 view_ids = view_ids.data.squeeze()
                 # Average the features per view
-                features = torch_scatter.scatter_mean(self.features,
-                                                      view_ids, 0)
+                features = torch_scatter.scatter_mean(
+                    self.features, view_ids, 0)
                 # Prepare view indices for torch.gather
                 if features.dim() > 1:
                     view_ids = view_ids.view(-1, 1).repeat(1, features.shape[1])
@@ -1808,16 +1804,17 @@ class ImageMapping(CSRData):
             pixels = self.pixels
 
             # Remove duplicate pixel mappings and aggregate
-            idx_unique = lexargunique(point_ids, image_ids, pixels[:, 0],
-                                      pixels[:, 1])
+            idx_unique = lexargunique(
+                point_ids, image_ids, pixels[:, 0], pixels[:, 1])
             point_ids = point_ids[idx_unique]
             image_ids = image_ids[idx_unique]
             pixels = pixels[idx_unique]
             features = features[idx_unique] if features is not None else None
 
             # Convert to CSR format
-            out = ImageMapping.from_dense(point_ids, image_ids, pixels,
-                                          features, num_points=idx.max() + 1)
+            out = ImageMapping.from_dense(
+                point_ids, image_ids, pixels, features,
+                num_points=idx.max() + 1)
         else:
             raise ValueError(f"Unknown point selection mode '{mode}'.")
 
@@ -1890,8 +1887,8 @@ class ImageMapping(CSRData):
         pixels = pixels[cropped_in_idx]
 
         # Convert to CSR format
-        return ImageMapping.from_dense(point_ids, image_ids, pixels, features,
-                                       num_points=self.num_groups)
+        return ImageMapping.from_dense(
+            point_ids, image_ids, pixels, features, num_points=self.num_groups)
 
 
 class ImageMappingBatch(ImageMapping, CSRBatch):

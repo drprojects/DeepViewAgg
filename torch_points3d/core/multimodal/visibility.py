@@ -185,6 +185,10 @@ def equirectangular_projection_cuda(
     w_pix = ((width - 1) * (1 - t / np.pi) / 2) % width
     h_pix = ((height - 1) * p / np.pi) % height
 
+    # Nan values may appear in extreme cases, set them to zero
+    w_pix[torch.where(w_pix.isnan())] = 0
+    h_pix[torch.where(h_pix.isnan())] = 0
+
     return w_pix, h_pix
 
 
@@ -1180,7 +1184,6 @@ class BiasuttiVisibility(VisibilityModel, ABC):
 
     def _visibility(self, *args, **kwargs):
         return visibility_biasutti(*args, **self.__dict__, **kwargs)
-
 
 # TODO: support other camera models than equirectangular image
 # TODO: support other depth map files formats. For now, only S3DIS format supported

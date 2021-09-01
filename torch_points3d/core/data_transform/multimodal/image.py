@@ -219,10 +219,10 @@ class MapImages(ImageTransform):
         t_stack_pixels = 0
         t_append = 0
 
-        # Project each image and gather the point-pixel mappings
+        # Project each image and gather the point-pixel mappings (on
+        # CPU or GPU)
         print("    MapImages...")
         for i_image, image in tq(enumerate(images)):
-            print(f'    {torch.cuda.memory_allocated(0)}')
             # Subsample the surrounding point cloud
             torch.cuda.synchronize()
             start = time()
@@ -255,27 +255,32 @@ class MapImages(ImageTransform):
             # provides us with indices of visible points along with
             # corresponding pixel coordinates, depth and mapping
             # features.
+            # (on CPU or GPU)
+            torch.cuda.synchronize()
             start = time()
             out_vm = visi(
                 xyz_to_img, img_opk, img_mask=mask, linearity=linearity,
                 planarity=planarity, scattering=scattering, normals=normals,
                 depth_map_path=depth_map_path)
+            del xyz_to_img, img_opk, linearity, planarity, scattering, normals, mask
 
             # Skip image if no mapping was found
             if out_vm['idx'].shape[0] == 0:
                 continue
 
             # Recover point indices, pixel coordinates and features
+            # (on CPU or GPU)
             point_ids_ = data_sample[self.key].to(device)[out_vm['idx']]
             pix_x_ = out_vm['x'].long()
             pix_y_ = out_vm['y'].long()
             features_ = out_vm['features'].float()
-            del out_vm
+            del out_vm, data_sample
             torch.cuda.synchronize()
             t_visibility += time() - start
 
             # Convert to SameSettingImageData coordinate system with
             # corresponding cropping and resizing
+            # (on CPU or GPU)
             # TODO: add circular padding here if need be
             start = time()
             pix_x_ = pix_x_ // image.proj_upscale
@@ -297,6 +302,7 @@ class MapImages(ImageTransform):
 
             # Remove duplicate id-xy after image resizing
             # Sort by point id
+            # (on CPU or GPU)
             start = time()
             unique_idx = lexargunique(point_ids_, pix_x_, pix_y_, use_cuda=True)
             pix_x_ = pix_x_[unique_idx]
@@ -308,6 +314,7 @@ class MapImages(ImageTransform):
             t_unique_pixels += time() - start
 
             # Cast pixel coordinates to a dtype minimizing memory use
+            # (on CPU or GPU)
             start = time()
             pixels_ = torch.stack((pix_x_, pix_y_), dim=1).type(
                 image.pixel_dtype)
@@ -317,11 +324,12 @@ class MapImages(ImageTransform):
 
             # Gather per-image mappings in list structures, only to be
             # torch-concatenated once all images are processed
+            # (on CPU)
             start = time()
             image_ids.append(i_image)
-            point_ids.append(point_ids_)
-            features.append(features_)
-            pixels.append(pixels_)
+            point_ids.append(point_ids_.cpu())
+            features.append(features_.cpu())
+            pixels.append(pixels_.cpu())
             del pixels_, features_, point_ids_
             torch.cuda.synchronize()
             t_append += time() - start
@@ -339,7 +347,8 @@ class MapImages(ImageTransform):
         delattr(data, SphereSampling.KDTREE_KEY)
 
         # Raise error if no point-image-pixel mapping was found
-        image_ids = torch.LongTensor(image_ids).to(device)
+        # (on CPU)
+        image_ids = torch.LongTensor(image_ids)
         if image_ids.shape[0] == 0:
             raise ValueError(
                 "No mappings were found between the 3D points and any "
@@ -356,28 +365,32 @@ class MapImages(ImageTransform):
         # been seen, we remove it here.
         # NB: The reindexing here relies on the fact that `unique`
         #  values are expected to be returned sorted.
+        # (on CPU or GPU)
+        torch.cuda.synchronize()
         start = time()
-        seen_image_ids = lexunique(image_ids, use_cuda=True)
-        images = images[seen_image_ids]
+        seen_image_ids = lexunique(image_ids, use_cuda=self.use_cuda)
+        images = images[seen_image_ids.to(in_device)]
         image_ids = torch.bucketize(image_ids, seen_image_ids)
         del seen_image_ids
         if self.verbose:
             torch.cuda.synchronize()
             print(f"        t_index_image_data: {time() - start:0.3f}")
 
-        # Concatenate mappings data
+        # Concatenate mappings data (on CPU) and move them to required
+        # device (on CPU or GPU)
         start = time()
         image_ids = torch.repeat_interleave(
             image_ids,
-            torch.LongTensor([x.shape[0] for x in point_ids]).to(device))
-        point_ids = torch.cat(point_ids)
-        pixels = torch.cat(pixels)
-        # Cat on the features may blow up GPU memory, so do it on CPU
-        features = torch.cat([f.cpu() for f in features]).to(device)
+            torch.LongTensor([x.shape[0] for x in point_ids])).to(device)
+        point_ids = torch.cat(point_ids).to(device)
+        pixels = torch.cat(pixels).to(device)
+        features = torch.cat(features).to(device)
         if self.verbose:
-            torch.cuda.synchronize()
             print(f"        t_concat_dense_mappings_data: {time() - start:0.3f}")
 
+        # Compute the global ImageMapping
+        # (on CPU or GPU)
+        torch.cuda.synchronize()
         start = time()
         mappings = ImageMapping.from_dense(
             point_ids, image_ids, pixels, features,

@@ -32,7 +32,6 @@ pre_collate_transform:
             # r: 0.1  # heuristic: 2 * voxel - using r will force CPU computation
             # use_full_pos: True  # Possible if GridSampling3D.setattr_full_pos = True
             use_faiss: True
-            nprobes: 10
     - transform: EigenFeatures
       params:
             norm: True
@@ -81,6 +80,7 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
                 k_swell: ${data.multimodal.settings.growth_k}
                 d_swell: ${data.multimodal.settings.growth_r}
                 exact: ${data.exact_splatting_2d}
+                verbose: False  # True to print computation times
         - transform: NeighborhoodBasedMappingFeatures  # Compute local density and occlusion
           params:
                 k: 50  # empirically-chosen heuristic [30-100] is fine
@@ -88,7 +88,7 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
                 density: True
                 occlusion: True
                 use_faiss: True
-                nprobes: 10
+                verbose: False  # True to print computation times
 
     train_transforms:
         - transform: SelectMappingFromPointId  # Select mappings after 3D points sampling
