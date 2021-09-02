@@ -146,24 +146,27 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
         margin=dict(l=margin, r=margin, b=margin, t=margin),
         uirevision=True)
     fig = go.Figure(layout=layout)
+    initialized_visibility = False
 
     # Draw a trace for RGB 3D point cloud
-    fig.add_trace(
-        go.Scatter3d(
-            name='RGB',
-            x=data.pos[:, 0],
-            y=data.pos[:, 1],
-            z=data.pos[:, 2],
-            mode='markers',
-            marker=dict(
-                size=pointsize,
-                color=rgb_to_plotly_rgb(data.rgb), ),
-            hoverinfo='x+y+z',
-            showlegend=False,
-            visible=True, ))
-    modes['name'].append('RGB')
-    modes['key'].append('rgb')
-    modes['num_traces'].append(1)
+    if getattr(data, 'rgb', None) is not None:
+        fig.add_trace(
+            go.Scatter3d(
+                name='RGB',
+                x=data.pos[:, 0],
+                y=data.pos[:, 1],
+                z=data.pos[:, 2],
+                mode='markers',
+                marker=dict(
+                    size=pointsize,
+                    color=rgb_to_plotly_rgb(data.rgb), ),
+                hoverinfo='x+y+z',
+                showlegend=False,
+                visible=not initialized_visibility, ))
+        modes['name'].append('RGB')
+        modes['key'].append('rgb')
+        modes['num_traces'].append(1)
+        initialized_visibility = True
 
     # Draw a trace for labeled 3D point cloud
     if getattr(data, 'y', None) is not None:
@@ -184,12 +187,13 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
                     marker=dict(
                         size=pointsize,
                         color=class_colors[label] if class_colors else None, ),
-                    visible=False, ))
+                    visible=not initialized_visibility, ))
             n_y_traces += 1  # keep track of the number of traces
 
         modes['name'].append('Labels')
         modes['key'].append('y')
         modes['num_traces'].append(n_y_traces)
+        initialized_visibility = True
 
     # Draw a trace for predicted labels 3D point cloud
     if getattr(data, 'pred', None) is not None:
@@ -210,37 +214,41 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
                     marker=dict(
                         size=pointsize,
                         color=class_colors[label] if class_colors else None, ),
-                    visible=False, ))
+                    visible=not initialized_visibility, ))
             n_pred_traces += 1  # keep track of the number of traces
 
         modes['name'].append('Predictions')
         modes['key'].append('pred')
         modes['num_traces'].append(n_pred_traces)
+        initialized_visibility = True
 
     # Draw a trace for 3D point cloud of number of images seen
-    n_seen = sum([im.mappings.pointers[1:] - im.mappings.pointers[:-1]
-                  for im in images])
-    fig.add_trace(
-        go.Scatter3d(
-            name='Times seen',
-            x=data.pos[:, 0],
-            y=data.pos[:, 1],
-            z=data.pos[:, 2],
-            mode='markers',
-            marker=dict(
-                size=pointsize,
-                color=n_seen,
-                colorscale='spectral',
-                colorbar=dict(
-                    thickness=10, len=0.66, tick0=0,
-                    dtick=max(1, int(n_seen.max() / 10.)), ), ),
-            hovertext=[f"seen: {n}" for n in n_seen],
-            hoverinfo='x+y+z+text',
-            showlegend=False,
-            visible=False, ))
-    modes['name'].append('Times seen')
-    modes['key'].append('n_seen')
-    modes['num_traces'].append(1)
+    if len(images) > 0:
+        n_seen = sum([
+            im.mappings.pointers[1:] - im.mappings.pointers[:-1]
+            for im in images])
+        fig.add_trace(
+            go.Scatter3d(
+                name='Times seen',
+                x=data.pos[:, 0],
+                y=data.pos[:, 1],
+                z=data.pos[:, 2],
+                mode='markers',
+                marker=dict(
+                    size=pointsize,
+                    color=n_seen,
+                    colorscale='spectral',
+                    colorbar=dict(
+                        thickness=10, len=0.66, tick0=0,
+                        dtick=max(1, int(n_seen.max() / 10.)), ), ),
+                hovertext=[f"seen: {n}" for n in n_seen],
+                hoverinfo='x+y+z+text',
+                showlegend=False,
+                visible=not initialized_visibility, ))
+        modes['name'].append('Times seen')
+        modes['key'].append('n_seen')
+        modes['num_traces'].append(1)
+        initialized_visibility = True
 
     # Draw a trace for position-colored 3D point cloud
     radius = torch.norm(data.pos - data.pos.mean(dim=0), dim=1).max()
@@ -257,16 +265,17 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
                 color=rgb_to_plotly_rgb(data.pos_rgb), ),
             hoverinfo='x+y+z',
             showlegend=False,
-            visible=False, ))
+            visible=not initialized_visibility, ))
     modes['name'].append('Position RGB')
     modes['key'].append('position_rgb')
     modes['num_traces'].append(1)
+    initialized_visibility = True
 
     # Draw a trace for 3D point cloud features
     if getattr(data, 'x', None) is not None:
         # Recover the features and convert them to an RGB format for 
         # visualization.
-        data.feat_3d = feats_to_rgb(data.x)
+        data.feat_3d = feats_to_rgb(data.x, normalize=True)
         fig.add_trace(
             go.Scatter3d(
                 name='Features 3D',
@@ -279,10 +288,11 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
                     color=rgb_to_plotly_rgb(data.feat_3d), ),
                 hoverinfo='x+y+z',
                 showlegend=False,
-                visible=False, ))
+                visible=not initialized_visibility, ))
         modes['name'].append('Features 3D')
         modes['key'].append('x')
         modes['num_traces'].append(1)
+        initialized_visibility = True
 
     # Add a trace for prediction errors
     has_error = getattr(data, 'y', None) is not None \
@@ -310,52 +320,54 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
 
     # Draw image positions
     img_traces = []
-    if images.num_settings > 1:
-        image_xyz = torch.cat([im.pos for im in images]).numpy()
-        image_opk = torch.cat([im.opk for im in images]).numpy()
-    else:
-        image_xyz = images[0].pos.numpy()
-        image_opk = images[0].opk.numpy()
-    if len(image_xyz.shape) == 1:
-        image_xyz = image_xyz.reshape((1, -1))
-    for i, (xyz, opk) in enumerate(zip(image_xyz, image_opk)):
+    if images.num_settings > 0:
 
-        # Draw image coordinate system axes
-        arrow_length = 0.1
-        for v, color in zip(np.eye(3), ['red', 'green', 'blue']):
-            v = xyz + pose_to_rotation_matrix_cpu(opk).dot(v * arrow_length)
+        if images.num_settings > 1:
+            image_xyz = torch.cat([im.pos for im in images]).numpy()
+            image_opk = torch.cat([im.opk for im in images]).numpy()
+        else:
+            image_xyz = images[0].pos.numpy()
+            image_opk = images[0].opk.numpy()
+        if len(image_xyz.shape) == 1:
+            image_xyz = image_xyz.reshape((1, -1))
+        for i, (xyz, opk) in enumerate(zip(image_xyz, image_opk)):
+
+            # Draw image coordinate system axes
+            arrow_length = 0.1
+            for v, color in zip(np.eye(3), ['red', 'green', 'blue']):
+                v = xyz + pose_to_rotation_matrix_cpu(opk).dot(v * arrow_length)
+                fig.add_trace(
+                    go.Scatter3d(
+                        x=[xyz[0], v[0]],
+                        y=[xyz[1], v[1]],
+                        z=[xyz[2], v[2]],
+                        mode='lines',
+                        line=dict(
+                            color=color,
+                            width=pointsize + 1),
+                        showlegend=False,
+                        hoverinfo='none',
+                        visible=True, ))
+
+            # Draw image position as ball
+            img_traces.append(len(fig.data))
             fig.add_trace(
                 go.Scatter3d(
-                    x=[xyz[0], v[0]],
-                    y=[xyz[1], v[1]],
-                    z=[xyz[2], v[2]],
-                    mode='lines',
-                    line=dict(
-                        color=color,
-                        width=pointsize + 1),
+                    name=f"Image {i}",
+                    x=[xyz[0]],
+                    y=[xyz[1]],
+                    z=[xyz[2]],
+                    mode='markers+text',
+                    marker=dict(
+                        line_width=2,
+                        size=pointsize + 4, ),
+                    text=f"<b>{i}</b>",
+                    textposition="bottom center",
+                    textfont=dict(
+                        size=16),
+                    hoverinfo='x+y+z+name',
                     showlegend=False,
-                    hoverinfo='none',
                     visible=True, ))
-
-        # Draw image position as ball
-        img_traces.append(len(fig.data))
-        fig.add_trace(
-            go.Scatter3d(
-                name=f"Image {i}",
-                x=[xyz[0]],
-                y=[xyz[1]],
-                z=[xyz[2]],
-                mode='markers+text',
-                marker=dict(
-                    line_width=2,
-                    size=pointsize + 4, ),
-                text=f"<b>{i}</b>",
-                textposition="bottom center",
-                textfont=dict(
-                    size=16),
-                hoverinfo='x+y+z+name',
-                showlegend=False,
-                visible=True, ))
 
     # Traces visibility for interactive point cloud coloring
     def trace_visibility(mode):

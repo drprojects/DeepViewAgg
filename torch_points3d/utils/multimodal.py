@@ -100,8 +100,8 @@ class CompositeTensor:
         Build CompositeTensor from a list of 1D Tensors (or numpy
         arrays).
         """
-        supported_formats = (torch.int8, torch.int16, torch.int32, torch.int64,
-                             torch.bool)
+        supported_formats = (
+            torch.int8, torch.int16, torch.int32, torch.int64, torch.bool)
         assert len(args) > 0, "At least one tensor must be provided."
         if ((isinstance(device, str) and device == 'cuda')
             or (isinstance(device, torch.device) and device.type == 'cuda')):
@@ -122,10 +122,13 @@ class CompositeTensor:
 
         # Compute the bases to build the composite tensor
         dtype_list = [a.dtype for a in tensor_list]
-        max_list = [torch.iinfo(dt).max for dt in dtype_list]
-        dtype_max = max(max_list)
-        dtype = dtype_list[max_list.index(dtype_max)]
-        max_list = torch.LongTensor([a.max() + 1 for a in tensor_list])
+        dtype_max_list = [torch.iinfo(dt).max for dt in dtype_list]
+        dtype_max = max(dtype_max_list)
+        dtype = dtype_list[dtype_max_list.index(dtype_max)]
+        if tensor_list[0].shape[0] == 0:
+            max_list = torch.zeros(len(tensor_list)).long().to(device)
+        else:
+            max_list = torch.LongTensor([a.abs().max() + 1 for a in tensor_list])
         assert all([torch.prod(max_list) < dtype_max]), \
             'The dtype of at least one of the input tensors must ' \
             'allow the composite computation.'
@@ -137,8 +140,12 @@ class CompositeTensor:
         self.dtype = dtype
         self.max_list = max_list
         self.base_list = base_list
-        self.data = sum([a.type(dtype) * b
-                         for a, b in zip(tensor_list, base_list)])
+        self.data = sum([
+            a.type(dtype) * b for a, b in zip(tensor_list, base_list)])
+
+    @property
+    def shape(self):
+        return self.data.shape
 
     @property
     def device(self):
@@ -157,6 +164,10 @@ class CompositeTensor:
             out.append((composite // b).type(dt))
             composite = composite % b
         return out
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(shape={self.shape}, " \
+               f"dtype={self.dtype}, device={self.device})"
 
 
 class CompositeNDArray:
@@ -186,10 +197,13 @@ class CompositeNDArray:
 
         # Compute the bases to build the composite array
         dtype_list = [a.dtype for a in array_list]
-        max_list = [np.iinfo(dt).max for dt in dtype_list]
-        dtype_max = max(max_list)
-        dtype = dtype_list[max_list.index(dtype_max)]
-        max_list = [a.max() + 1 for a in array_list]
+        dtype_max_list = [np.iinfo(dt).max for dt in dtype_list]
+        dtype_max = max(dtype_max_list)
+        dtype = dtype_list[dtype_max_list.index(dtype_max)]
+        if array_list[0].shape[0] == 0:
+            max_list = [0 for _ in array_list]
+        else:
+            max_list = [np.abs(a).max() + 1 for a in array_list]
         assert all([np.prod(max_list) < dtype_max]), \
             'The dtype of at least one of the input arrays must ' \
             'allow the composite computation.'
@@ -204,6 +218,10 @@ class CompositeNDArray:
         self.data = sum([a.astype(dtype) * b
                          for a, b in zip(array_list, base_list)])
 
+    @property
+    def shape(self):
+        return self.data.shape
+
     def restore(self, torch_out=False):
         """Restore the arrays from the modified composite."""
         out = []
@@ -217,6 +235,10 @@ class CompositeNDArray:
             out = [torch.from_numpy(o) for o in out]
 
         return out
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(shape={self.shape}, " \
+               f"dtype={self.dtype})"
 
 
 def cuda_lex_op(*args, op='unique', device='cuda'):

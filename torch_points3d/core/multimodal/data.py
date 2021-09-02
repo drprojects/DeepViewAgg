@@ -64,8 +64,9 @@ class MMData(object):
                 f"Expected modality '{mod}' data to be of type " \
                 f"{MODALITY_FORMATS[mod]} but got type {type(data_mod)} " \
                 f"instead."
-            assert data_mod.num_points > 0
-            assert self.num_points == data_mod.num_points, \
+            # assert data_mod.num_points > 0
+            assert self.num_points == data_mod.num_points \
+                   or data_mod.num_points == 0, \
                 f"Discrepancy between the Data point indices and the '{mod}' " \
                 f"modality mappings. Data '{self.mapping_key}' counts " \
                 f"{self.num_points} points in total, while '{mod}' mappings " \

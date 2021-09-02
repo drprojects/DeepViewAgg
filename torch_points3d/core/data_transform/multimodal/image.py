@@ -47,7 +47,7 @@ class ImageTransform:
         elif isinstance(images, ImageData) and not self._PROCESS_IMAGE_DATA:
             out = [self.__call__(data, im) for im in images]
             images_out = ImageData([im for _, im in out])
-            data_out = out[0][0]
+            data_out = out[0][0] if len(out) > 0 else data
         else:
             assert (isinstance(images, SameSettingImageData)
                     and not self._PROCESS_IMAGE_DATA
@@ -664,7 +664,7 @@ class PickImagesFromMappingArea(ImageTransform):
 
         # In case no images meet the requirements, pick the one with
         # the largest mapping to avoid having an empty idx
-        if idx.shape[0] == 0:
+        if idx.shape[0] == 0 and images.num_views > 0:
             idx = areas.argmax().item()
 
         # Select the images and mappings meeting the threshold
@@ -694,21 +694,26 @@ class PickImagesFromMemoryCredit(ImageTransform):
         # We use lists in favor of arrays or tensors to facilitate
         # item popping
 
+        # Skip if no image
+        if images.num_views == 0:
+            return data, images
+
         # Compute the global indexing pair for each image and the list
         # of picked image
         picked = [[] for _ in range(images.num_views)]
-        img_indices = [[i, j] for i, im in enumerate(images)
-                       for j in range(im.num_views)]
+        img_indices = [
+            [i, j] for i, im in enumerate(images) for j in range(im.num_views)]
 
         # Compute the image sizes and viewed points boolean masks
-        img_sizes = [images[i].img_size[0] * images[i].img_size[1]
-                     for i, j in img_indices]
+        img_sizes = [
+            images[i].img_size[0] * images[i].img_size[1]
+            for i, j in img_indices]
 
         # Compute the unseen points boolean masks and split them in a
         # list of masks for easier popping
         if self.use_coverage:
-            img_unseen_points = torch.zeros(images.num_views, data.num_nodes,
-                                            dtype=torch.bool)
+            img_unseen_points = torch.zeros(
+                images.num_views, data.num_nodes, dtype=torch.bool)
             i_offset = 0
             for im in images:
                 mappings = im.mappings
@@ -898,6 +903,10 @@ class CenterRoll(ImageTransform):
         assert images.downscale is None or images.downscale == 1, \
             f"CenterRoll cannot operate if images and mappings " \
             f"underwent prior cropping or resizing."
+
+        # Skip if no image mappings
+        if images.mappings.images.shape[0] == 0:
+            return data, images
 
         # Isolate the mappings pixel widths and associated image ids
         idx = torch.repeat_interleave(
@@ -1122,8 +1131,7 @@ class TorchvisionTransform(ImageTransform):
         raise NotImplementedError
 
     def _process(self, data: Data, images: SameSettingImageData):
-        images.x = torch.cat([self.transform(im).unsqueeze(0)
-                              for im in images.x], dim=0)
+        images.x = self.transform(images.x)
         return data, images
 
     def __repr__(self):

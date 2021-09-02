@@ -1068,7 +1068,7 @@ class ImageData:
 
     @property
     def num_points(self):
-        return self[0].num_points
+        return self[0].num_points if len(self) > 0 else 0
 
     @property
     def x(self):
@@ -1109,6 +1109,10 @@ class ImageData:
         return len(self._list)
 
     def __getitem__(self, idx):
+        if self.__len__() == 0:
+            raise ValueError(
+                f'{self} cannot be indexed because it has length 0.')
+
         if isinstance(idx, int) and idx < self.__len__():
             return self._list[idx]
         elif isinstance(idx, slice):
@@ -1158,7 +1162,7 @@ class ImageData:
 
     @property
     def device(self):
-        return self[0].device
+        return self[0].device if len(self) > 0 else 'cpu'
 
     @staticmethod
     def get_batch_type():
