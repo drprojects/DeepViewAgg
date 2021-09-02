@@ -476,16 +476,19 @@ class NeighborhoodBasedMappingFeatures(ImageTransform):
         xyz = data.pos.to(device)
 
         # K-NN search
-        if self.verbose:
-            print(f"        KNN search...")
+        
         if self.use_faiss:
             # K-NN search with FAISS
+            if self.verbose:
+                print(f"        KNN search with FAISS...")
             nn_finder = FAISSGPUKNNNeighbourFinder(
                 self.k_list[-1], ncells=self.ncells, nprobes=self.nprobes)
             neighbors = nn_finder(xyz, xyz, None, None)
         else:
             # K-NN search with KeOps. If the number of points is greater
             # than 16 millions, KeOps requires double precision.
+            if self.verbose:
+                print(f"        KNN search with KeOps...")
             xyz_query_keops = LazyTensor(xyz[:, None, :])
             xyz_search_keops = LazyTensor(xyz[None, :, :])
             if xyz.shape[0] > 1.6e7:
@@ -506,22 +509,26 @@ class NeighborhoodBasedMappingFeatures(ImageTransform):
             densities = []
             for k in self.k_list:
                 # Compute the farthest distance in each neighborhood
-                d_max = ((xyz - xyz[neighbors[:, k - 1]])**2).sum(dim=1).sqrt()
+                d2_max = ((xyz - xyz[neighbors[:, k - 1]])**2).sum(dim=1)
 
                 # Estimate the surface density. Points are assumed to
                 # lie on a 2D manifold in 3D, so we roughly estimate the
                 # 2D density based on the disk of radius d_max.
-                v_sphere = 3.1416 * d_max**2
+                v_sphere = 3.1416 * d2_max
                 voxel_density = 1 / self.voxel**2
                 density = ((k + 1) / v_sphere) / voxel_density
+                
+                # Set potential Nan densities to 1
+                density[torch.where(density.isnan())] = 1
+                
+                # Accumulate on CPU to save GPU memory
+                densities.append(density.cpu().view(-1, 1))
 
-                densities.append(density.to(in_device).view(-1, 1))
-
-            # Concatenate k-based densities column-wise
+            # Concatenate k-based densities column-wise on the CPU
             densities = torch.cat(densities, dim=1)
 
             # Expand to view-level features
-            densities = torch.repeat_interleave(densities,
+            densities = torch.repeat_interleave(densities.to(in_device),
                 images.mappings.pointers[1:] - images.mappings.pointers[:-1], 0)
 
             # Append densities to the image mapping features
@@ -562,18 +569,20 @@ class NeighborhoodBasedMappingFeatures(ImageTransform):
                 views_neigh_seen = torch.ones_like(image_ids, dtype=torch.float)
                 for i in range(k):
                     # Expand i-th neighbors to view-level
-                    views_neigh = torch.repeat_interleave(neighbors[:, i],
-                        pointers[1:] - pointers[:-1])
+                    views_neigh = torch.repeat_interleave(
+                        neighbors[:, i], pointers[1:] - pointers[:-1])
                     views_neigh_seen += views[(views_neigh, image_ids)]
 
                 # Recover the occlusion ratio for each view while
                 # accounting for the contribution of the point itself
                 occlusion = views_neigh_seen / (k + 1)
+                
+                # Accumulate on CPU to save GPU memory
+                occlusions.append(occlusion.cpu().view(-1, 1))
 
-                occlusions.append(occlusion.to(in_device).view(-1, 1))
-
-            # Concatenate k-based occlusions column-wise
-            occlusions = torch.cat(occlusions, dim=1)
+            # Concatenate k-based occlusions column-wise on CPU before 
+            # moving to in_device
+            occlusions = torch.cat(occlusions, dim=1).to(in_device)
 
             # Append occlusions to the image mapping features
             if not images.mappings.has_features:
