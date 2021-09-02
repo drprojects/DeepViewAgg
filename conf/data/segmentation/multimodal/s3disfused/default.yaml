@@ -52,8 +52,8 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
         proj_upscale: 2
         r_max: 8
         r_min: 0.05
-        growth_k: 0.5
-        growth_r: 100  # growth_k and growth_r set so that correction factor is ~1.1 at r_max=8
+        growth_k: 1.0
+        growth_r: 1000  # growth_k and growth_r set so that correction factor is ~1.3 at r_max=8
         train_pixel_credit: 4  # Choose based on GPU capacity, model ko/pixel cost and 3D batch_size
         test_pixel_credit: 4
         k_coverage: 2
