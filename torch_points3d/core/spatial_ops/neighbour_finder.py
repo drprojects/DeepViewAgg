@@ -122,8 +122,7 @@ class FAISSGPUKNNNeighbourFinder(BaseNeighbourFinder):
 
         # Querying the K-NN
         gpu_index_flat.setNumProbes(nprobe)
-        return torch.LongTensor(
-            gpu_index_flat.search(y_np, k)[1], device=x.device)
+        return torch.LongTensor(gpu_index_flat.search(y_np, k)[1]).to(x.device)
 
 
 class DilatedKNNNeighbourFinder(BaseNeighbourFinder):
