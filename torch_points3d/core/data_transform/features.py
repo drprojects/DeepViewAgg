@@ -438,11 +438,12 @@ class PCAComputePointwise(object):
         else:
             # K-NN search with KeOps. If the number of points is greater
             # than 16 millions, KeOps requires double precision.
-            xyz_query_keops = LazyTensor(xyz_query[:, None, :])
-            xyz_search_keops = LazyTensor(xyz_search[None, :, :])
             if xyz_search.shape[0] > 1.6e7:
-                xyz_query_keops = xyz_query_keops.double()
-                xyz_search_keops = xyz_search_keops.double()
+                xyz_query_keops = LazyTensor(xyz_query[:, None, :].double())
+                xyz_search_keops = LazyTensor(xyz_search[None, :, :].double())
+            else:
+                xyz_query_keops = LazyTensor(xyz_query[:, None, :])
+                xyz_search_keops = LazyTensor(xyz_search[None, :, :])
             d_keops = ((xyz_query_keops - xyz_search_keops) ** 2).sum(dim=2)
             neighbors = d_keops.argKmin(self.num_neighbors, dim=1)
             # raise NotImplementedError(

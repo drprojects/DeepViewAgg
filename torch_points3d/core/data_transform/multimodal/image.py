@@ -489,11 +489,12 @@ class NeighborhoodBasedMappingFeatures(ImageTransform):
             # than 16 millions, KeOps requires double precision.
             if self.verbose:
                 print(f"        KNN search with KeOps...")
-            xyz_query_keops = LazyTensor(xyz[:, None, :])
-            xyz_search_keops = LazyTensor(xyz[None, :, :])
             if xyz.shape[0] > 1.6e7:
-                xyz_query_keops = xyz_query_keops.double()
-                xyz_search_keops = xyz_search_keops.double()
+                xyz_query_keops = LazyTensor(xyz[:, None, :].double())
+                xyz_search_keops = LazyTensor(xyz[None, :, :].double())
+            else:
+                xyz_query_keops = LazyTensor(xyz[:, None, :])
+                xyz_search_keops = LazyTensor(xyz[None, :, :])
             d_keops = ((xyz_query_keops - xyz_search_keops) ** 2).sum(dim=2)
             neighbors = d_keops.argKmin(self.k_list[-1], dim=1)
             del xyz_query_keops, xyz_search_keops, d_keops
