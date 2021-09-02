@@ -224,7 +224,7 @@ class CSRData(object):
             group_indices.to(self.device),
             torch.LongTensor([num_groups]).to(self.device)])
         repeats = ends - starts
-        self.pointers = torch.repeat_interleave(self.pointers, repeats)
+        self.pointers = self.pointers.repeat_interleave(repeats)
 
         return self
 
@@ -256,10 +256,10 @@ class CSRData(object):
         # capabilities.
         sizes = pointers_new[1:] - pointers_new[:-1]
         val_idx = torch.arange(pointers_new[-1]).to(device)
-        val_idx -= torch.repeat_interleave(
-            torch.arange(pointers_new[-1] + 1)[pointers_new[:-1]],
+        val_idx -= torch.arange(
+            pointers_new[-1] + 1)[pointers_new[:-1]].repeat_interleave(
             sizes).to(device)
-        val_idx += torch.repeat_interleave(pointers[indices], sizes).to(device)
+        val_idx += pointers[indices].repeat_interleave(sizes).to(device)
 
         return pointers_new, val_idx
 

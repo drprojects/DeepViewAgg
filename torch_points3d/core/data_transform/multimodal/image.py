@@ -45,7 +45,7 @@ class ImageTransform:
             out = [self.__call__(da, im) for da, im in zip(data, images)]
             data_out, images_out = [list(x) for x in zip(*out)]
         elif isinstance(images, ImageData) and not self._PROCESS_IMAGE_DATA:
-            out = [self.__call__(data, im) for im in images]
+            out = [self.__call__(data.clone(), im) for im in images]
             images_out = ImageData([im for _, im in out])
             data_out = out[0][0] if len(out) > 0 else data
         else:
@@ -53,7 +53,8 @@ class ImageTransform:
                     and not self._PROCESS_IMAGE_DATA
                     or isinstance(images, ImageData)
                     and self._PROCESS_IMAGE_DATA)
-            data_out, images_out = self._process(data.clone(), images.clone())
+            # data_out, images_out = self._process(data.clone(), images.clone())
+            data_out, images_out = self._process(data, images)
         return data_out, images_out
 
     def __repr__(self):
@@ -134,12 +135,12 @@ class NonStaticMask(ImageTransform):
                 torch.arange(images.num_views, dtype=torch.float), n_sample)
 
             # Read individual RGB images and squeeze them shape 3xHxW
-            img_1 = images.read_images(idx=idx[0], size=images.proj_size
-                                       ).squeeze()
+            img_1 = images.read_images(
+                idx=idx[0], size=images.proj_size).squeeze()
 
             for i in idx[1:]:
-                img_2 = images.read_images(idx=i, size=images.proj_size
-                                           ).squeeze()
+                img_2 = images.read_images(
+                    idx=i, size=images.proj_size).squeeze()
 
                 # Update mask where new pixel changes are detected
                 mask_diff = (img_1 != img_2).all(dim=0).t()
@@ -379,8 +380,7 @@ class MapImages(ImageTransform):
         # Concatenate mappings data (on CPU) and move them to required
         # device (on CPU or GPU)
         start = time()
-        image_ids = torch.repeat_interleave(
-            image_ids,
+        image_ids = image_ids.repeat_interleave(
             torch.LongTensor([x.shape[0] for x in point_ids])).to(device)
         point_ids = torch.cat(point_ids).to(device)
         pixels = torch.cat(pixels).to(device)
@@ -476,7 +476,6 @@ class NeighborhoodBasedMappingFeatures(ImageTransform):
         xyz = data.pos.to(device)
 
         # K-NN search
-        
         if self.use_faiss:
             # K-NN search with FAISS
             if self.verbose:
@@ -529,7 +528,7 @@ class NeighborhoodBasedMappingFeatures(ImageTransform):
             densities = torch.cat(densities, dim=1)
 
             # Expand to view-level features
-            densities = torch.repeat_interleave(densities.to(in_device),
+            densities = densities.to(in_device).repeat_interleave(
                 images.mappings.pointers[1:] - images.mappings.pointers[:-1], 0)
 
             # Append densities to the image mapping features
@@ -554,8 +553,7 @@ class NeighborhoodBasedMappingFeatures(ImageTransform):
             n_points = data.num_nodes
             n_images = torch.max(images.mappings.images) + 1
             pointers = images.mappings.pointers.to(device)
-            point_ids = torch.repeat_interleave(
-                torch.arange(n_points, device=device),
+            point_ids = torch.arange(n_points, device=device).repeat_interleave(
                 pointers[1:] - pointers[:-1])
             image_ids = images.mappings.images.to(device)
 
@@ -570,8 +568,8 @@ class NeighborhoodBasedMappingFeatures(ImageTransform):
                 views_neigh_seen = torch.ones_like(image_ids, dtype=torch.float)
                 for i in range(k):
                     # Expand i-th neighbors to view-level
-                    views_neigh = torch.repeat_interleave(
-                        neighbors[:, i], pointers[1:] - pointers[:-1])
+                    views_neigh = neighbors[:, i].repeat_interleave(
+                        pointers[1:] - pointers[:-1])
                     views_neigh_seen += views[(views_neigh, image_ids)]
 
                 # Recover the occlusion ratio for each view while
@@ -648,8 +646,7 @@ class PickImagesFromMappingArea(ImageTransform):
         threshold = images.img_size[0] * images.img_size[1] * self.area_ratio
 
         # Count the number of pixel mappings for each image
-        pixel_idx = torch.repeat_interleave(
-            images.mappings.images,
+        pixel_idx = images.mappings.images.repeat_interleave(
             images.mappings.values[1].pointers[1:]
             - images.mappings.values[1].pointers[:-1])
 
@@ -728,8 +725,7 @@ class PickImagesFromMemoryCredit(ImageTransform):
             for im in images:
                 mappings = im.mappings
                 i_idx = mappings.images + i_offset
-                j_idx = torch.repeat_interleave(
-                    mappings.points,
+                j_idx = mappings.points.repeat_interleave(
                     mappings.pointers[1:] - mappings.pointers[:-1])
                 img_unseen_points[i_idx, j_idx] = True
                 i_offset += im.num_views
@@ -904,14 +900,14 @@ class CenterRoll(ImageTransform):
         # images and mappings
         assert images.mappings is not None, "No mappings found in images."
         assert images.ref_size[0] == images.img_size[0], \
-            f"CenterRoll cannot operate if images and mappings " \
+            f"{self.__class__.__name__} cannot operate if images and mappings " \
             f"underwent prior cropping or resizing."
         assert images.crop_size is None \
                or images.crop_size[0] == images.ref_size[0], \
-            f"CenterRoll cannot operate if images and mappings " \
+            f"{self.__class__.__name__} cannot operate if images and mappings " \
             f"underwent prior cropping or resizing."
         assert images.downscale is None or images.downscale == 1, \
-            f"CenterRoll cannot operate if images and mappings " \
+            f"{self.__class__.__name__} cannot operate if images and mappings " \
             f"underwent prior cropping or resizing."
 
         # Skip if no image mappings
@@ -919,8 +915,7 @@ class CenterRoll(ImageTransform):
             return data, images
 
         # Isolate the mappings pixel widths and associated image ids
-        idx = torch.repeat_interleave(
-            images.mappings.images,
+        idx = images.mappings.images.repeat_interleave(
             images.mappings.values[1].pointers[1:]
             - images.mappings.values[1].pointers[:-1])
         w_pix = images.mappings.pixels[:, 0]

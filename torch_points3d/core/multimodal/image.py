@@ -317,8 +317,7 @@ class SameSettingImageData(object):
         # Roll the mappings
         if self.mappings is not None:
             # Expand the rollings
-            pix_roll = torch.repeat_interleave(
-                self.rollings[self.mappings.images],
+            pix_roll = self.rollings[self.mappings.images].repeat_interleave(
                 self.mappings.values[1].pointers[1:]
                 - self.mappings.values[1].pointers[:-1])
 
@@ -556,25 +555,24 @@ class SameSettingImageData(object):
 
         # Work on a clone of self, to avoid in-place modifications.
         idx = tensor_idx(idx).to(self.device)
-        images = self.clone()
 
         # Picking mode by default
         if mode == 'pick':
             # Select mappings wrt the point index
-            mappings = images.mappings.select_points(idx, mode=mode)
+            mappings = self.mappings.select_points(idx, mode=mode)
 
             # Select the images used in the mappings. Selected images
             # are sorted by their order in image_indices. Mappings'
             # image indices will also be updated to the new ones.
-            # Mappings are temporarily removed from the images as they
+            # Mappings are temporarily separating from self as they
             # will be affected by the indexing on images.
             seen_image_idx = lexunique(mappings.images) \
                 if mappings.num_items > 0 else []
-            images.mappings = None
-            images = images[seen_image_idx]
+            self_mappings = self.mappings
+            self.mappings = None
+            images = self[seen_image_idx]
             images.mappings = mappings.select_images(seen_image_idx)
-
-            return images
+            self.mappings = self_mappings
 
         # Merge mode
         elif mode == 'merge':
@@ -589,6 +587,7 @@ class SameSettingImageData(object):
             # Select mappings wrt the point index
             # Images are not modified, since the 'merge' mode
             # guarantees no image is discarded
+            images = self.clone()
             images.mappings = images.mappings.select_points(idx, mode=mode)
 
         else:
@@ -617,11 +616,8 @@ class SameSettingImageData(object):
         if self.mappings is None or view_mask is None or torch.all(view_mask):
             return self.clone()
 
-        # Work on a clone of self, to avoid in-place modifications.
-        images = self.clone()
-
         # Select mappings wrt the point index
-        mappings, seen_image_idx = images.mappings.select_views(view_mask)
+        mappings, seen_image_idx = self.mappings.select_views(view_mask)
 
         # Select the images used in the mappings. Selected images
         # are sorted by their order in image_indices. Mappings'
@@ -629,8 +625,15 @@ class SameSettingImageData(object):
         # Mappings are temporarily removed from the images as they
         # will be affected by the indexing on images.
         if seen_image_idx is not None:
-            images.mappings = None
-            images = images[seen_image_idx]
+            self_mappings = self.mappings
+            self.mappings = None
+            images = self[seen_image_idx]
+            self.mappings = self_mappings
+        else:
+            self_mappings = self.mappings
+            self.mappings = None
+            images = self.clone()
+            self.mappings = self_mappings
         images.mappings = mappings
 
         return images
@@ -804,7 +807,7 @@ class SameSettingImageData(object):
         will raise an error.
         """
         idx = tensor_idx(idx).to(self.device)
-        assert torch.unique(idx).shape[0] == idx.shape[0], \
+        assert idx.unique().numel() == idx.shape[0], \
             f"Index must not contain duplicates."
         idx_numpy = np.asarray(idx.cpu())
 
@@ -853,16 +856,16 @@ class SameSettingImageData(object):
 
     def to(self, device):
         """Set torch.Tensor attributes device."""
-        out = self.clone()
-        out.pos = out.pos.to(device)
-        out.opk = out.opk.to(device)
-        out._crop_offsets = out.crop_offsets.to(device)
-        out._x = out.x.to(device) if out.x is not None \
+        out = self.__class__(
+            path=self.path, pos=self.pos.to(device), opk=self.opk.to(device),
+            ref_size=self.ref_size, proj_upscale=self.proj_upscale,
+            downscale=self.downscale, rollings=self.rollings.to(device),
+            crop_size=self.crop_size, crop_offsets=self.crop_offsets.to(device),
+            visibility=self.visibility)
+        out._x = self.x.to(device) if self.x is not None else None
+        out._mappings = self.mappings.to(device) if self.mappings is not None \
             else None
-        out._mappings = out.mappings.to(device) if out.mappings is not None \
-            else None
-        out._mask = out.mask.to(device) if out.mask is not None \
-            else None
+        out._mask = self.mask.to(device) if self.mask is not None else None
         return out
 
     @property
@@ -1131,8 +1134,8 @@ class ImageData:
                f"device={self.device})"
 
     def select_points(self, idx, mode='pick'):
-        return self.__class__([im.select_points(idx, mode=mode)
-                               for im in self])
+        return self.__class__([
+            im.select_points(idx, mode=mode) for im in self])
 
     def select_views(self, view_mask_list):
         assert isinstance(view_mask_list, list), \
@@ -1198,8 +1201,7 @@ class ImageData:
         # Recover the expanded view idx for each SameSettingImageData
         # in self
         dense_idx_list = [
-            torch.repeat_interleave(
-                torch.arange(im.num_points, device=self.device),
+            torch.arange(im.num_points, device=self.device).repeat_interleave(
                 im.view_csr_indexing[1:] - im.view_csr_indexing[:-1])
             for im in self]
 
@@ -1502,8 +1504,7 @@ class ImageMapping(CSRData):
         Return the (w_min, w_max, h_min, hmax) pixel values per image.
         """
         # TODO: handle circular panoramic images and relevant cropping
-        image_ids = torch.repeat_interleave(
-            self.images,
+        image_ids = self.images.repeat_interleave(
             self.values[1].pointers[1:] - self.values[1].pointers[:-1])
         min_pix, _ = torch_scatter.scatter_min(self.pixels, image_ids, dim=0)
         max_pix, _ = torch_scatter.scatter_max(self.pixels, image_ids, dim=0)
@@ -1519,8 +1520,7 @@ class ImageMapping(CSRData):
         `[B, C, H, W]`. The returned indexing object idx is intended to
         be used for recovering the mapped features as: `X[idx]`.
         """
-        idx_batch = torch.repeat_interleave(
-            self.images,
+        idx_batch = self.images.repeat_interleave(
             self.values[1].pointers[1:] - self.values[1].pointers[:-1])
         idx_height = self.pixels[:, 1]
         idx_width = self.pixels[:, 0]
@@ -1563,8 +1563,8 @@ class ImageMapping(CSRData):
         out = self.clone()
 
         # Expand atomic-level mappings to 'dense' format
-        ids = torch.repeat_interleave(
-            torch.arange(out.values[1].num_groups, device=self.device),
+        ids = torch.arange(
+            out.values[1].num_groups, device=self.device).repeat_interleave(
             out.values[1].pointers[1:] - out.values[1].pointers[:-1])
         pix_x = out.values[1].values[0][:, 0]
         pix_y = out.values[1].values[0][:, 1]
@@ -1615,19 +1615,20 @@ class ImageMapping(CSRData):
         indices.
         """
         idx = tensor_idx(idx).to(self.device)
-        assert torch.unique(idx).shape[0] == idx.shape[0], \
+        assert idx.unique().numel() == idx.shape[0], \
             f"Index must not contain duplicates."
 
         # Get view-level indices for images to keep
         view_idx = torch.where((self.images[..., None] == idx).any(-1))[0]
-        out = self.clone()
 
         # Index the values
-        out.values = [val[view_idx] for val in out.values]
+        values = [val[view_idx] for val in self.values]
 
         # If idx is empty, return an empty mapping
         if idx.shape[0] == 0:
-            out.pointers = torch.zeros_like(out.pointers)
+            out = self.__class__(
+                torch.zeros_like(self.pointers), *values, dense=False,
+                is_index_value=self.is_index_value)
             out.debug()
             return out
 
@@ -1639,14 +1640,18 @@ class ImageMapping(CSRData):
             (idx.max() + 1,), -1, dtype=torch.int64, device=self.device)
         idx_gen = idx_gen.scatter_(
             0, idx, torch.arange(idx.shape[0], device=self.device))
-        out.images = idx_gen[out.images]
+        values[0] = idx_gen[values[0]]  # values[0] holds image indices
 
         # Update the pointers
-        point_ids = torch.repeat_interleave(
-            torch.arange(out.num_groups, device=self.device),
-            out.pointers[1:] - out.pointers[:-1])
+        point_ids = torch.arange(
+            self.num_groups, device=self.device).repeat_interleave(
+            self.pointers[1:] - self.pointers[:-1])
         point_ids = point_ids[view_idx]
-        out.pointers = CSRData._sorted_indices_to_pointers(point_ids)
+        pointers = CSRData._sorted_indices_to_pointers(point_ids)
+
+        # Create the output mapping object
+        out = self.__class__(
+            pointers, *values, dense=False, is_index_value=self.is_index_value)
 
         # Some points may have been seen by no image so we need to
         # inject 0-sized pointers to account for these. To get the real
@@ -1682,12 +1687,13 @@ class ImageMapping(CSRData):
             f"view_mask must be a torch.BoolTensor of size {self.num_items}."
 
         # Index the values
-        out = self.clone()
-        out.values = [val[view_mask] for val in out.values]
+        values = [val[view_mask] for val in self.values]
 
         # If view_mask is empty, return an empty mapping
         if not torch.any(view_mask):
-            out.pointers = torch.zeros_like(out.pointers)
+            out = self.__class__(
+                torch.zeros_like(self.pointers), *values, dense=False,
+                is_index_value=self.is_index_value)
             out.debug()
             return out, torch.LongTensor([])
 
@@ -1695,22 +1701,26 @@ class ImageMapping(CSRData):
         # tensor of indices idx_gen so that the desired output can be
         # computed with simple indexation idx_gen[images]. This avoids
         # using map() or numpy.vectorize alternatives.
-        img_idx = torch.unique(out.images)
-        if img_idx.shape[0] < self.images.max() + 1:
+        img_idx = values[0].unique()  # values[0] holds image indices
+        if img_idx.numel() < self.images.max() + 1:
             idx_gen = torch.full(
                 (img_idx.max() + 1,), -1, dtype=torch.int64, device=self.device)
             idx_gen = idx_gen.scatter_(
                 0, img_idx, torch.arange(img_idx.shape[0], device=self.device))
-            out.images = idx_gen[out.images]
+            values[0] = idx_gen[values[0]]
         else:
             img_idx = None
 
         # Update the pointers
-        point_ids = torch.repeat_interleave(
-            torch.arange(out.num_groups, device=self.device),
-            out.pointers[1:] - out.pointers[:-1])
+        point_ids = torch.arange(
+            self.num_groups, device=self.device).repeat_interleave(
+            self.pointers[1:] - self.pointers[:-1])
         point_ids = point_ids[view_mask]
-        out.pointers = CSRData._sorted_indices_to_pointers(point_ids)
+        pointers = CSRData._sorted_indices_to_pointers(point_ids)
+
+        # Create the output mapping object
+        out = self.__class__(
+            pointers, *values, dense=False, is_index_value=self.is_index_value)
 
         # Some points may have been seen by no image so we need to
         # inject 0-sized pointers to account for these. To get the real
@@ -1769,8 +1779,8 @@ class ImageMapping(CSRData):
                 "indices."
 
             # Expand to dense view-level format
-            point_ids = torch.repeat_interleave(
-                idx, self.pointers[1:] - self.pointers[:-1])
+            point_ids = idx.repeat_interleave(
+                self.pointers[1:] - self.pointers[:-1])
             image_ids = self.images
 
             # Merge view-level mapping features
@@ -1792,17 +1802,14 @@ class ImageMapping(CSRData):
                 features = None
 
             # Expand to dense atomic-level format
-            point_ids = torch.repeat_interleave(
-                idx, self.pointers[1:] - self.pointers[:-1])
-            point_ids = torch.repeat_interleave(
-                point_ids,
+            point_ids = idx.repeat_interleave(
+                self.pointers[1:] - self.pointers[:-1])
+            point_ids = point_ids.repeat_interleave(
                 self.values[1].pointers[1:] - self.values[1].pointers[:-1])
-            image_ids = torch.repeat_interleave(
-                self.images,
+            image_ids = self.images.repeat_interleave(
                 self.values[1].pointers[1:] - self.values[1].pointers[:-1])
             if self.has_features:
-                features = torch.repeat_interleave(
-                    features,
+                features = features.repeat_interleave(
                     self.values[1].pointers[1:] - self.values[1].pointers[:-1],
                     dim=0)
             pixels = self.pixels
@@ -1839,16 +1846,15 @@ class ImageMapping(CSRData):
         assumes the same cropping is also applied to the corresponding
         SameSettingImageData.
         """
-        assert crop_offsets.shape == (torch.unique(self.images).shape[0], 2), \
+        assert crop_offsets.shape == (self.images.unique().numel(), 2), \
             f"Expected crop_offsets to have shape " \
-            f"{(torch.unique(self.images).shape[0], 2)} but got shape " \
+            f"{(self.images.unique().numel(), 2)} but got shape " \
             f"{crop_offsets.shape} instead."
 
         # Distribute the offsets to the pixels
         #   - Crop offsets have format: (W, H)
         #   - Pixels have format: (W, H)
-        image_ids = torch.repeat_interleave(
-            self.images,
+        image_ids = self.images.repeat_interleave(
             self.values[1].pointers[1:] - self.values[1].pointers[:-1])
         offsets = crop_offsets[image_ids]
         pixels = self.pixels - offsets
@@ -1867,18 +1873,15 @@ class ImageMapping(CSRData):
             return out
 
         # Expand to dense format
-        point_ids = torch.repeat_interleave(
-            torch.arange(self.num_groups, device=self.device),
+        point_ids = torch.arange(
+            self.num_groups, device=self.device).repeat_interleave(
             self.pointers[1:] - self.pointers[:-1])
-        point_ids = torch.repeat_interleave(
-            point_ids,
+        point_ids = point_ids.repeat_interleave(
             self.values[1].pointers[1:] - self.values[1].pointers[:-1])
-        # image_ids = torch.repeat_interleave(
-        #     self.images,
+        # image_ids = self.images.repeat_interleave(
         #     self.values[1].pointers[1:] - self.values[1].pointers[:-1])
         if self.has_features:
-            features = torch.repeat_interleave(
-                self.features,
+            features = self.features.repeat_interleave(
                 self.values[1].pointers[1:] - self.values[1].pointers[:-1],
                 dim=0)
         else:

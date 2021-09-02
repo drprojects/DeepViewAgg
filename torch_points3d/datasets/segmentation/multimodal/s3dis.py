@@ -590,7 +590,7 @@ class S3DISOriginalFusedMM(InMemoryDataset):
         transform = SelectMappingFromPointId()
         data = [indexer(d, ~is_val) for d, is_val
                 in zip(mm_data_list[0], is_val_list)]
-        images = [im for im in mm_data_list[1]]
+        images = [im.clone() for im in mm_data_list[1]]
         torch.save(transform(data, images), self.processed_paths[0])
 
         # Extract and save val preprocessed multimodal data

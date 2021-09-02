@@ -117,8 +117,8 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
     # Subsample to limit the drawing time
     data = GridSampling3D(voxel)(data)
     if data.num_nodes > max_points:
-        data = FixedPoints(max_points, replace=False, allow_duplicates=False)(
-            data)
+        data = FixedPoints(
+            max_points, replace=False, allow_duplicates=False)(data)
 
     # Subsample the mappings accordingly
     transform = SelectMappingFromPointId()

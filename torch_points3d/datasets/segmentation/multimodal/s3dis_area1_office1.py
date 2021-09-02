@@ -5,8 +5,6 @@ from torch_points3d.datasets.segmentation.s3dis import *
 from torch_geometric.data import Data
 from torch_points3d.core.multimodal.data import MMData
 from torch_points3d.core.multimodal.image import SameSettingImageData
-from torch_points3d.core.data_transform.multimodal.image import \
-    SelectMappingFromPointId
 
 ########################################################################
 #                             S3DIS Utils                              #
