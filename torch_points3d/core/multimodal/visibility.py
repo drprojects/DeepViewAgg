@@ -352,7 +352,7 @@ def camera_projection(
 @njit(cache=True, nogil=True)
 def equirectangular_splat_cpu(
         x_proj, y_proj, dist, img_size=(1024, 512), crop_top=0, crop_bottom=0,
-        voxel=0.03, k_swell=0.2, d_swell=10):
+        voxel=0.02, k_swell=1.0, d_swell=1000):
     """
 
     :param x_proj:
@@ -428,7 +428,7 @@ def equirectangular_splat_cpu(
 
 def equirectangular_splat_cuda(
         x_proj, y_proj, dist, img_size=(1024, 512), crop_top=0, crop_bottom=0,
-        voxel=0.03, k_swell=0.2, d_swell=10):
+        voxel=0.02, k_swell=1.0, d_swell=1000):
     """
 
     :param x_proj:
@@ -544,7 +544,7 @@ def bbox_to_xy_grid_cuda(bbox):
 @njit(cache=True, nogil=True)
 def visibility_from_splatting_cpu(
         x_proj, y_proj, dist, img_size=(1024, 512), crop_top=0, crop_bottom=0,
-        voxel=0.1, k_swell=0.2, d_swell=10, exact=False):
+        voxel=0.1, k_swell=1.0, d_swell=1000, exact=False):
     """Compute visibility model with splatting on the CPU with numpy and
     numba.
 
@@ -637,7 +637,7 @@ def visibility_from_splatting_cpu(
 
 def visibility_from_splatting_cuda(
         x_proj, y_proj, dist, img_size=(1024, 512), crop_top=0, crop_bottom=0,
-        voxel=0.1, k_swell=0.2, d_swell=10, exact=False, **kwargs):
+        voxel=0.1, k_swell=1.0, d_swell=1000, exact=False, **kwargs):
     """Compute visibility model with splatting on the GPU with torch and
     cuda.
 
@@ -706,7 +706,7 @@ def visibility_from_splatting_cuda(
 
 def visibility_from_splatting(
         x_proj, y_proj, dist, img_size=(1024, 512), crop_top=0, crop_bottom=0,
-        voxel=0.1, k_swell=0.2, d_swell=10, exact=False, **kwargs):
+        voxel=0.1, k_swell=1.0, d_swell=1000, exact=False, **kwargs):
     """
 
     :param x_proj:
@@ -1141,7 +1141,7 @@ class SplattingVisibility(VisibilityModel, ABC):
 
     def __init__(
             self, img_size=(1024, 512), crop_top=0, crop_bottom=0, r_max=30,
-            r_min=0.5, voxel=0.1, k_swell=0.2, d_swell=10, exact=False):
+            r_min=0.5, voxel=0.1, k_swell=1.0, d_swell=1000, exact=False):
         self.img_size = img_size
         self.crop_top = crop_top
         self.crop_bottom = crop_bottom
