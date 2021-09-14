@@ -1109,7 +1109,12 @@ class RandomHorizontalFlip(ImageTransform):
             images.load()
 
         if torch.rand(1) <= self.p:
-            images.x = torch.flip(images.x, [3])
+            # Turns out that torch.flip is slower than fancy indexing:
+            # https://github.com/pytorch/pytorch/issues/16424
+            # images.x = torch.flip(images.x, [3])
+            flip_index = torch.arange(images.x.shape[-1] - 1, -1, -1)
+            images.x = images.x[..., flip_index]
+
             _, _, _, width = images.x.shape
             images.mappings.pixels[:, 0] = \
                 width - 1 - images.mappings.pixels[:, 0]
