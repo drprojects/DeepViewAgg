@@ -35,7 +35,7 @@ class Identity(BaseModule):
         return data
 
 
-def MLP(channels, activation=nn.LeakyReLU(0.2), bn_momentum=0.1, bias=True):
+def MLP(channels, activation=nn.LeakyReLU(0.2, inplace=True), bn_momentum=0.1, bias=True):
     return nn.Sequential(
         *[
             nn.Sequential(

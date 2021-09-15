@@ -3,6 +3,8 @@ from abc import ABC
 import sys
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint, checkpoint_sequential
 from torch_scatter import segment_csr, scatter_min, scatter_max
 from torch_points3d.core.common_modules import MLP
 import math
@@ -205,7 +207,7 @@ class GroupBimodalCSRPool(nn.Module, ABC):
     def __init__(
             self, in_map=None, in_mod=None, num_groups=1, use_mod=False,
             gating=True, group_scaling=True, save_last=False, nc_inner=32,
-            map_encoder='DeepSetFeat', **kwargs):
+            map_encoder='DeepSetFeat', checkpointing=True, **kwargs):
         super(GroupBimodalCSRPool, self).__init__()
 
         # Default output feature size used for embeddings
@@ -256,7 +258,10 @@ class GroupBimodalCSRPool(nn.Module, ABC):
         # Optional gating mechanism
         self.G = Gating(num_groups, bias=True) if gating else None
 
-    def forward(self, x_main, x_mod, x_map, csr_idx):
+        # Optional checkpointing to alleviate memory
+        self.checkpointing = checkpointing
+
+    def _forward(self, x_main, x_mod, x_map, csr_idx):
         """
         :param x_main: N x F_main
         :param x_mod: V x F_mod
@@ -264,11 +269,32 @@ class GroupBimodalCSRPool(nn.Module, ABC):
         :param csr_idx:
         :return: x_pool, x_seen
         """
+
+        torch.cuda.synchronize()
+        memory = torch.cuda.memory_allocated(0)
+        print(f'        GroupBimodalCSRPool: {(memory) / (1024 * 1024):0.1f} Mo')
+        memory = torch.cuda.memory_allocated(0)
+
         # Compute mapping features : V x F_map
         x_map = self.E_map(x_map, csr_idx)
+        # if self.checkpointing:
+        #     x_map = checkpoint(self.E_map, x_map, csr_idx)
+        # else:
+        #     x_map = self.E_map(x_map, csr_idx)
+        torch.cuda.synchronize()
+        print(f'            E_map: {(torch.cuda.memory_allocated(0) - memory) / (1024 * 1024):0.1f} Mo - x_map.shape={x_map.shape}')
+        memory = torch.cuda.memory_allocated(0)
 
         # Compute values : V x F_mod
         x_mod = self.E_mod(x_mod)
+        # if self.checkpointing:
+        #     # x_mod = checkpoint_sequential(self.E_mod, 1, x_mod)
+        #     x_mod = checkpoint(self.E_mod, x_mod)
+        # else:
+        #     x_mod = self.E_mod(x_mod)
+        torch.cuda.synchronize()
+        print(f'            E_mod: {(torch.cuda.memory_allocated(0) - memory) / (1024 * 1024):0.1f} Mo - x_mod.shape={x_mod.shape}')
+        memory = torch.cuda.memory_allocated(0)
 
         # Compute compatibilities (unscaled scores) : V x num_groups
         if self.use_mod:
@@ -276,30 +302,51 @@ class GroupBimodalCSRPool(nn.Module, ABC):
             compatibilities = self.E_score(x_mix)
         else:
             compatibilities = self.E_score(x_map)
+        torch.cuda.synchronize()
+        print(
+            f'            E_score: {(torch.cuda.memory_allocated(0) - memory) / (1024 * 1024):0.1f} Mo - compatibilities.shape={compatibilities.shape}')
+        memory = torch.cuda.memory_allocated(0)
 
         # Compute attention scores : V x num_groups
         attentions = segment_softmax_csr(
             compatibilities, csr_idx, scaling=self.group_scaling)
+        torch.cuda.synchronize()
+        print(
+            f'            attentions: {(torch.cuda.memory_allocated(0) - memory) / (1024 * 1024):0.1f} Mo - attentions.shape={attentions.shape}')
+        memory = torch.cuda.memory_allocated(0)
 
         # Apply attention scores : P x F_mod
         x_pool = segment_csr(
             x_mod * expand_group_feat(attentions, self.num_groups, self.in_mod),
             csr_idx, reduce='sum')
+        torch.cuda.synchronize()
+        print(
+            f'            x_pool: {(torch.cuda.memory_allocated(0) - memory) / (1024 * 1024):0.1f} Mo - x_pool.shape={x_pool.shape}')
+        memory = torch.cuda.memory_allocated(0)
 
         if self.G:
             # Compute pointwise gating for each group : P x num_groups
             gating = self.G(segment_csr(
                 compatibilities, csr_idx, reduce='max'))
+            torch.cuda.synchronize()
+            print(
+                f'            gating: {(torch.cuda.memory_allocated(0) - memory) / (1024 * 1024):0.1f} Mo - gating.shape={gating.shape}')
+            memory = torch.cuda.memory_allocated(0)
 
             # Apply gating to the features : P x F_mod
-            x_pool = x_pool * expand_group_feat(
+            x_pool *= expand_group_feat(
                 gating, self.num_groups, self.in_mod)
+            torch.cuda.synchronize()
+            print(
+                f'            x_pool: {(torch.cuda.memory_allocated(0) - memory) / (1024 * 1024):0.1f} Mo - x_pool.shape={x_pool.shape}')
+            memory = torch.cuda.memory_allocated(0)
 
-        # Compute the boolean mask of seen points
-        x_seen = csr_idx[1:] > csr_idx[:-1]
+        # # Compute the boolean mask of seen points
+        # x_seen = csr_idx[1:] > csr_idx[:-1]
 
         # Optionally save outputs
         if self.save_last:
+            print("WARNING : SAVING LAST !")
             self._last_x_map = x_map
             self._last_x_mod = x_mod
             self._last_idx = torch.arange(
@@ -310,6 +357,29 @@ class GroupBimodalCSRPool(nn.Module, ABC):
             self._last_A = attentions
             if self.G:
                 self._last_G = gating
+
+        # return x_pool, x_seen
+        return x_pool
+
+    def forward(self, x_main, x_mod, x_map, csr_idx):
+        """
+        :param x_main: N x F_main
+        :param x_mod: V x F_mod
+        :param x_map: V x F_map
+        :param csr_idx:
+        :return: x_pool, x_seen
+        """
+        # Computing x_pool
+        if self.checkpointing:
+            x_pool = checkpoint(self._forward, None, x_mod, x_map, csr_idx)
+        else:
+            x_pool = self._forward(x_main, x_mod, x_map, csr_idx)
+
+        # Compute the boolean mask of seen points
+        # This must be performed outside of the checkpoint because
+        # checkpoint does not support output tensors with
+        # requires_grad=False
+        x_seen = csr_idx[1:] > csr_idx[:-1]
 
         return x_pool, x_seen
 
@@ -427,7 +497,8 @@ class QKVBimodalCSRPool(nn.Module, ABC):
             in_mix = nc_inner + in_mod
             out_mix = nc_inner
             mid_mix = nearest_power_of_2((in_mix + out_mix) / 2, out_mix * 2)
-            self.E_mix_Q = MLP([in_mix, mid_mix, out_mix], bias=False)
+            self.E_mix_Q = MLP(
+                [in_mix, mid_mix, out_mix], bias=False)
 
         # Queries computation module
         self.Q = nn.Linear(nc_inner, nc_qk * num_groups, bias=True)
@@ -438,7 +509,8 @@ class QKVBimodalCSRPool(nn.Module, ABC):
             in_mix = nc_inner + in_mod
             out_mix = nc_inner
             mid_mix = nearest_power_of_2((in_mix + out_mix) / 2, out_mix * 2)
-            self.E_mix_K = MLP([in_mix, mid_mix, out_mix], bias=False)
+            self.E_mix_K = MLP(
+                [in_mix, mid_mix, out_mix], bias=False)
 
         # Keys computation module
         self.K = nn.Linear(nc_inner, nc_qk * num_groups, bias=True)
@@ -648,11 +720,14 @@ class DeepSetFeat(nn.Module, ABC):
         self.d_in = d_in
         self.d_out = d_out
         self.use_num = use_num
-        self.mlp_elt_1 = MLP([d_in, d_out, d_out], bias=False)
+        self.mlp_elt_1 = MLP(
+            [d_in, d_out, d_out], bias=False)
         in_set_mlp = d_out * len(self.pool) + self.use_num
-        self.mlp_set = MLP([in_set_mlp, d_out, d_out], bias=False)
+        self.mlp_set = MLP(
+            [in_set_mlp, d_out, d_out], bias=False)
         in_last_mlp = d_out if fusion == 'residual' else d_out * 2
-        self.mlp_elt_2 = MLP([in_last_mlp, d_out, d_out], bias=False)
+        self.mlp_elt_2 = MLP(
+            [in_last_mlp, d_out, d_out], bias=False)
 
     def forward(self, x, csr_idx):
         x = self.mlp_elt_1(x)
@@ -683,10 +758,11 @@ class Gating(nn.Module):
 
     def forward(self, x):
         if self.weight is not None:
-            x = self.weight * x
+            x *= self.weight
         if self.bias is not None:
-            x = x + self.bias
-        return torch.tanh(torch.relu(x)).view(-1, self.num_groups).squeeze(1)
+            x += self.bias
+        return torch.tanh(
+            F.relu(x, inplace=True)).view(-1, self.num_groups).squeeze(1)
 
     def extra_repr(self) -> str:
         return f'num_groups={self.num_groups}, ' \
