@@ -109,7 +109,10 @@ class FAISSGPUKNNNeighbourFinder(BaseNeighbourFinder):
         if ncells is None:
             f1 = 3.5 * np.sqrt(n_fit)
             f2 = 1.6 * np.sqrt(n_fit)
-            p = 1 / (1 + np.exp(2 * 10 ** 6 - n_fit))
+            if n_fit > 2 * 10 ** 6:
+                p = 1 / (1 + np.exp(2 * 10 ** 6 - n_fit))
+            else:
+                p = 0
             ncells = int(p * f1 + (1 - p) * f2)
 
         # Building a GPU IVFFlat index + Flat quantizer
