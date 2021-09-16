@@ -401,6 +401,10 @@ class UnimodalBranch(nn.Module, ABC):
 
         return mm_data_dict
 
+    def extra_repr(self) -> str:
+        repr_attr = ['drop_3d', 'drop_mod', 'keep_last_view', 'checkpointing']
+        return "\n".join([f'{a}={getattr(self, a)}' for a in repr_attr])
+
 
 class IdentityBranch(BaseModule):
     def __init__(self):

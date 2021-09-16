@@ -314,7 +314,6 @@ class GroupBimodalCSRPool(nn.Module, ABC):
 
         return x_pool
 
-
     def extra_repr(self) -> str:
         repr_attr = ['num_groups', 'use_mod', 'group_scaling', 'save_last']
         return "\n".join([f'{a}={getattr(self, a)}' for a in repr_attr])
