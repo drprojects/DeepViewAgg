@@ -267,11 +267,13 @@ class UnimodalBranch(nn.Module, ABC):
         assert not checkpointing or isinstance(checkpointing, str),\
             f'Expected checkpointing to be of type str but received ' \
             f'{type(checkpointing)} instead.'
-        self.checkpointing = set('cavf').intersection(set(checkpointing))
+        self.checkpointing = ''.join(set('cavf').intersection(set(checkpointing)))
 
     def forward(self, mm_data_dict, modality):
-        # Unpack the multimodal data dictionary
-        x_3d = mm_data_dict['x_3d']
+        # Unpack the multimodal data dictionary. Specific treatment for
+        # MinkowskiEngine and TorchSparse SparseTensors
+        sparse_3d = not isinstance(mm_data_dict['x_3d'], (torch.Tensor, type(None)))
+        x_3d = mm_data_dict['x_3d'].F if sparse_3d else mm_data_dict['x_3d']
         mod_data = mm_data_dict['modalities'][modality]
 
         # Check whether the modality carries multi-setting data
@@ -288,13 +290,23 @@ class UnimodalBranch(nn.Module, ABC):
             if has_multi_setting:
                 for i in range(len(mod_data)):
                     if 'c' in self.checkpointing:
-                        mod_x = checkpoint(self.conv, mod_data[i].x, i == 0)
+                        # Need to set requires_grad for input tensor
+                        # because checkpointing the first layer breaks
+                        # the gradients
+                        mod_data[i].x.requires_grad_()
+                        reset = torch.BoolTensor([i == 0])
+                        mod_x = checkpoint(self.conv, mod_data[i].x, reset)
                     else:
                         mod_x = self.conv(mod_data[i].x, i == 0)
                     mod_data[i].update_x_and_scale(mod_x)
             else:
                 if 'c' in self.checkpointing:
-                    mod_x = checkpoint(self.conv, mod_data.x, True)
+                    # Need to set requires_grad for input tensor
+                    # because checkpointing the first layer breaks
+                    # the gradients
+                    mod_data.x.requires_grad_()
+                    reset = torch.BoolTensor([True])
+                    mod_x = checkpoint(self.conv, mod_data.x, reset)
                 else:
                     mod_x = self.conv(mod_data.x, True)
                 mod_data = mod_data.update_x_and_scale(mod_x)
@@ -359,10 +371,7 @@ class UnimodalBranch(nn.Module, ABC):
 
         # Dropout 3D or modality features
         if self.drop_3d:
-            if isinstance(x_3d, torch.Tensor):
-                x_3d = self.drop_3d(x_3d)
-            elif x_3d is not None:
-                x_3d.F = self.drop_3d(x_3d.F)
+            x_3d = self.drop_3d(x_3d)
         if self.drop_mod:
             x_mod = self.drop_mod(x_mod)
             if self.keep_last_view:
@@ -379,7 +388,10 @@ class UnimodalBranch(nn.Module, ABC):
         #  and x_seen affect the modality behavior ? Should the shared
         #  3D information only be updated once all modality branches
         #  have been run on the same input ?
-        mm_data_dict['x_3d'] = x_3d
+        if sparse_3d:
+            mm_data_dict['x_3d'].F = x_3d
+        else:
+            mm_data_dict['x_3d'] = x_3d
         mm_data_dict['modalities'][modality] = mod_data
         if mm_data_dict['x_seen'] is None:
             mm_data_dict['x_seen'] = x_seen

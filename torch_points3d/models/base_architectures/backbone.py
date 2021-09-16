@@ -142,21 +142,20 @@ class BackboneBasedModel(BaseModel, ABC):
                     fusion = self._build_module(
                         opt.down_conv[m].fusion, i, modality=m,
                         flow='FUSION')
-                    drop_3d = getattr(opt.down_conv[m], 'drop_3d', 0)
-                    drop_mod = getattr(opt.down_conv[m], 'drop_mod', 0)
-                    keep_last_view = getattr(
-                        opt.down_conv[m], 'keep_last_view', False)
-                    checkpointing = getattr(
-                        opt.down_conv[m], 'checkpointing', '')
 
-                    # Group modules into a UnimodalBranch
-                    branch = UnimodalBranch(
+                    opt_branch = fetch_arguments_from_list(
+                        opt.down_conv[m], i, SPECIAL_NAMES)
+                    drop_3d = opt_branch.get('drop_3d', 0)
+                    drop_mod = opt_branch.get('drop_mod', 0)
+                    keep_last_view = opt_branch.get('keep_last_view', False)
+                    checkpointing = opt_branch.get('checkpointing', '')
+
+                    # Group modules into a UnimodalBranch and update the
+                    # branches at the proper branching point
+                    branches[idx][m] = UnimodalBranch(
                         conv, atomic_pool, view_pool, fusion, drop_3d=drop_3d,
                         drop_mod=drop_mod, keep_last_view=keep_last_view,
                         checkpointing=checkpointing)
-
-                    # Update the branches at the proper branching point
-                    branches[idx][m] = branch
 
             # Update the down_modules list
             down_modules = [

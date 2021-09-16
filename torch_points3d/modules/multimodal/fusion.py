@@ -45,10 +45,7 @@ class BimodalFusion(nn.Module, ABC):
         x_mod = x_mod if isinstance(x_mod, torch.Tensor) else x_mod.F
 
         # Update the x_main while respecting its format
-        if isinstance(x_main, torch.Tensor):
-            x_main = self.f(x_main, x_mod)
-        else:
-            x_main.F = self.f(x_main.F, x_mod)
+        x_main = self.f(x_main, x_mod)
 
         return x_main
 

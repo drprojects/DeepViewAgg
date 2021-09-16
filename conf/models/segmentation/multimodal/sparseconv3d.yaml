@@ -4681,7 +4681,7 @@ XYZ-RGB-PointPyramid-0_ckpt:
                 drop_3d: None
                 drop_mod: None
                 branching_index: [0, 1, 2, 3, 4]
-                checkpointing: cav
+                checkpointing: [ cav, cav, cav, cav, cav ]
 
         up_conv:
             block: block

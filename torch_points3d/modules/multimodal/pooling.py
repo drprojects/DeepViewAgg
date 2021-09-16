@@ -466,10 +466,6 @@ class QKVBimodalCSRPool(nn.Module, ABC):
             x_mod[idx_destroyed] = torch.rand(
                 (idx_destroyed.shape[0], *(x_mod.shape[1:])), device=device)
 
-        # For MinkowskiEngine and TorchSparse SparseTensors
-        if not isinstance(x_main, torch.Tensor):
-            x_main = x_main.F
-
         # Compute main features : P x F_main
         x_main = self.E_main(x_main)
 
