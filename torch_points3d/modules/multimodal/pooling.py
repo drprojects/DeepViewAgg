@@ -4,7 +4,6 @@ import sys
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.checkpoint import checkpoint, checkpoint_sequential
 from torch_scatter import segment_csr, scatter_min, scatter_max
 from torch_points3d.core.common_modules import MLP
 import math
@@ -52,10 +51,16 @@ class BimodalCSRPool(nn.Module, ABC):
         self._last_view_num = None
 
     def forward(self, x_main, x_mod, x_map, csr_idx):
+        """
+        :param x_main: N x F_main
+        :param x_mod: V x F_mod
+        :param x_map: V x F_map
+        :param csr_idx:
+        :return: x_pool, x_seen
+        """
         # Segment_CSR is "the fastest method to apply for grouped
         # reductions."
         x_pool = segment_csr(x_mod, csr_idx, reduce=self._mode)
-        x_seen = csr_idx[1:] > csr_idx[:-1]
         if self.save_last:
             self._last_x_map = x_map
             self._last_x_mod = x_mod
@@ -63,10 +68,7 @@ class BimodalCSRPool(nn.Module, ABC):
                 csr_idx.shape[0] - 1, device=x_mod.device).repeat_interleave(
                 csr_idx[1:] - csr_idx[:-1])
             self._last_view_num = csr_idx[1:] - csr_idx[:-1]
-        return x_pool, x_seen
-
-    def extra_repr(self) -> str:
-        return f'mode={self._mode}, save_last={self.save_last}'
+        return x_pool
 
 
 class HeuristicBimodalCSRPool(nn.Module, ABC):
@@ -207,7 +209,7 @@ class GroupBimodalCSRPool(nn.Module, ABC):
     def __init__(
             self, in_map=None, in_mod=None, num_groups=1, use_mod=False,
             gating=True, group_scaling=True, save_last=False, nc_inner=32,
-            map_encoder='DeepSetFeat', checkpointing=True, **kwargs):
+            map_encoder='DeepSetFeat', **kwargs):
         super(GroupBimodalCSRPool, self).__init__()
 
         # Default output feature size used for embeddings
@@ -258,10 +260,7 @@ class GroupBimodalCSRPool(nn.Module, ABC):
         # Optional gating mechanism
         self.G = Gating(num_groups, bias=True) if gating else None
 
-        # Optional checkpointing to alleviate memory
-        self.checkpointing = checkpointing
-
-    def _forward(self, x_main, x_mod, x_map, csr_idx):
+    def forward(self, x_main, x_mod, x_map, csr_idx):
         """
         :param x_main: N x F_main
         :param x_mod: V x F_mod
@@ -315,27 +314,6 @@ class GroupBimodalCSRPool(nn.Module, ABC):
 
         return x_pool
 
-    def forward(self, x_main, x_mod, x_map, csr_idx):
-        """
-        :param x_main: N x F_main
-        :param x_mod: V x F_mod
-        :param x_map: V x F_map
-        :param csr_idx:
-        :return: x_pool, x_seen
-        """
-        # Computing x_pool
-        if self.checkpointing:
-            x_pool = checkpoint(self._forward, None, x_mod, x_map, csr_idx)
-        else:
-            x_pool = self._forward(x_main, x_mod, x_map, csr_idx)
-
-        # Compute the boolean mask of seen points
-        # This must be performed outside of the checkpoint because
-        # checkpoint does not support output tensors with
-        # requires_grad=False
-        x_seen = csr_idx[1:] > csr_idx[:-1]
-
-        return x_pool, x_seen
 
     def extra_repr(self) -> str:
         repr_attr = ['num_groups', 'use_mod', 'group_scaling', 'save_last']
@@ -806,7 +784,7 @@ def segment_softmax_csr(src: torch.Tensor, csr_idx: torch.Tensor,
             num_per_src_element = num_per_src_element.view(-1, 1).repeat(
                 1, src.shape[1])
 
-        centered_scores = centered_scores / num_per_src_element
+        centered_scores /= num_per_src_element
 
     # Compute the numerators
     centered_scores_exp = centered_scores.exp()

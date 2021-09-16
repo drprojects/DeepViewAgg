@@ -146,11 +146,14 @@ class BackboneBasedModel(BaseModel, ABC):
                     drop_mod = getattr(opt.down_conv[m], 'drop_mod', 0)
                     keep_last_view = getattr(opt.down_conv[m],
                         'keep_last_view', False)
+                    checkpointing = getattr(
+                        opt.down_conv[m], 'checkpointing', 0)
 
                     # Group modules into a UnimodalBranch
-                    branch = UnimodalBranch(conv, atomic_pool, view_pool,
-                        fusion, drop_3d=drop_3d, drop_mod=drop_mod,
-                        keep_last_view=keep_last_view)
+                    branch = UnimodalBranch(
+                        conv, atomic_pool, view_pool, fusion, drop_3d=drop_3d,
+                        drop_mod=drop_mod, keep_last_view=keep_last_view,
+                        checkpointing=checkpointing)
 
                     # Update the branches at the proper branching point
                     branches[idx][m] = branch

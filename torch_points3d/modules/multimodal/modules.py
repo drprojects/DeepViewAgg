@@ -2,6 +2,7 @@ from abc import ABC
 
 import torch
 import torch.nn as nn
+from torch.utils.checkpoint import checkpoint, checkpoint_sequential
 from torch_points3d.core.multimodal.data import MODALITY_NAMES
 from torch_points3d.core.common_modules.base_modules import Identity, \
     BaseModule
@@ -83,17 +84,9 @@ class MultimodalBlockDown(nn.Module, ABC):
         for the 3D convolutional modules, and a dictionary of
         modality-specific data equipped with corresponding mappings.
         """
-        torch.cuda.synchronize()
-        memory = torch.cuda.memory_allocated(0)
-        print(f'\nMultimodalBlockDown: {memory / (1024*1024):0.1f} Mo')
-
         # Conv on the main 3D modality - assumed to reduce 3D resolution
         mm_data_dict = self.forward_3d_block_down(
             mm_data_dict, self.down_block)
-
-        torch.cuda.synchronize()
-        print(f'    fwd 3d 1: {(torch.cuda.memory_allocated(0) - memory) / (1024 * 1024):0.1f} Mo')
-        memory = torch.cuda.memory_allocated(0)
 
         for m in self.modalities:
             # TODO: does the modality-driven sequence of updates on x_3d
@@ -103,17 +96,9 @@ class MultimodalBlockDown(nn.Module, ABC):
             mod_branch = getattr(self, m)
             mm_data_dict = mod_branch(mm_data_dict, m)
 
-            torch.cuda.synchronize()
-            print(f'    fwd 2d: {(torch.cuda.memory_allocated(0) - memory) / (1024 * 1024):0.1f} Mo')
-            memory = torch.cuda.memory_allocated(0)
-
         # Conv on the main 3D modality
         mm_data_dict = self.forward_3d_block_down(
             mm_data_dict, self.conv_block)
-
-        torch.cuda.synchronize()
-        print(f'    fwd 3d 2: {(torch.cuda.memory_allocated(0) - memory) / (1024 * 1024):0.1f} Mo')
-        memory = torch.cuda.memory_allocated(0)
 
         return mm_data_dict
 
@@ -258,7 +243,7 @@ class UnimodalBranch(nn.Module, ABC):
 
     def __init__(
             self, conv, atomic_pool, view_pool, fusion, drop_3d=0, drop_mod=0,
-            hard_drop=False, keep_last_view=False):
+            hard_drop=False, keep_last_view=False, checkpointing=''):
         super(UnimodalBranch, self).__init__()
         self.conv = conv
         self.atomic_pool = atomic_pool
@@ -272,6 +257,17 @@ class UnimodalBranch(nn.Module, ABC):
             if drop_mod is not None and drop_mod > 0 \
             else None
         self.keep_last_view = keep_last_view
+
+        # Optional checkpointing to alleviate memory at train time.
+        # Character rules:
+        #     c: convolution
+        #     a: atomic pooling
+        #     v: view pooling
+        #     f: fusion
+        assert not checkpointing or isinstance(checkpointing, str),\
+            f'Expected checkpointing to be of type str but received ' \
+            f'{type(checkpointing)} instead.'
+        self.checkpointing = set('cavf').intersection(set(checkpointing))
 
     def forward(self, mm_data_dict, modality):
         # Unpack the multimodal data dictionary
@@ -291,11 +287,18 @@ class UnimodalBranch(nn.Module, ABC):
         if self.conv:
             if has_multi_setting:
                 for i in range(len(mod_data)):
-                    mod_data[i].update_x_and_scale(
-                        self.conv(mod_data[i].x, reset_dropout=(i == 0)))
+                    if 'c' in self.checkpointing:
+                        mod_x = checkpoint(self.conv, mod_data[i].x, i == 0)
+                    else:
+                        mod_x = self.conv(mod_data[i].x, i == 0)
+                    mod_data[i].update_x_and_scale(mod_x)
             else:
-                mod_data = mod_data.update_x_and_scale(
-                    self.conv(mod_data.x, reset_dropout=True))
+                if 'c' in self.checkpointing:
+                    mod_x = checkpoint(self.conv, mod_data.x, True)
+                else:
+                    mod_x = self.conv(mod_data.x, True)
+                mod_data = mod_data.update_x_and_scale(mod_x)
+            del mod_x
 
         # Extract CSR-arranged atomic features from the feature maps
         # of each input modality setting
@@ -309,12 +312,21 @@ class UnimodalBranch(nn.Module, ABC):
         # Atomic pooling of the modality features on each
         # separate setting
         if has_multi_setting:
-            x_mod = [
-                self.atomic_pool(x_3d, x, None, a_idx)[0]
-                for x, a_idx in zip(x_mod, mod_data.atomic_csr_indexing)]
+            if 'a' in self.checkpointing:
+                x_mod = [
+                    checkpoint(self.atomic_pool, x_3d, x, None, a_idx)
+                    for x, a_idx in zip(x_mod, mod_data.atomic_csr_indexing)]
+            else:
+                x_mod = [
+                    self.atomic_pool(x_3d, x, None, a_idx)
+                    for x, a_idx in zip(x_mod, mod_data.atomic_csr_indexing)]
+        elif 'a' in self.checkpointing:
+            x_mod = checkpoint(
+                self.atomic_pool, x_3d, x_mod, None,
+                mod_data.atomic_csr_indexing)
         else:
             x_mod = self.atomic_pool(
-                x_3d, x_mod, None, mod_data.atomic_csr_indexing)[0]
+                x_3d, x_mod, None, mod_data.atomic_csr_indexing)
 
         # For multi-setting data, concatenate view-level features from
         # each input modality setting and sort them to a CSR-friendly
@@ -337,7 +349,13 @@ class UnimodalBranch(nn.Module, ABC):
             mod_data.last_view_x_mod = x_mod
             mod_data.last_view_x_map = x_map
             mod_data.last_view_csr_idx = csr_idx
-        x_mod, x_seen = self.view_pool(x_3d, x_mod, x_map, csr_idx)
+        if 'v' in self.checkpointing:
+            x_mod = checkpoint(self.view_pool, x_3d, x_mod, x_map, csr_idx)
+        else:
+            x_mod = self.view_pool(x_3d, x_mod, x_map, csr_idx)
+
+        # Compute the boolean mask of seen points
+        x_seen = csr_idx[1:] > csr_idx[:-1]
 
         # Dropout 3D or modality features
         if self.drop_3d:
@@ -351,7 +369,10 @@ class UnimodalBranch(nn.Module, ABC):
                 mod_data.last_view_x_mod = self.drop_mod(mod_data.last_view_x_mod)
 
         # Fuse the modality features into the 3D points features
-        x_3d = self.fusion(x_3d, x_mod)
+        if 'f' in self.checkpointing:
+            x_3d = checkpoint(self.fusion, x_3d, x_mod)
+        else:
+            x_3d = self.fusion(x_3d, x_mod)
 
         # Update the multimodal data dictionary
         # TODO: does the modality-driven sequence of updates on x_3d
