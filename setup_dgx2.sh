@@ -39,7 +39,7 @@ pip install omegaconf
 pip install wandb
 pip install tensorboard
 pip install plyfile
-pip install hydra-core==0.11.3
+pip install hydra-core==1.1.0
 pip install pytorch-metric-learning
 
 # Install MinkowskiEngine
