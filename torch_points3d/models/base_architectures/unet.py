@@ -500,7 +500,7 @@ class UnwrappedUnetBasedModel(BaseModel, ABC):
                     keep_last_view = getattr(
                         opt.down_conv[m], 'keep_last_view', False)
                     checkpointing = getattr(
-                        opt.down_conv[m], 'checkpointing', 0)
+                        opt.down_conv[m], 'checkpointing', '')
 
                     # Group modules into a UnimodalBranch and update the
                     # branches at the proper branching point

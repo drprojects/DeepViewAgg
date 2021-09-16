@@ -144,10 +144,10 @@ class BackboneBasedModel(BaseModel, ABC):
                         flow='FUSION')
                     drop_3d = getattr(opt.down_conv[m], 'drop_3d', 0)
                     drop_mod = getattr(opt.down_conv[m], 'drop_mod', 0)
-                    keep_last_view = getattr(opt.down_conv[m],
-                        'keep_last_view', False)
+                    keep_last_view = getattr(
+                        opt.down_conv[m], 'keep_last_view', False)
                     checkpointing = getattr(
-                        opt.down_conv[m], 'checkpointing', 0)
+                        opt.down_conv[m], 'checkpointing', '')
 
                     # Group modules into a UnimodalBranch
                     branch = UnimodalBranch(
