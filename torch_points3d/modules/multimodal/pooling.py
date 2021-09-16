@@ -269,32 +269,11 @@ class GroupBimodalCSRPool(nn.Module, ABC):
         :param csr_idx:
         :return: x_pool, x_seen
         """
-
-        torch.cuda.synchronize()
-        memory = torch.cuda.memory_allocated(0)
-        print(f'        GroupBimodalCSRPool: {(memory) / (1024 * 1024):0.1f} Mo')
-        memory = torch.cuda.memory_allocated(0)
-
         # Compute mapping features : V x F_map
         x_map = self.E_map(x_map, csr_idx)
-        # if self.checkpointing:
-        #     x_map = checkpoint(self.E_map, x_map, csr_idx)
-        # else:
-        #     x_map = self.E_map(x_map, csr_idx)
-        torch.cuda.synchronize()
-        print(f'            E_map: {(torch.cuda.memory_allocated(0) - memory) / (1024 * 1024):0.1f} Mo - x_map.shape={x_map.shape}')
-        memory = torch.cuda.memory_allocated(0)
 
         # Compute values : V x F_mod
         x_mod = self.E_mod(x_mod)
-        # if self.checkpointing:
-        #     # x_mod = checkpoint_sequential(self.E_mod, 1, x_mod)
-        #     x_mod = checkpoint(self.E_mod, x_mod)
-        # else:
-        #     x_mod = self.E_mod(x_mod)
-        torch.cuda.synchronize()
-        print(f'            E_mod: {(torch.cuda.memory_allocated(0) - memory) / (1024 * 1024):0.1f} Mo - x_mod.shape={x_mod.shape}')
-        memory = torch.cuda.memory_allocated(0)
 
         # Compute compatibilities (unscaled scores) : V x num_groups
         if self.use_mod:
@@ -302,51 +281,27 @@ class GroupBimodalCSRPool(nn.Module, ABC):
             compatibilities = self.E_score(x_mix)
         else:
             compatibilities = self.E_score(x_map)
-        torch.cuda.synchronize()
-        print(
-            f'            E_score: {(torch.cuda.memory_allocated(0) - memory) / (1024 * 1024):0.1f} Mo - compatibilities.shape={compatibilities.shape}')
-        memory = torch.cuda.memory_allocated(0)
 
         # Compute attention scores : V x num_groups
         attentions = segment_softmax_csr(
             compatibilities, csr_idx, scaling=self.group_scaling)
-        torch.cuda.synchronize()
-        print(
-            f'            attentions: {(torch.cuda.memory_allocated(0) - memory) / (1024 * 1024):0.1f} Mo - attentions.shape={attentions.shape}')
-        memory = torch.cuda.memory_allocated(0)
 
         # Apply attention scores : P x F_mod
         x_pool = segment_csr(
             x_mod * expand_group_feat(attentions, self.num_groups, self.in_mod),
             csr_idx, reduce='sum')
-        torch.cuda.synchronize()
-        print(
-            f'            x_pool: {(torch.cuda.memory_allocated(0) - memory) / (1024 * 1024):0.1f} Mo - x_pool.shape={x_pool.shape}')
-        memory = torch.cuda.memory_allocated(0)
 
         if self.G:
             # Compute pointwise gating for each group : P x num_groups
             gating = self.G(segment_csr(
                 compatibilities, csr_idx, reduce='max'))
-            torch.cuda.synchronize()
-            print(
-                f'            gating: {(torch.cuda.memory_allocated(0) - memory) / (1024 * 1024):0.1f} Mo - gating.shape={gating.shape}')
-            memory = torch.cuda.memory_allocated(0)
 
             # Apply gating to the features : P x F_mod
             x_pool *= expand_group_feat(
                 gating, self.num_groups, self.in_mod)
-            torch.cuda.synchronize()
-            print(
-                f'            x_pool: {(torch.cuda.memory_allocated(0) - memory) / (1024 * 1024):0.1f} Mo - x_pool.shape={x_pool.shape}')
-            memory = torch.cuda.memory_allocated(0)
-
-        # # Compute the boolean mask of seen points
-        # x_seen = csr_idx[1:] > csr_idx[:-1]
 
         # Optionally save outputs
         if self.save_last:
-            print("WARNING : SAVING LAST !")
             self._last_x_map = x_map
             self._last_x_mod = x_mod
             self._last_idx = torch.arange(
@@ -358,7 +313,6 @@ class GroupBimodalCSRPool(nn.Module, ABC):
             if self.G:
                 self._last_G = gating
 
-        # return x_pool, x_seen
         return x_pool
 
     def forward(self, x_main, x_mod, x_map, csr_idx):

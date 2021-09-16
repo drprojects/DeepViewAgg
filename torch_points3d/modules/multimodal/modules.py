@@ -274,18 +274,9 @@ class UnimodalBranch(nn.Module, ABC):
         self.keep_last_view = keep_last_view
 
     def forward(self, mm_data_dict, modality):
-
-        torch.cuda.synchronize()
-        memory = torch.cuda.memory_allocated(0)
-        print(f'    UnimodalBranch: {memory / (1024 * 1024):0.1f} Mo')
-
         # Unpack the multimodal data dictionary
         x_3d = mm_data_dict['x_3d']
         mod_data = mm_data_dict['modalities'][modality]
-
-        torch.cuda.synchronize()
-        print(f'        init: {(torch.cuda.memory_allocated(0) - memory) / (1024 * 1024):0.1f} Mo')
-        memory = torch.cuda.memory_allocated(0)
 
         # Check whether the modality carries multi-setting data
         has_multi_setting = isinstance(mod_data.x, list)
@@ -305,9 +296,6 @@ class UnimodalBranch(nn.Module, ABC):
             else:
                 mod_data = mod_data.update_x_and_scale(
                     self.conv(mod_data.x, reset_dropout=True))
-        torch.cuda.synchronize()
-        print(f'        conv: {(torch.cuda.memory_allocated(0) - memory) / (1024 * 1024):0.1f} Mo')
-        memory = torch.cuda.memory_allocated(0)
 
         # Extract CSR-arranged atomic features from the feature maps
         # of each input modality setting
@@ -315,14 +303,8 @@ class UnimodalBranch(nn.Module, ABC):
             x_mod = [x[idx]
                      for x, idx
                      in zip(mod_data.x, mod_data.feature_map_indexing)]
-            x_mod_shape = f'        x_mod.shape: {[x.shape for x in x_mod]}'
         else:
             x_mod = mod_data.x[mod_data.feature_map_indexing]
-            x_mod_shape = f'        x_mod.shape: {x_mod.shape}'
-        torch.cuda.synchronize()
-        print(f'        extract: {(torch.cuda.memory_allocated(0) - memory) / (1024 * 1024):0.1f} Mo')
-        print(x_mod_shape)
-        memory = torch.cuda.memory_allocated(0)
 
         # Atomic pooling of the modality features on each
         # separate setting
@@ -330,15 +312,9 @@ class UnimodalBranch(nn.Module, ABC):
             x_mod = [
                 self.atomic_pool(x_3d, x, None, a_idx)[0]
                 for x, a_idx in zip(x_mod, mod_data.atomic_csr_indexing)]
-            x_mod_shape = f'        x_mod.shape: {[x.shape for x in x_mod]}'
         else:
             x_mod = self.atomic_pool(
                 x_3d, x_mod, None, mod_data.atomic_csr_indexing)[0]
-            x_mod_shape = f'        x_mod.shape: {x_mod.shape}'
-        torch.cuda.synchronize()
-        print(f'        atomic: {(torch.cuda.memory_allocated(0) - memory) / (1024 * 1024):0.1f} Mo')
-        print(x_mod_shape)
-        memory = torch.cuda.memory_allocated(0)
 
         # For multi-setting data, concatenate view-level features from
         # each input modality setting and sort them to a CSR-friendly
@@ -347,13 +323,6 @@ class UnimodalBranch(nn.Module, ABC):
             idx_sorting = mod_data.view_cat_sorting
             x_mod = torch.cat(x_mod, dim=0)[idx_sorting]
             x_map = torch.cat(mod_data.mapping_features, dim=0)[idx_sorting]
-            x_mod_shape = f'        x_mod.shape: {x_mod.shape}'
-            x_map_shape = f'        x_map.shape: {x_map.shape}'
-        torch.cuda.synchronize()
-        print(f'        cat: {(torch.cuda.memory_allocated(0) - memory) / (1024 * 1024):0.1f} Mo')
-        print(x_mod_shape)
-        print(x_map_shape)
-        memory = torch.cuda.memory_allocated(0)
 
         # View pooling of the atomic-pooled modality features
         if has_multi_setting:
@@ -369,9 +338,6 @@ class UnimodalBranch(nn.Module, ABC):
             mod_data.last_view_x_map = x_map
             mod_data.last_view_csr_idx = csr_idx
         x_mod, x_seen = self.view_pool(x_3d, x_mod, x_map, csr_idx)
-        torch.cuda.synchronize()
-        print(f'        view: {(torch.cuda.memory_allocated(0) - memory) / (1024 * 1024):0.1f} Mo')
-        memory = torch.cuda.memory_allocated(0)
 
         # Dropout 3D or modality features
         if self.drop_3d:
@@ -383,15 +349,9 @@ class UnimodalBranch(nn.Module, ABC):
             x_mod = self.drop_mod(x_mod)
             if self.keep_last_view:
                 mod_data.last_view_x_mod = self.drop_mod(mod_data.last_view_x_mod)
-        torch.cuda.synchronize()
-        print(f'        dropout: {(torch.cuda.memory_allocated(0) - memory) / (1024 * 1024):0.1f} Mo')
-        memory = torch.cuda.memory_allocated(0)
 
         # Fuse the modality features into the 3D points features
         x_3d = self.fusion(x_3d, x_mod)
-        torch.cuda.synchronize()
-        print(f'        fusion: {(torch.cuda.memory_allocated(0) - memory) / (1024 * 1024):0.1f} Mo')
-        memory = torch.cuda.memory_allocated(0)
 
         # Update the multimodal data dictionary
         # TODO: does the modality-driven sequence of updates on x_3d
