@@ -2,6 +2,7 @@ from abc import ABC
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torchvision
 import os.path as osp
 import sys
@@ -23,7 +24,7 @@ class ModalityIdentity(Identity):
     def __init__(self, **kwargs):
         super(ModalityIdentity, self).__init__()
 
-    def forward(self, x, **kwargs):
+    def forward(self, x, *args, **kwargs):
         return x
 
 
@@ -59,7 +60,7 @@ class Conv2dWS(nn.Conv2d, ABC):
             bias=bias, padding_mode=padding_mode)
         self.scaled = scaled
 
-    def forward(self, x, **kwargs):
+    def forward(self, x, *args, **kwargs):
         weights = standardize_weights(self.weight, scaled=self.scaled)
         return self._conv_forward(x, weights)
 
@@ -83,17 +84,17 @@ class ConvTranspose2dWS(nn.ConvTranspose2d, ABC):
             bias=bias, padding_mode=padding_mode)
         self.scaled = scaled
 
-    def forward(self, x, output_size=None, **kwargs):
+    def forward(self, x, *args, output_size=None, **kwargs):
         if self.padding_mode != 'zeros':
-            raise ValueError('Only `zeros` padding mode is supported for '
-                             'ConvTranspose2d')
+            raise ValueError(
+                'Only `zeros` padding mode is supported for ConvTranspose2d')
 
         output_padding = self._output_padding(x, output_size,
             self.stride, self.padding, self.kernel_size)
 
         weights = standardize_weights(self.weight, scaled=self.scaled)
 
-        return nn.functional.conv_transpose2d(
+        return F.conv_transpose2d(
             x, weights, self.bias, self.stride, self.padding, output_padding,
             self.groups, self.dilation)
 
@@ -109,8 +110,8 @@ class ReLUWS(nn.ReLU, ABC):
     """
     _SCALE = sqrt(2 / (1 - 1 / pi))
 
-    def forward(self, input: torch.Tensor, **kwargs) -> torch.Tensor:
-        return nn.functional.relu(input, inplace=self.inplace) * self._SCALE
+    def forward(self, input, *args, **kwargs):
+        return F.relu(input, inplace=self.inplace) * self._SCALE
 
     def extra_repr(self) -> str:
         return f"inplace={self.inplace}"
@@ -171,7 +172,7 @@ class ResBlock(nn.Module, ABC):
         else:
             self.downsample = None
 
-    def forward(self, x, **kwargs):
+    def forward(self, x, *args, **kwargs):
         out = self.block(x)
         if self.downsample:
             out += self.downsample(x)
@@ -227,7 +228,7 @@ class BottleneckBlock(nn.Module, ABC):
         else:
             self.downsample = None
 
-    def forward(self, x, **kwargs):
+    def forward(self, x, *args, **kwargs):
         out = self.block(x)
         if self.downsample:
             out += self.downsample(x)
@@ -323,7 +324,7 @@ class ResNetDown(nn.Module, ABC):
         nc_block_in = nc_stride_out
         return nc_in, nc_stride_out, nc_block_in, nc_out
 
-    def forward(self, x, **kwargs):
+    def forward(self, x, *args, **kwargs):
         if self.conv_in:
             x = self.conv_in(x)
         if self.blocks:
@@ -372,7 +373,7 @@ class ResNetUp(ResNetDown, ABC):
 
         return nc_in, nc_stride_out, nc_block_in, nc_out
 
-    def forward(self, x, skip, **kwargs):
+    def forward(self, x, skip, *args, **kwargs):
         if self.skip_first:
             if skip is not None:
                 x = torch.cat((x, skip), dim=1)
@@ -434,7 +435,7 @@ class UnaryConv(nn.Module, ABC):
         else:
             self.output_dropout = Dropout2d(p=out_drop, inplace=True)
 
-    def forward(self, x, **kwargs):
+    def forward(self, x, *args, **kwargs):
         if self.input_dropout:
             x = self.input_dropout(x, **kwargs)
         x = self.conv(x)
@@ -449,7 +450,7 @@ class UnaryConv(nn.Module, ABC):
 
 class Dropout2d(nn.Dropout2d):
     """ Dropout2d with kwargs support. """
-    def forward(self, input, **kwargs):
+    def forward(self, input, *args, **kwargs):
         return super().forward(input)
 
 
@@ -471,7 +472,7 @@ class PersistentDropout2d(nn.Module):
         self.mask = None
         super().__init__()
 
-    def forward(self, x, reset=True, **kwargs):
+    def forward(self, x, reset, *args, **kwargs):
         """
         Args:
             x :class:`torch.FloatTensor`: Input to apply dropout too.
@@ -485,8 +486,8 @@ class PersistentDropout2d(nn.Module):
 
         # Reset the feature dropout mask
         if self.mask is None or reset:
-            mask = x.new_empty(1, self.input_nc, 1, 1, requires_grad=False
-                               ).bernoulli_(1 - self.p)
+            mask = x.new_empty(1, self.input_nc, 1, 1, requires_grad=False)
+            mask = mask.bernoulli_(1 - self.p)
             self.mask = mask.div_(1 - self.p)
 
         return x * self.mask.expand_as(x)
@@ -585,7 +586,7 @@ class UNet(nn.Module, ABC):
         args = fetch_arguments_from_list(opt, index, SPECIAL_NAMES)
         return module_cls(**args)
 
-    def forward(self, x, **kwargs):
+    def forward(self, x, *args, **kwargs):
         """This method does a forward on the Unet assuming symmetrical
         skip connections.
 
@@ -623,7 +624,7 @@ class PrudentSynchronizedBatchNorm2d(MITSynchronizedBatchNorm2d):
     training time.
     """
 
-    def forward(self, input, **kwargs):
+    def forward(self, input, *args, **kwargs):
         is_training = self.training
         if input.shape[0] == input.shape[2] == input.shape[3] == 1:
             self.training = False
@@ -685,22 +686,21 @@ class PPMFeatMap(nn.Module):
         ppm_new.conv_last = nn.Sequential(*list(ppm_pretrained.conv_last)[:-2])
         return ppm_new
 
-    def forward(self, conv_out, out_size=None, **kwargs):
+    def forward(self, conv_out, *args, out_size=None, **kwargs):
         conv5 = conv_out[-1]
 
         input_size = conv5.size()
         ppm_out = [conv5]
         for pool_scale in self.ppm:
-            ppm_out.append(nn.functional.interpolate(
-                pool_scale(conv5),
-                (input_size[2], input_size[3]),
+            ppm_out.append(F.interpolate(
+                pool_scale(conv5), (input_size[2], input_size[3]),
                 mode='bilinear', align_corners=False))
         ppm_out = torch.cat(ppm_out, 1)
 
         x = self.conv_last(ppm_out)
 
         if out_size is not None:
-            x = nn.functional.interpolate(
+            x = F.interpolate(
                 x, size=out_size, mode='bilinear', align_corners=False)
 
         return x
@@ -755,7 +755,7 @@ class ADE20KResNet18PPM(nn.Module, ABC):
         if self.frozen:
             self.training = False
 
-    def forward(self, x, out_size=None, **kwargs):
+    def forward(self, x, *args, out_size=None, **kwargs):
         pred = self.decoder(self.encoder(x, return_feature_maps=True),
             out_size=out_size)
         return pred
@@ -840,10 +840,10 @@ class ADE20KResNet18TruncatedLayer4(nn.Module):
             scale_factor = self.conv_scale_factor
         self.scale_factor = scale_factor
 
-    def forward(self, x, **kwargs):
+    def forward(self, x, *args, **kwargs):
         x = self.conv(x)
         if self.scale_factor is not None:
-            x = nn.functional.interpolate(
+            x = F.interpolate(
                 x, scale_factor=self.scale_factor, mode='bilinear',
                 align_corners=False)
         return x
@@ -924,7 +924,7 @@ class ADE20KResNet18Pyramid(ADE20KResNet18TruncatedLayer4):
         super(ADE20KResNet18Pyramid, self).__init__(
             frozen=frozen, scale_factor=scale_factor, **kwargs)
 
-    def forward(self, x, **kwargs):
+    def forward(self, x, *args, **kwargs):
         feature_pyramid = []
         output_size = [
             int(s * self.scale_factor / self.conv_scale_factor)
@@ -932,7 +932,7 @@ class ADE20KResNet18Pyramid(ADE20KResNet18TruncatedLayer4):
 
         for layer in self.conv:
             x = layer(x)
-            x_up = nn.functional.interpolate(
+            x_up = F.interpolate(
                 x, size=output_size, mode='bilinear', align_corners=False)
             feature_pyramid.append(x_up)
 
@@ -1009,10 +1009,10 @@ class ResNet18TruncatedLayer4(nn.Module):
             scale_factor = self.conv_scale_factor
         self.scale_factor = scale_factor
 
-    def forward(self, x, **kwargs):
+    def forward(self, x, *args, **kwargs):
         x = self.conv(x)
         if self.scale_factor is not None:
-            x = nn.functional.interpolate(
+            x = F.interpolate(
                 x, scale_factor=self.scale_factor, mode='bilinear',
                 align_corners=False)
         return x
@@ -1095,7 +1095,7 @@ class ResNet18Pyramid(ResNet18TruncatedLayer4):
             frozen=frozen, pretrained=pretrained, scale_factor=scale_factor,
             **kwargs)
 
-    def forward(self, x, **kwargs):
+    def forward(self, x, *args, **kwargs):
         feature_pyramid = []
         output_size = [
             int(s * self.scale_factor / self.conv_scale_factor)
@@ -1103,7 +1103,7 @@ class ResNet18Pyramid(ResNet18TruncatedLayer4):
 
         for layer in self.conv:
             x = layer(x)
-            x_up = nn.functional.interpolate(
+            x_up = F.interpolate(
                 x, size=output_size, mode='bilinear', align_corners=False)
             feature_pyramid.append(x_up)
 
