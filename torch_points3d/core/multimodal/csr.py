@@ -76,7 +76,7 @@ class CSRData(object):
             self.is_index_value = torch.zeros(self.num_values, dtype=torch.bool)
         else:
             self.is_index_value = torch.BoolTensor(is_index_value)
-        self.debug()
+        # self.debug()
 
     def debug(self):
         # assert self.num_groups >= 1, \
@@ -289,7 +289,7 @@ class CSRData(object):
             out.pointers = pointers
             out.values = [v[val_idx] for v in self.values]
 
-        out.debug()
+        # out.debug()
 
         return out
 
@@ -366,8 +366,8 @@ class CSRBatch(CSRData):
         else:
             assert all([csr.is_index_value is None for csr in csr_list]), \
                 "All provided items must have the same is_index_value."
-        for csr in csr_list:
-            csr.debug()
+        # for csr in csr_list:
+        #     csr.debug()
 
         # Offsets are used to stack pointer indices and values identified as
         # "index" value by `is_index_value` without losing the indexing
@@ -467,7 +467,7 @@ class CSRBatch(CSRData):
         out = self.__csr_type__(
             csr_batch.pointers, *csr_batch.values, dense=False,
             is_index_value=csr_batch.is_index_value)
-        out.debug()
+        # out.debug()
         return out
 
     def __repr__(self):

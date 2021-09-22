@@ -84,7 +84,7 @@ class SameSettingImageData(object):
         self.visibility = visibility
         # TODO: take visibility methods into account
 
-        self.debug()
+        # self.debug()
 
     def debug(self):
         assert self.path.shape[0] == self.pos.shape[0] == self.opk.shape[0], \
@@ -510,16 +510,21 @@ class SameSettingImageData(object):
         else:
             assert isinstance(mappings, ImageMapping), \
                 f"Expected an ImageMapping but got {type(mappings)} instead."
-            unique_idx = torch.unique(mappings.images)
-            img_idx = torch.arange(self.num_views, device=self.device)
-            assert (unique_idx == img_idx).all(), \
-                f"Image indices in the mappings do not match the " \
-                f"SameSettingImageData image indices."
-            if mappings.num_items > 0:
-                w_max, h_max = mappings.pixels.max(dim=0).values
-                assert w_max < self.img_size[0] and h_max < self.img_size[1], \
-                    f"Max pixel values should be smaller than ({self.img_size}) " \
-                    f"but got ({w_max, h_max}) instead."
+            # TODO: these calls to torch.unique and torch.Tensor.max()
+            #  are particularly computation-intensive. They tend to slow
+            #  down item selection for large datasets such as S3DIS.
+            #  For now, I choose to prioritize speed over these
+            #  sanity-checks.
+            # unique_idx = torch.unique(mappings.images)
+            # img_idx = torch.arange(self.num_views, device=self.device)
+            # assert (unique_idx == img_idx).all(), \
+            #     f"Image indices in the mappings do not match the " \
+            #     f"SameSettingImageData image indices."
+            # if mappings.num_items > 0:
+            #     w_max, h_max = mappings.pixels.max(dim=0).values
+            #     assert w_max < self.img_size[0] and h_max < self.img_size[1], \
+            #         f"Max pixel values should be smaller than ({self.img_size}) " \
+            #         f"but got ({w_max, h_max}) instead."
             self._mappings = mappings.to(self.device)
 
     def select_points(self, idx, mode='pick'):
@@ -1059,7 +1064,7 @@ class ImageData:
 
     def __init__(self, image_list: List[SameSettingImageData]):
         self._list = image_list
-        self.debug()
+        # self.debug()
 
     @property
     def num_settings(self):
@@ -1483,7 +1488,7 @@ class ImageMapping(CSRData):
         else:
             if features is not None:
                 self.values.append(features.to(self.device))
-                self.debug()
+                # self.debug()
 
     @property
     def pixels(self):
@@ -1629,7 +1634,7 @@ class ImageMapping(CSRData):
             out = self.__class__(
                 torch.zeros_like(self.pointers), *values, dense=False,
                 is_index_value=self.is_index_value)
-            out.debug()
+            # out.debug()
             return out
 
         # Update the image indices. To do so, create a tensor of indices
@@ -1659,7 +1664,7 @@ class ImageMapping(CSRData):
         point_ids = point_ids[out.pointers[1:] - 1]
         out = out.insert_empty_groups(point_ids, num_groups=self.num_groups)
 
-        out.debug()
+        # out.debug()
 
         return out
 
@@ -1694,7 +1699,7 @@ class ImageMapping(CSRData):
             out = self.__class__(
                 torch.zeros_like(self.pointers), *values, dense=False,
                 is_index_value=self.is_index_value)
-            out.debug()
+            # out.debug()
             return out, torch.LongTensor([])
 
         # If need be, update the image indices. To do so, create a
@@ -1728,7 +1733,7 @@ class ImageMapping(CSRData):
         point_ids = point_ids[out.pointers[1:] - 1]
         out = out.insert_empty_groups(point_ids, num_groups=self.num_groups)
 
-        out.debug()
+        # out.debug()
 
         return out, img_idx
 
