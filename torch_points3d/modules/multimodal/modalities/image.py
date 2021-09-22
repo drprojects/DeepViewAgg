@@ -1,5 +1,7 @@
 from abc import ABC
 
+import sys
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -735,6 +737,8 @@ class ADE20KResNet18PPM(nn.Module, ABC):
             "checkpoint does not exist!"
 
         # Build encoder and decoder from pretrained weights
+        old_stdout = sys.stdout  # backup current stdout
+        sys.stdout = open(os.devnull, "w")
         self.encoder = MITModelBuilder.build_encoder(
             arch=MITCfg.MODEL.arch_encoder,
             fc_dim=MITCfg.MODEL.fc_dim,
@@ -745,6 +749,7 @@ class ADE20KResNet18PPM(nn.Module, ABC):
             num_class=MITCfg.DATASET.num_class,
             weights=MITCfg.MODEL.weights_decoder,
             use_softmax=True)
+        sys.stdout = old_stdout  # reset old stdout
 
         # Convert PPM from a classifier into a feature map extractor
         self.decoder = PPMFeatMap.from_pretrained(self.decoder)
@@ -804,10 +809,13 @@ class ADE20KResNet18TruncatedLayer4(nn.Module):
             "checkpoint does not exist!"
 
         # Build encoder from pretrained weights
+        old_stdout = sys.stdout  # backup current stdout
+        sys.stdout = open(os.devnull, "w")
         resnet18 = MITModelBuilder.build_encoder(
             arch=MITCfg.MODEL.arch_encoder,
             fc_dim=MITCfg.MODEL.fc_dim,
             weights=MITCfg.MODEL.weights_encoder)
+        sys.stdout = old_stdout
 
         # Combine the ResNet first conv-bn-relu blocks and maxpool as
         # layer0
