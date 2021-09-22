@@ -87,23 +87,45 @@ class BackboneBasedModel(BaseModel, ABC):
                 self._save_sampling_and_search(down_conv_3d)
                 down_modules.append(down_conv_3d)
 
+        # Number of early modules with no 3D conv and no skip-connections
+        self._n_early_conv = getattr(
+            opt.down_conv, 'n_early_conv', int(self.is_multimodal))
+
         # Down modules - modality-specific branches
         if self.is_multimodal:
-            # Insert identity 3D convolutions to allow branching
-            # directly into the raw 3D features. This is typically
-            # needed for early fusion mechanisms.
-            down_modules = [Identity(), Identity()] + down_modules
 
+            # Whether the multimodal blocks should use 3D convolutions
+            # before the fusion, after the fusion or both. Inject
+            # Identity accordingly in the down_modules
+            conv3d_before_fusion = getattr(
+                opt.down_conv, 'conv3d_before_fusion', True)
+            conv3d_after_fusion = getattr(
+                opt.down_conv, 'conv3d_after_fusion', True)
+            assert conv3d_before_fusion or conv3d_after_fusion, \
+                f'Multimodal blocks need a 3D convolution either before or ' \
+                f'after the fusion.'
+            if conv3d_before_fusion and not conv3d_after_fusion:
+                down_modules = [y for x in down_modules for y in (x, Identity())]
+            if not conv3d_before_fusion and conv3d_after_fusion:
+                down_modules = [y for x in down_modules for y in (Identity(), x)]
+
+            # Insert Identity 3D convolutions modules to allow branching
+            # directly into the raw 3D features for early fusion
+            early_modules = [Identity() for _ in range(self.n_early_conv * 2)]
+            down_modules = early_modules + down_modules
+
+            # Compute the number of multimodal blocks
             assert len(down_modules) % 2 == 0 and len(down_modules) > 0, \
                 f"Expected an even number of 3D conv modules but got " \
                 f"{len(down_modules)} modules instead."
-            n_layers_down = len(down_modules) // 2
+            n_mm_blocks = len(down_modules) // 2
 
             branches = [
                 {m: IdentityBranch() for m in self.modalities}
-                for _ in range(n_layers_down)]
+                for _ in range(n_mm_blocks)]
 
             for m in self.modalities:
+
                 # Get the branching indices
                 b_idx = opt.down_conv[m].branching_index
                 b_idx = [b_idx] if not is_list(b_idx) else b_idx
@@ -208,3 +230,7 @@ class BackboneBasedModel(BaseModel, ABC):
     @property
     def modalities(self):
         return self._modalities
+
+    @property
+    def n_early_conv(self):
+        return self._n_early_conv
