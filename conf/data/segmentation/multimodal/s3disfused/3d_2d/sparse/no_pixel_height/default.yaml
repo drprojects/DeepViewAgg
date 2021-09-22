@@ -81,8 +81,6 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
         - transform: PickImagesFromMappingArea  # Remove images with not enough mappings
           params:
                 use_bbox: ${data.exact_splatting_2d}
-        - transform: ToFloatImage  # Convert uint8 image to float
-        - transform: Normalize  # Normalize colors
         - transform: CropImageGroups  # Compute cropping groups to minimize embedding cost
           params:
                 padding: ${data.padding_2d}
@@ -92,5 +90,7 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
                 img_size: ${data.resolution_2d}
                 n_img: ${data.multimodal.settings.test_pixel_credit}
                 k_coverage: ${data.multimodal.settings.k_coverage}
+        - transform: ToFloatImage  # Convert uint8 image to float
+        - transform: Normalize  # Normalize colors
 
     val_transforms: ${data.multimodal.test_transforms}

@@ -92,6 +92,15 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
         - transform: PickImagesFromMappingArea  # Remove images with not enough mappings
           params:
                 use_bbox: ${data.exact_splatting_2d}
+        - transform: CropImageGroups  # Compute cropping groups to minimize embedding cost
+          params:
+                padding: ${data.padding_2d}
+                min_size: ${data.min_size_2d}
+        - transform: PickImagesFromMemoryCredit  # Pick images based on memory credit
+          params:
+                img_size: ${data.resolution_2d}
+                n_img: ${data.multimodal.settings.train_pixel_credit}
+                k_coverage: ${data.multimodal.settings.k_coverage}
         - transform: JitterMappingFeatures  # Mapping features augmentation
           params:
                 sigma: 0.02
@@ -105,15 +114,6 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
         - transform: ToFloatImage  # Convert uint8 image to float
         - transform: AddPixelHeightFeature  # Pixel height as image channel
         - transform: Normalize  # Normalize colors
-        - transform: CropImageGroups  # Compute cropping groups to minimize embedding cost
-          params:
-                padding: ${data.padding_2d}
-                min_size: ${data.min_size_2d}
-        - transform: PickImagesFromMemoryCredit  # Pick images based on memory credit
-          params:
-                img_size: ${data.resolution_2d}
-                n_img: ${data.multimodal.settings.train_pixel_credit}
-                k_coverage: ${data.multimodal.settings.k_coverage}
 
     test_transforms:
         - transform: SelectMappingFromPointId  # Select mappings after 3D points sampling
@@ -121,7 +121,6 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
         - transform: PickImagesFromMappingArea  # Remove images with not enough mappings
           params:
                 use_bbox: ${data.exact_splatting_2d}
-        - transform: ToFloatImage  # Convert uint8 image to float
         - transform: AddPixelHeightFeature  # Pixel height as image channel
         - transform: CropImageGroups  # Compute cropping groups to minimize embedding cost
           params:
@@ -132,5 +131,7 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
                 img_size: ${data.resolution_2d}
                 n_img: ${data.multimodal.settings.test_pixel_credit}
                 k_coverage: ${data.multimodal.settings.k_coverage}
+        - transform: ToFloatImage  # Convert uint8 image to float
+        - transform: Normalize  # Normalize colors
 
     val_transforms: ${data.multimodal.test_transforms}
