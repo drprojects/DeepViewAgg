@@ -207,9 +207,9 @@ class GroupBimodalCSRPool(nn.Module, ABC):
     """
 
     def __init__(
-            self, in_map=None, in_mod=None, num_groups=1, use_mod=False,
-            gating=True, group_scaling=True, save_last=False, nc_inner=32,
-            map_encoder='DeepSetFeat', **kwargs):
+            self, in_map=None, in_mod=None, out_mod=None, num_groups=1,
+            use_mod=False, gating=True, group_scaling=True, save_last=False,
+            nc_inner=32, map_encoder='DeepSetFeat', **kwargs):
         super(GroupBimodalCSRPool, self).__init__()
 
         # Default output feature size used for embeddings
@@ -229,9 +229,11 @@ class GroupBimodalCSRPool(nn.Module, ABC):
         # Group and channel arguments
         assert 1 <= num_groups <= in_mod, \
             f"Number of groups must be between 1 and in_mod={in_mod}."
-        self.num_groups = num_groups
+        out_mod = in_mod if out_mod is None else out_mod
         self.in_mod = in_mod
+        self.out_mod = out_mod
         self.use_mod = use_mod
+        self.num_groups = num_groups
 
         # Optional compatibilities scaling mechanism
         self.group_scaling = group_scaling
@@ -242,12 +244,12 @@ class GroupBimodalCSRPool(nn.Module, ABC):
 
         # E_mod embeds the modality features in a space used as
         # values and to build attention scores in case use_mod=True
-        self.E_mod = MLP([in_mod, in_mod, in_mod], bias=False)
+        self.E_mod = MLP([in_mod, out_mod, out_mod], bias=False)
 
         # E_mix combines the modality features from E_mod and
         # mapping features from E_map in case use_mod=True
         if self.use_mod:
-            in_mix = nc_inner + in_mod
+            in_mix = nc_inner + out_mod
             out_mix = nc_inner
             mid_mix = nearest_power_of_2((in_mix + out_mix) / 2, out_mix * 2)
             self.E_mix = MLP([in_mix, mid_mix, out_mix], bias=False)
@@ -287,7 +289,7 @@ class GroupBimodalCSRPool(nn.Module, ABC):
 
         # Apply attention scores : P x F_mod
         x_pool = segment_csr(
-            x_mod * expand_group_feat(attentions, self.num_groups, self.in_mod),
+            x_mod * expand_group_feat(attentions, self.num_groups, self.out_mod),
             csr_idx, reduce='sum')
 
         if self.G:
@@ -297,7 +299,7 @@ class GroupBimodalCSRPool(nn.Module, ABC):
 
             # Apply gating to the features : P x F_mod
             x_pool *= expand_group_feat(
-                gating, self.num_groups, self.in_mod)
+                gating, self.num_groups, self.out_mod)
 
         # Optionally save outputs
         if self.save_last:
@@ -368,9 +370,9 @@ class QKVBimodalCSRPool(nn.Module, ABC):
     """
 
     def __init__(
-            self, in_main=None, in_map=None, in_mod=None, num_groups=1,
-            use_mod_q=False, use_mod_k=False, nc_qk=8, gating=True,
-            dim_scaling=True, group_scaling=False, debug=False,
+            self, in_main=None, in_map=None, in_mod=None, out_mod=None,
+            num_groups=1, use_mod_q=False, use_mod_k=False, nc_qk=8,
+            gating=True, dim_scaling=True, group_scaling=False, debug=False,
             save_last=False, nc_inner=32, map_encoder='DeepSetFeat', **kwargs):
         super(QKVBimodalCSRPool, self).__init__()
 
@@ -400,11 +402,13 @@ class QKVBimodalCSRPool(nn.Module, ABC):
         # Group and channel arguments
         assert 1 <= num_groups <= in_mod, \
             f"Number of groups must be between 1 and in_mod={in_mod}."
-        self.num_groups = num_groups
+        out_mod = in_mod if out_mod is None else out_mod
         self.in_mod = in_mod
+        self.out_mod = out_mod
         self.nc_qk = nc_qk
         self.use_mod_q = use_mod_q
         self.use_mod_k = use_mod_k
+        self.num_groups = num_groups
 
         # Optional compatibilities scaling mechanism
         self.dim_scaling = dim_scaling
@@ -420,12 +424,12 @@ class QKVBimodalCSRPool(nn.Module, ABC):
 
         # E_mod embeds the modality features in a space used as
         # values and to build attention scores in case use_mod=True
-        self.E_mod = MLP([in_mod, in_mod, in_mod], bias=False)
+        self.E_mod = MLP([in_mod, out_mod, out_mod], bias=False)
 
         # E_mix_Q combines the modality features from E_mod and
         # mapping features from E_map in case use_mod_q=True
         if self.use_mod_q:
-            in_mix = nc_inner + in_mod
+            in_mix = nc_inner + out_mod
             out_mix = nc_inner
             mid_mix = nearest_power_of_2((in_mix + out_mix) / 2, out_mix * 2)
             self.E_mix_Q = MLP(
@@ -515,7 +519,7 @@ class QKVBimodalCSRPool(nn.Module, ABC):
 
         # Apply attention scores : P x F_mod
         x_pool = segment_csr(
-            x_mod * expand_group_feat(attentions, self.num_groups, self.in_mod),
+            x_mod * expand_group_feat(attentions, self.num_groups, self.out_mod),
             csr_idx, reduce='sum')
 
         if self.G:
@@ -525,7 +529,7 @@ class QKVBimodalCSRPool(nn.Module, ABC):
 
             # Apply gating to the features : P x F_mod
             x_pool = x_pool * expand_group_feat(
-                gating, self.num_groups, self.in_mod)
+                gating, self.num_groups, self.out_mod)
 
         # Compute the boolean mask of seen points
         x_seen = csr_idx[1:] > csr_idx[:-1]

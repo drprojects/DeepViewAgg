@@ -5816,9 +5816,10 @@ ResUNet34-PointPyramid-0-128-harddrop50:
             out_l2: 128
             out_l3: 256
             out_l4: 512
-            out_pyramid: 256
+            out_pyramid: 128
 
         down_conv:
+            n_early_conv: 5
             module_name: ResNetDown
             block: block
             conv3d_after_fusion: False
@@ -5845,7 +5846,7 @@ ResUNet34-PointPyramid-0-128-harddrop50:
                     module_name: GroupBimodalCSRPool
                     in_map: 8
                     in_mod: [ out_l0, out_l1, out_l2, out_l3, out_l4 ]
-                    out_mod: [ 16, 16, 32, 64, 128 ]
+                    out_mod: [ 16, 16, 16, 16, 64 ]
                     num_groups: 4
                     use_mod: False
                     map_encoder: DeepSetFeat
