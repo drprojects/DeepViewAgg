@@ -267,19 +267,28 @@ class Trainer:
 
     @property
     def early_break(self):
+        if not hasattr(self._cfg, "debugging"):
+            return False
         return getattr(self._cfg.debugging, "early_break", False) and self._is_training
 
     @property
     def profiling(self):
+        if not hasattr(self._cfg, "debugging"):
+            return False
         return getattr(self._cfg.debugging, "profiling", False)
 
     @property
     def num_batches(self):
+        if not hasattr(self._cfg, "debugging"):
+            return None
         return getattr(self._cfg.debugging, "num_batches", 50)
 
     @property
     def enable_cudnn(self):
-        return getattr(self._cfg.training, "enable_cudnn", True)
+        if self.has_training:
+            return getattr(self._cfg.training, "enable_cudnn", True)
+        else:
+            return getattr(self._cfg, "enable_cudnn", True)
 
     @property
     def enable_dropout(self):
@@ -299,16 +308,23 @@ class Trainer:
 
     @property
     def precompute_multi_scale(self):
-        return self._model.conv_type == "PARTIAL_DENSE" and getattr(self._cfg.training, "precompute_multi_scale", False)
+        if not self.has_training:
+            return self._model.conv_type == "PARTIAL_DENSE" and getattr(self._cfg.training, "precompute_multi_scale", False)
+        else:
+            return self._model.conv_type == "PARTIAL_DENSE" and getattr(self._cfg, "precompute_multi_scale", False)
 
     @property
     def wandb_log(self):
+        if not self.has_training:
+            return False
         return getattr_recursive(self._cfg, 'training.wandb.log', False)
-
+        
     @property
     def tensorboard_log(self):
+        if not self.has_training:
+            return False
         return getattr_recursive(self._cfg, 'training.tensorboard.log', False)
-
+        
     @property
     def tracker_options(self):
         return self._cfg.get("tracker_options", {})

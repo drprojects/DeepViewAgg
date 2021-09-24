@@ -3,6 +3,7 @@ defaults:
 
 num_workers: 0
 batch_size: 1
+shuffle: False
 cuda: 0
 weight_name: "latest" # Used during resume, select with model to load from [miou, macc, acc..., latest]
 enable_cudnn: True
@@ -20,4 +21,8 @@ hydra:
   run:
     dir: ${checkpoint_dir}/eval/${now:%Y-%m-%d_%H-%M-%S}
 
+wandb:
+    log: False
 
+tensorboard:
+    log: False
