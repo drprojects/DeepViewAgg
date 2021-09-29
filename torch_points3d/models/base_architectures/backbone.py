@@ -138,17 +138,22 @@ class BackboneBasedModel(BaseModel, ABC):
                     f"from the {m} modality or providing a single branching " \
                     f"index."
 
-                # Ensure the modality has only one branching index if
-                # the model has no 3D down conv
-                assert not self.no_3d_conv or b_idx == [0], \
-                    f"Cannot build a no-3D model with multiple " \
-                    f"branching indices. All modality-specific branches " \
-                    f"should join at index=0. Consider changing the" \
-                    f"branching index of the {m} modality to 0 or building " \
-                    f"3D convolutions."
+                # Ensure the modality has no modules pointing to the
+                # same branching index
+                assert len(set(b_idx)) == len(b_idx), \
+                    f"Cannot build multimodal model: some '{m}' blocks have " \
+                    f"the same branching index."
 
                 # Build the branches
                 for i, idx in enumerate(b_idx):
+
+                    # Ensure the branching index matches the down_conv
+                    # length
+                    assert idx < n_mm_blocks, \
+                        f"Cannot build multimodal model: branching index " \
+                        f"'{idx}' of modality '{m}' is too large for the " \
+                        f"'{n_mm_blocks}' multimodal blocks."
+
                     if is_unet:
                         unet_cls = self._module_factories[m].get_module('UNET')
                         conv = unet_cls(opt.down_conv[m])
@@ -224,7 +229,7 @@ class BackboneBasedModel(BaseModel, ABC):
         """
         args = fetch_arguments_from_list(conv_opt, index, SPECIAL_NAMES)
         args["index"] = index
-        module = self._module_factories[modality].get_module(flow)
+        module = self._module_factories[modality].get_module(flow, index=index)
         return module(**args)
 
     @property

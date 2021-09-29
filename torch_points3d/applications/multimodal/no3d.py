@@ -17,11 +17,11 @@ class No3DEncoder(BackboneBasedModel, ABC):
     Inspired from torchpoints_3d.applications.sparseconv3d.
     """
 
-    def __init__(self, model_config, model_type, dataset, modules, *args,
-                 **kwargs):
+    def __init__(
+            self, model_config, model_type, dataset, modules, *args, **kwargs):
         # UnwrappedUnetBasedModel init
-        super(No3DEncoder, self).__init__(model_config, model_type, dataset,
-                                          modules)
+        super(No3DEncoder, self).__init__(
+            model_config, model_type, dataset, modules)
 
         # Make sure the model is multimodal and has no 3D. Note that
         # the BackboneBasedModel.__init__ carries most of the required
@@ -48,8 +48,9 @@ class No3DEncoder(BackboneBasedModel, ABC):
         if "output_nc" in kwargs:
             self._has_mlp_head = True
             self._output_nc = kwargs["output_nc"]
-            self.mlp = MLP([default_output_nc, self.output_nc],
-                           activation=torch.nn.ReLU(), bias=False)
+            self.mlp = MLP(
+                [default_output_nc, self.output_nc], activation=torch.nn.ReLU(),
+                bias=False)
 
     @property
     def has_mlp_head(self):
@@ -103,8 +104,8 @@ class No3DEncoder(BackboneBasedModel, ABC):
         # 3D point features are expected to be used in subsequent
         # modules. Restore the input Data object equipped with the
         # proper point positions and modality-generated features.
-        out = Batch(x=mm_data_dict['x_3d'], pos=self.xyz,
-                    seen=mm_data_dict['x_seen'])
+        out = Batch(
+            x=mm_data_dict['x_3d'], pos=self.xyz, seen=mm_data_dict['x_seen'])
 
         # TODO: this always passes the modality feature maps in the
         #  output dictionary. May not be relevant at inference time,

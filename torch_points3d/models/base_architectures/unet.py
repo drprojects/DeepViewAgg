@@ -496,8 +496,22 @@ class UnwrappedUnetBasedModel(BaseModel, ABC):
                     f"from the {m} modality or providing a single branching " \
                     f"index."
 
+                # Ensure the modality has no modules pointing to the
+                # same branching index
+                assert len(set(b_idx)) == len(b_idx), \
+                    f"Cannot build multimodal model: some '{m}' blocks have " \
+                    f"the same branching index."
+
                 # Build the branches
                 for i, idx in enumerate(b_idx):
+
+                    # Ensure the branching index matches the down_conv
+                    # length
+                    assert idx < n_mm_blocks, \
+                        f"Cannot build multimodal model: branching index " \
+                        f"'{idx}' of modality '{m}' is too large for the " \
+                        f"'{n_mm_blocks}' multimodal blocks."
+
                     if is_unet:
                         unet_cls = self._module_factories[m].get_module('UNET')
                         conv = unet_cls(opt.down_conv[m])
