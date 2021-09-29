@@ -65,7 +65,7 @@ def group_data(data, cluster=None, unique_pos_indices=None, mode="last", skip_ke
 
         if torch.is_tensor(item) and item.size(0) == num_nodes:
             if mode == "last" or key == "batch" \
-                    or key == SaveOriginalPosId().key \
+                    or key == SaveOriginalPosId.KEY \
                     or key == MAPPING_KEY:
                 data[key] = item[unique_pos_indices]
             elif mode == "mean":
@@ -168,14 +168,16 @@ class SaveOriginalPosId:
     This allows us to track this point from the output back to the input data object
     """
 
-    def __init__(self, key="origin_id"):
-        self.key = key
+    KEY = "origin_id"
+
+    def __init__(self, key=None):
+        self.KEY = key if key is not None else self.KEY
 
     def _process(self, data):
-        if hasattr(data, self.key):
+        if hasattr(data, self.KEY):
             return data
 
-        setattr(data, self.key, torch.arange(0, data.pos.shape[0]))
+        setattr(data, self.KEY, torch.arange(0, data.pos.shape[0]))
         return data
 
     def __call__(self, data):
