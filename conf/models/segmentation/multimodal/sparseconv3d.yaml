@@ -6068,7 +6068,7 @@ ResUNet34-L4-late-QKV:
                     mode: max
                 view_pooling:
                     module_name: QKVBimodalCSRPool
-                    in_main: 32
+                    in_main: 96
                     in_map: 8
                     in_mod: 512
                     num_groups: 4

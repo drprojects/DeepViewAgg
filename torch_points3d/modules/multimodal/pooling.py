@@ -56,7 +56,7 @@ class BimodalCSRPool(nn.Module, ABC):
         :param x_mod: V x F_mod
         :param x_map: V x F_map
         :param csr_idx:
-        :return: x_pool, x_seen
+        :return: x_pool
         """
         # Segment_CSR is "the fastest method to apply for grouped
         # reductions."
@@ -142,8 +142,6 @@ class HeuristicBimodalCSRPool(nn.Module, ABC):
         x_mod_0 = torch.cat((x_mod, torch.zeros_like(x_mod[[0]])))
         x_pool = x_mod_0[arg_idx]
 
-        x_seen = csr_idx[1:] > csr_idx[:-1]
-
         if self.save_last:
             self._last_x_map = x_map
             self._last_x_mod = x_mod
@@ -151,7 +149,7 @@ class HeuristicBimodalCSRPool(nn.Module, ABC):
                 csr_idx.shape[0] - 1, device=x_mod.device).repeat_interleave(
                 csr_idx[1:] - csr_idx[:-1])
             self._last_view_num = csr_idx[1:] - csr_idx[:-1]
-        return x_pool, x_seen
+        return x_pool
 
     def extra_repr(self) -> str:
         return f'mode={self._mode}, feat={self._FEATURES[self._feat]}, ' \
@@ -268,7 +266,7 @@ class GroupBimodalCSRPool(nn.Module, ABC):
         :param x_mod: V x F_mod
         :param x_map: V x F_map
         :param csr_idx:
-        :return: x_pool, x_seen
+        :return: x_pool
         """
         # Compute mapping features : V x F_map
         x_map = self.E_map(x_map, csr_idx)
@@ -459,7 +457,7 @@ class QKVBimodalCSRPool(nn.Module, ABC):
         :param x_mod: V x F_mod
         :param x_map: V x F_map
         :param csr_idx:
-        :return: x_pool, x_seen
+        :return: x_pool
         """
         # Artificial x and x_mod
         if self.debug:
@@ -531,9 +529,6 @@ class QKVBimodalCSRPool(nn.Module, ABC):
             x_pool = x_pool * expand_group_feat(
                 gating, self.num_groups, self.out_mod)
 
-        # Compute the boolean mask of seen points
-        x_seen = csr_idx[1:] > csr_idx[:-1]
-
         # Optionally save outputs
         if self.save_last:
             self._last_x_map = x_map
@@ -549,7 +544,7 @@ class QKVBimodalCSRPool(nn.Module, ABC):
             if self.G:
                 self._last_G = gating
 
-        return x_pool, x_seen
+        return x_pool
 
     def extra_repr(self) -> str:
         repr_attr = ['dim_scaling', 'group_scaling', 'save_last']
