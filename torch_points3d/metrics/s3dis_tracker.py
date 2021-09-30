@@ -39,18 +39,17 @@ class S3DISTracker(SegmentationTracker):
             self._test_area.prediction_count = torch.zeros(self._test_area.y.shape[0], dtype=torch.int)
             self._test_area.votes = torch.zeros((self._test_area.y.shape[0], self._num_classes), dtype=torch.float)
             self._test_area.to(model.device)
-
+        
         # Gather origin ids and check that it fits with the test set
         inputs = data if data is not None else model.get_input()
-        if inputs[SaveOriginalPosId.KEY] is None:
+        originids = inputs[SaveOriginalPosId.KEY] if not model.is_multimodal else inputs.data[SaveOriginalPosId.KEY]
+        if originids is None:
             raise ValueError("The inputs given to the model do not have a %s attribute." % SaveOriginalPosId.KEY)
-
-        originids = inputs[SaveOriginalPosId.KEY]
         if originids.dim() == 2:
             originids = originids.flatten()
         if originids.max() >= self._test_area.pos.shape[0]:
             raise ValueError("Origin ids are larger than the number of points in the original point cloud.")
-
+            
         # Set predictions
         outputs = model.get_output()
         self._test_area.votes[originids] += outputs
