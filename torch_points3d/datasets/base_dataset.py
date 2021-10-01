@@ -562,7 +562,13 @@ class BaseDataset:
         L = self.num_classes
         weights = torch.ones(L)
         dataset = self.get_dataset(dataset_name)
-        idx_classes, counts = torch.unique(dataset.data.y, return_counts=True)
+        if getattr(dataset, 'data', None):
+            labels = dataset.data.y
+        elif getattr(dataset, '_datas', None):
+            labels = torch.cat([data.y for data in dataset._datas])
+        else:
+            raise ValueError(f"Could not find data in '{dataset_name}' dataset.")
+        idx_classes, counts = torch.unique(labels, return_counts=True)
 
         dataset.idx_classes = torch.arange(L).long()
         weights[idx_classes] = counts.float()
