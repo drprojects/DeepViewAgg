@@ -73,6 +73,18 @@ class LateFeatureFusion(APIModel):
 
         self.loss_names = ["loss_seg"]
 
+        if option.get("loss_no3d", False):
+            self.head_no3d = nn.Sequential(nn.Linear(
+                self.backbone_no3d.output_nc, dataset.num_classes))
+        else:
+            self.head_no3d = None
+
+        if option.get("loss_3d", False):
+            self.head_3d = nn.Sequential(nn.Linear(
+                self.backbone_3d.output_nc, dataset.num_classes))
+        else:
+            self.head_3d = None
+
     def forward(self, *args, **kwargs):
         # 3D backbone
         features_3d = self.backbone_3d(self.input.data).x
@@ -93,9 +105,23 @@ class LateFeatureFusion(APIModel):
         features = self.fusion(features_3d, features_no3d)
         logits = self.head(features)
         self.output = F.log_softmax(logits, dim=-1)
+
         if self.labels is not None:
-            self.loss_seg = F.nll_loss(
-                self.output, self.labels, ignore_index=IGNORE_LABEL)
+            loss = F.nll_loss(self.output, self.labels, ignore_index=IGNORE_LABEL)
+
+            if self.head_no3d:
+                logits_no3d = self.head_no3d(features_no3d)
+                output_no3d = F.log_softmax(logits_no3d, dim=-1)
+                loss_no3d = F.nll_loss(output_no3d, self.labels, ignore_index=IGNORE_LABEL)
+                loss = loss + loss_no3d
+
+            if self.head_3d:
+                logits_3d = self.head_3d(features_3d)
+                output_3d = F.log_softmax(logits_3d, dim=-1)
+                loss_3d = F.nll_loss(output_3d, self.labels, ignore_index=IGNORE_LABEL)
+                loss = loss + loss_3d
+
+            self.loss_seg = loss
 
 
 class LateLogitFusion(APIModel):
