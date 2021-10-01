@@ -36,7 +36,7 @@ ResUNet34:
           [ 3*in_feat, in_feat, 3*in_feat ],
           [ 3*in_feat, 0, 3*in_feat ],
         ]
-      kernel_size: [2, 2, 2, 2, 1]
+      kernel_size: [2, 2, 2, 2, 3]
       stride: [ 2, 2, 2, 2, 1 ]
 
 Res16UNet34:
@@ -73,7 +73,7 @@ Res16UNet34:
                     [ 3*in_feat, in_feat, 3*in_feat ],
                     [ 3*in_feat, 0, 3*in_feat ],
                 ]
-            kernel_size: [ 2, 2, 2, 2, 1 ]
+            kernel_size: [ 2, 2, 2, 2, 3 ]
             stride: [ 2, 2, 2, 2, 1 ]
 
 Res16UNet21-12:
