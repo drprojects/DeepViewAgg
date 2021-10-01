@@ -249,7 +249,7 @@ class Trainer:
                             self._model.set_input(data, self._device)
                             with torch.cuda.amp.autocast(enabled=self._model.is_mixed_precision()):
                                 self._model.forward(epoch=epoch)
-                            self._tracker.track(self._model, data=data, **self.tracker_options)
+                            self._tracker.track(self._model, data=data, vote_miou=voting_runs > 1, **self.tracker_options)
                         tq_loader.set_postfix(**self._tracker.get_metrics(), color=COLORS.TEST_COLOR)
 
                         if self.has_visualization and self._visualizer.is_active:
