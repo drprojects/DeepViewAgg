@@ -812,12 +812,13 @@ class S3DISFusedDataset(BaseDatasetMM):
             f"Only sampling format 'sphere' is supported."
 
         sample_per_epoch = dataset_opt.get('sample_per_epoch', 3000)
+        train_is_trainval = dataset_opt.get('train_is_trainval', False)
 
         self.train_dataset = S3DISSphereMM(
             self._data_path,
             sample_per_epoch=sample_per_epoch,
             test_area=self.dataset_opt.fold,
-            split="train",
+            split="train" if not train_is_trainval else "trainval",
             pre_collate_transform=self.pre_collate_transform,
             transform=self.train_transform,
             pre_transform_image=self.pre_transform_image,
