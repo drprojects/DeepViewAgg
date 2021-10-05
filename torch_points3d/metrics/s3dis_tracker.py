@@ -27,8 +27,11 @@ class S3DISTracker(SegmentationTracker):
         """
         super().track(model)
 
-        # Train mode or low res, nothing special to do
-        if self._stage == "train" or not (full_res or vote_miou):
+        # For val and test sets, we want to be careful with S3DIS
+        # overlapping spheres or cylinders and multi-run voting. The
+        # real metrics must be computed with respect to overlaps and
+        # voting schemes
+        if self._stage == "train":
             return
 
         # Test mode, compute votes in order to get full res predictions
@@ -51,6 +54,8 @@ class S3DISTracker(SegmentationTracker):
             raise ValueError("Origin ids are larger than the number of points in the original point cloud.")
             
         # Set predictions
+        # WARNING. If a point appears multiple times in originids, only
+        # one of its 'outputs' and one 'prediction_count' will be counted
         outputs = model.get_output()
         self._test_area.votes[originids] += outputs
         self._test_area.prediction_count[originids] += 1
@@ -65,16 +70,16 @@ class S3DISTracker(SegmentationTracker):
         if vote_miou:
             # Complete for points that have a prediction
             self._test_area = self._test_area.to("cpu")
-            c = ConfusionMatrix(self._num_classes)
             has_prediction = self._test_area.prediction_count > 0
             gt = self._test_area.y[has_prediction].numpy()
+            c = ConfusionMatrix(self._num_classes)
             pred = torch.argmax(self._test_area.votes[has_prediction], 1).numpy()
             c.count_predicted_batch(gt, pred)
             self._vote_miou = c.get_average_intersection_union() * 100
+            per_class_iou = c.get_intersection_union_per_class()[0]
             self._vote_iou_per_class = {
-                i: "{:.2f}".format(100 * v)
-                for i, v in enumerate(c.get_intersection_union_per_class()[0])
-            }
+                self._dataset.INV_OBJECT_LABEL[k]: "{:.2f}".format(100 * v)
+                for k, v in enumerate(per_class_iou)}
 
         if full_res:
             self._compute_full_miou()
@@ -84,8 +89,7 @@ class S3DISTracker(SegmentationTracker):
             self._dataset.to_ply(
                 self._test_area.pos[has_prediction].cpu(),
                 torch.argmax(self._test_area.votes[has_prediction], 1).cpu().numpy(),
-                ply_output,
-            )
+                ply_output)
 
     def _compute_full_miou(self):
         if self._full_vote_miou is not None:
@@ -101,17 +105,17 @@ class S3DISTracker(SegmentationTracker):
 
         # Full res interpolation
         full_pred = knn_interpolate(
-            self._test_area.votes[has_prediction], self._test_area.pos[has_prediction], self._test_area.pos, k=1,
-        )
+            self._test_area.votes[has_prediction],
+            self._test_area.pos[has_prediction], self._test_area.pos, k=1,)
 
         # Full res pred
         self._full_confusion = ConfusionMatrix(self._num_classes)
         self._full_confusion.count_predicted_batch(self._test_area.y.numpy(), torch.argmax(full_pred, 1).numpy())
         self._full_vote_miou = self._full_confusion.get_average_intersection_union() * 100
+        per_class_iou = self._full_confusion.get_intersection_union_per_class()[0]
         self._full_vote_iou_per_class = {
-            i: "{:.2f}".format(100 * v)
-            for i, v in enumerate(self._full_confusion.get_intersection_union_per_class()[0])
-        }
+            self._dataset.INV_OBJECT_LABEL[k]: "{:.2f}".format(100 * v)
+            for k, v in enumerate(per_class_iou)}
 
     @property
     def full_confusion_matrix(self):
@@ -123,10 +127,17 @@ class S3DISTracker(SegmentationTracker):
         metrics = super().get_metrics(verbose)
 
         if verbose:
-            metrics["{}_iou_per_class".format(self._stage)] = self._iou_per_class
-            if self._vote_miou:
-                metrics["{}_full_vote_miou".format(self._stage)] = self._full_vote_miou
-                metrics["{}_full_vote_iou_per_class".format(self._stage)] = self._full_vote_iou_per_class
-                metrics["{}_vote_miou".format(self._stage)] = self._vote_miou
-                metrics["{}_vote_iou_per_class".format(self._stage)] = self._vote_iou_per_class
+            metrics[f'{self._stage}_iou_per_class'] = self._iou_per_class
+
+        if self._full_vote_miou:
+            metrics[f'{self._stage}_full_vote_miou'] = self._full_vote_miou
+            metrics[f'{self._stage}_full_vote_iou_per_class'] = self._full_vote_iou_per_class
+            for k, v in self._full_vote_iou_per_class.items():
+                metrics[f'{self._stage}_full_vote_iou_{k}']
+        if self._vote_miou:
+            metrics[f'{self._stage}_vote_miou'] = self._vote_miou
+            metrics[f'{self._stage}_vote_iou_per_class'] = self._vote_iou_per_class
+            for k, v in self._vote_iou_per_class.items():
+                metrics[f'{self._stage}_vote_iou_{k}']
+
         return metrics
