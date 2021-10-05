@@ -78,7 +78,7 @@ class S3DISTracker(SegmentationTracker):
             self._vote_miou = c.get_average_intersection_union() * 100
             per_class_iou = c.get_intersection_union_per_class()[0]
             self._vote_iou_per_class = {
-                self._dataset.INV_OBJECT_LABEL[k]: "{:.2f}".format(100 * v)
+                self._dataset.INV_OBJECT_LABEL[k]: 100 * v
                 for k, v in enumerate(per_class_iou)}
 
         if full_res:
@@ -114,7 +114,7 @@ class S3DISTracker(SegmentationTracker):
         self._full_vote_miou = self._full_confusion.get_average_intersection_union() * 100
         per_class_iou = self._full_confusion.get_intersection_union_per_class()[0]
         self._full_vote_iou_per_class = {
-            self._dataset.INV_OBJECT_LABEL[k]: "{:.2f}".format(100 * v)
+            self._dataset.INV_OBJECT_LABEL[k]: 100 * v
             for k, v in enumerate(per_class_iou)}
 
     @property
