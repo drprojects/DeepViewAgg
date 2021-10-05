@@ -133,11 +133,11 @@ class S3DISTracker(SegmentationTracker):
             metrics[f'{self._stage}_full_vote_miou'] = self._full_vote_miou
             metrics[f'{self._stage}_full_vote_iou_per_class'] = self._full_vote_iou_per_class
             for k, v in self._full_vote_iou_per_class.items():
-                metrics[f'{self._stage}_full_vote_iou_{k}']
+                metrics[f'{self._stage}_full_vote_iou_{k}'] = v
         if self._vote_miou:
             metrics[f'{self._stage}_vote_miou'] = self._vote_miou
             metrics[f'{self._stage}_vote_iou_per_class'] = self._vote_iou_per_class
             for k, v in self._vote_iou_per_class.items():
-                metrics[f'{self._stage}_vote_iou_{k}']
+                metrics[f'{self._stage}_vote_iou_{k}'] = v
 
         return metrics
