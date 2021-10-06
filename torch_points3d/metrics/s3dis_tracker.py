@@ -22,7 +22,7 @@ class S3DISTracker(SegmentationTracker):
         self._full_confusion = None
         self._iou_per_class = {}
 
-    def track(self, model: model_interface.TrackerInterface, full_res=False, vote_miou=False, data=None, **kwargs):
+    def track(self, model: model_interface.TrackerInterface, full_res=False, data=None, **kwargs):
         """ Add current model predictions (usually the result of a batch) to the tracking
         """
         super().track(model)
@@ -127,17 +127,13 @@ class S3DISTracker(SegmentationTracker):
         metrics = super().get_metrics(verbose)
 
         if verbose:
-            metrics[f'{self._stage}_iou_per_class'] = self._iou_per_class
+            metrics[f'{self._stage}_iou'] = self._iou_per_class
 
         if self._full_vote_miou:
             metrics[f'{self._stage}_full_vote_miou'] = self._full_vote_miou
-            metrics[f'{self._stage}_full_vote_iou_per_class'] = self._full_vote_iou_per_class
-            for k, v in self._full_vote_iou_per_class.items():
-                metrics[f'{self._stage}_full_vote_iou_{k}'] = v
+            metrics[f'{self._stage}_full_vote_iou'] = self._full_vote_iou_per_class
         if self._vote_miou:
             metrics[f'{self._stage}_vote_miou'] = self._vote_miou
-            metrics[f'{self._stage}_vote_iou_per_class'] = self._vote_iou_per_class
-            for k, v in self._vote_iou_per_class.items():
-                metrics[f'{self._stage}_vote_iou_{k}'] = v
+            metrics[f'{self._stage}_vote_iou'] = self._vote_iou_per_class
 
         return metrics

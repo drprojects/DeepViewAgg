@@ -102,10 +102,19 @@ class BaseTracker:
         if self._use_tensorboard:
             self.publish_to_tensorboard(metrics, step)
 
+        # Some metrics may be intended for wandb or tensorboard
+        # tracking but not for final final model selection. Those are
+        # the metrics absent from self.metric_func and must be excluded
+        # from the output of self.publish
+        current_metrics = {
+            k: v
+            for k, v in self._remove_stage_from_metric_keys(self._stage, metrics).items()
+            if k in self.metric_func.keys()}
+
         return {
             "stage": self._stage,
             "epoch": step,
-            "current_metrics": self._remove_stage_from_metric_keys(self._stage, metrics),
+            "current_metrics": current_metrics,
         }
 
     def print_summary(self):
