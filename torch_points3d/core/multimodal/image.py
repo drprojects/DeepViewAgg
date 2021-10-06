@@ -847,16 +847,15 @@ class SameSettingImageData(object):
         return f"{self.__class__.__name__}(num_views={self.num_views}, " \
                f"num_points={self.num_points}, device={self.device})"
 
-    def clone(self):
+    def clone(self, drop_x=False, drop_map=False):
         """
         Returns a shallow copy of self, except for 'x' and 'mappings',
         which are cloned as they may carry gradients.
         """
         out = copy.copy(self)
-        out._x = self.x.clone() if self.x is not None \
-            else None
-        out._mappings = self.mappings.clone() if self.mappings is not None \
-            else None
+        out._x = self.x.clone() if self.x is not None and ~drop_x else None
+        out._mappings = self.mappings.clone() \
+            if self.mappings is not None and ~drop_map else None
         return out
 
     def to(self, device):
@@ -1091,7 +1090,7 @@ class ImageData:
         if x_list is None:
             x_list = [None] * self.num_settings
 
-        for im, x in (self, x_list):
+        for im, x in zip(self, x_list):
             im.x = x
 
     def debug(self):
@@ -1160,13 +1159,13 @@ class ImageData:
         self._list = [im.load() for im in self]
         return self
 
-    def clone(self):
-        return self.__class__([im.clone() for im in self])
+    def clone(self, **kwargs):
+        return self.__class__([im.clone(**kwargs) for im in self])
 
     def to(self, device):
-        out = self.clone()
-        out._list = [im.to(device) for im in out]
-        return out
+        # out = self.clone(drop_x=False, drop_map=False)
+        # out._list = [im.to(device) for im in out]
+        return self.__class__([im.to(device) for im in self])
 
     @property
     def device(self):
@@ -1253,7 +1252,7 @@ class ImageBatch(ImageData):
     the same sorder.
     """
 
-    def __init__(self, image_list: List[SameSettingImageData]):
+    def __init__(self, image_list: List[ImageData]):
         super(ImageBatch, self).__init__(image_list)
         self.__il_sizes__ = None
         self.__hashes__ = None

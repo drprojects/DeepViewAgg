@@ -29,7 +29,7 @@ class MultimodalBlockDown(nn.Module, ABC):
                        ...
     """
 
-    def __init__(self, down_block, conv_block, **kwargs):
+    def __init__(self, block_1, block_2, **kwargs):
         """Build the Multimodal module from already-instantiated
         modules. Modality-specific modules are expected to be passed in
         dictionaries holding fully-fledged UnimodalBranch modules.
@@ -38,21 +38,21 @@ class MultimodalBlockDown(nn.Module, ABC):
         super(MultimodalBlockDown, self).__init__()
 
         # Blocks for the implicitly main modality: 3D
-        self.down_block = down_block if down_block is not None else Identity()
-        self.conv_block = conv_block if conv_block is not None else Identity()
+        self.block_1 = block_1 if block_1 is not None else Identity()
+        self.block_2 = block_2 if block_2 is not None else Identity()
 
         # Initialize the dict holding the conv and merge blocks for all
         # modalities
         self._modalities = []
         self._init_from_kwargs(**kwargs)
 
-        # Expose the 3D down_conv .sampler attribute (for
+        # Expose the 3D convs .sampler attribute (for
         # UnwrappedUnetBasedModel)
         # TODO this is for KPConv, is it doing the intended, is it
         #  needed at all ?
         self.sampler = [
-            getattr(self.down_block, "sampler", None),
-            getattr(self.conv_block, "sampler", None)]
+            getattr(self.block_1, "sampler", None),
+            getattr(self.block_2, "sampler", None)]
 
     def _init_from_kwargs(self, **kwargs):
         """Kwargs are expected to carry fully-fledged modality-specific
@@ -72,10 +72,6 @@ class MultimodalBlockDown(nn.Module, ABC):
     def modalities(self):
         return self._modalities
 
-    @property
-    def num_modalities(self):
-        return len(self.modalities) + 1
-
     def forward(self, mm_data_dict):
         """
         Forward pass of the MultiModalBlockDown.
@@ -86,7 +82,7 @@ class MultimodalBlockDown(nn.Module, ABC):
         """
         # Conv on the main 3D modality - assumed to reduce 3D resolution
         mm_data_dict = self.forward_3d_block_down(
-            mm_data_dict, self.down_block)
+            mm_data_dict, self.block_1)
 
         for m in self.modalities:
             # TODO: does the modality-driven sequence of updates on x_3d
@@ -98,7 +94,7 @@ class MultimodalBlockDown(nn.Module, ABC):
 
         # Conv on the main 3D modality
         mm_data_dict = self.forward_3d_block_down(
-            mm_data_dict, self.conv_block)
+            mm_data_dict, self.block_2)
 
         return mm_data_dict
 
@@ -225,6 +221,16 @@ class MultimodalBlockDown(nn.Module, ABC):
                 mm_data_dict['modalities'][m].select_points(idx, mode=mode)
 
         return mm_data_dict
+
+
+class MultimodalBlockUp(nn.Module, ABC):
+    """Multimodal block with downsampling that looks like:
+
+                 -- 3D Conv ---- Merge i -- 3D Conv --
+    MMData IN          ...        |                       MMData OUT
+                 -- Mod i Conv --|--------------------
+                       ...
+    """
 
 
 class UnimodalBranch(nn.Module, ABC):

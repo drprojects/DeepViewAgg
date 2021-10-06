@@ -3,6 +3,7 @@ from torch_points3d.models.segmentation.multimodal.no3d import *
 from torch_points3d.applications.multimodal.no3d import No3DEncoder
 from torch_points3d.utils.model_building_utils.model_definition_resolver \
     import resolve_model
+from torch_points3d.modules.SparseConv3d.modules import ResBlock
 
 
 log = logging.getLogger(__name__)
@@ -49,13 +50,13 @@ class LateFeatureFusion(APIModel):
                 f"backbone_no3d.output_nc={self.backbone_no3d.output_nc} " \
                 f"instead."
             self.fusion = lambda a, b: a + b
-            self.head = nn.Sequential(nn.Linear(
-                self.backbone_3d.output_nc, dataset.num_classes))
+            # self.head = nn.Sequential(nn.Linear(
+            #     self.backbone_3d.output_nc, dataset.num_classes))
         elif self.mode == 'concatenation':
             self.fusion = lambda a, b: torch.cat((a, b), dim=-1)
-            self.head = nn.Sequential(nn.Linear(
-                self.backbone_3d.output_nc + self.backbone_no3d.output_nc,
-                dataset.num_classes))
+            # self.head = nn.Sequential(nn.Linear(
+            #     self.backbone_3d.output_nc + self.backbone_no3d.output_nc,
+            #     dataset.num_classes))
         elif self.mode == 'both':
             assert self.backbone_3d.output_nc == self.backbone_no3d.output_nc, \
                 f"Backbones output dimensions must be the same. Received " \
@@ -63,13 +64,19 @@ class LateFeatureFusion(APIModel):
                 f"backbone_no3d.output_nc={self.backbone_no3d.output_nc} " \
                 f"instead."
             self.fusion = lambda a, b: torch.cat((a, a + b), dim=-1)
-            self.head = nn.Sequential(nn.Linear(
-                self.backbone_3d.output_nc + self.backbone_no3d.output_nc,
-                dataset.num_classes))
+            # self.head = nn.Sequential(nn.Linear(
+            #     self.backbone_3d.output_nc + self.backbone_no3d.output_nc,
+            #     dataset.num_classes))
         else:
             raise NotImplementedError(
                 f"Unknown fusion mode='{self.mode}'. Please choose among "
                 f"supported modes: {self.MODES}.")
+
+        self.late_conv = ResBlock(
+            self.backbone_3d.output_nc + self.backbone_no3d.output_nc, 96,
+            sp3d.nn.Conv3d)
+
+        self.head = nn.Linear(96, dataset.num_classes)
 
         self.loss_names = ["loss_seg"]
 
@@ -84,6 +91,18 @@ class LateFeatureFusion(APIModel):
                 self.backbone_3d.output_nc, dataset.num_classes))
         else:
             self.head_3d = None
+
+        self._use_cross_entropy = option.get('use_cross_entropy', True)
+        self._use_lovasz = option.get('use_lovasz', False)
+        assert self._use_cross_entropy or self._use_lovasz, \
+            "Choose at least one between Cross-Entropy loss and Lovasz loss."
+        self.loss_names = ['loss_seg'] \
+                          + self._use_cross_entropy * ['loss_cross_entropy'] \
+                          + self._use_lovasz * ['loss_lovasz'] \
+                          + (self._use_cross_entropy and self.head_no3d) * ['loss_cross_entropy_no3d'] \
+                          + (self._use_cross_entropy and self.head_3d) * ['loss_cross_entropy_3d'] \
+                          + (self._use_lovasz and self.head_no3d) * ['loss_lovasz_no3d'] \
+                          + (self._use_lovasz and self.head_3d) * ['loss_lovasz_3d']
 
     def forward(self, *args, **kwargs):
         # 3D backbone
@@ -102,26 +121,62 @@ class LateFeatureFusion(APIModel):
         # Restore self.input.data.x
         self.input.data.x = input_x_backup
 
-        features = self.fusion(features_3d, features_no3d)
+        multimodal_features = self.fusion(features_3d, features_no3d)
+
+        # DIRTY: get sparse tensor with proper coords and pass it multimodal features
+        sparse_features = self.backbone_3d.last_sparse_tensor
+        sparse_features.F = multimodal_features
+
+        # DIRTY: apply 3D convs to spatially mix multimodal data a bit
+        features = self.late_conv(sparse_features).F
+
         logits = self.head(features)
         self.output = F.log_softmax(logits, dim=-1)
 
         if self.labels is not None:
-            loss = F.nll_loss(self.output, self.labels, ignore_index=IGNORE_LABEL)
+            self.loss_seg = 0
 
             if self.head_no3d:
                 logits_no3d = self.head_no3d(features_no3d)
                 output_no3d = F.log_softmax(logits_no3d, dim=-1)
                 loss_no3d = F.nll_loss(output_no3d, self.labels, ignore_index=IGNORE_LABEL)
-                loss = loss + loss_no3d
+                self.loss_seg += loss_no3d
 
             if self.head_3d:
                 logits_3d = self.head_3d(features_3d)
                 output_3d = F.log_softmax(logits_3d, dim=-1)
                 loss_3d = F.nll_loss(output_3d, self.labels, ignore_index=IGNORE_LABEL)
-                loss = loss + loss_3d
+                self.loss_seg += loss_3d
 
-            self.loss_seg = loss
+            if self._use_cross_entropy:
+                self.loss_cross_entropy = F.nll_loss(self.output, self.labels, ignore_index=IGNORE_LABEL,
+                                                     weight=self._weight_classes)
+                self.loss_seg += self.loss_cross_entropy
+
+            if self._use_lovasz:
+                self.loss_lovasz = lovasz_softmax(self.output.exp(), self.labels, ignore=IGNORE_LABEL)
+                self.loss_seg += self.loss_lovasz
+
+            if self.head_no3d:
+                logits_no3d = self.head_no3d(features_no3d)
+                output_no3d = F.log_softmax(logits_no3d, dim=-1)
+                if self._use_cross_entropy:
+                    self.loss_cross_entropy_no3d = F.nll_loss(output_no3d, self.labels, ignore_index=IGNORE_LABEL)
+                    self.loss_seg += self.loss_cross_entropy_no3d
+                if self._use_lovasz:
+                    self.loss_lovasz_no3d = lovasz_softmax(output_no3d.exp(), self.labels, ignore=IGNORE_LABEL)
+                    self.loss_seg += self.loss_lovasz_no3d
+
+            if self.head_3d:
+                logits_3d = self.head_3d(features_3d)
+                output_3d = F.log_softmax(logits_3d, dim=-1)
+                if self._use_cross_entropy:
+                    self.loss_cross_entropy_3d = F.nll_loss(output_3d, self.labels, ignore_index=IGNORE_LABEL)
+                    self.loss_seg += self.loss_cross_entropy_3d
+                if self._use_lovasz:
+                    self.loss_lovasz_3d = lovasz_softmax(output_3d.exp(), self.labels, ignore=IGNORE_LABEL)
+                    self.loss_seg += self.loss_lovasz_3d
+
 
 
 class LateLogitFusion(APIModel):
