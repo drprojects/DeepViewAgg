@@ -1,4 +1,5 @@
 import os
+import struct
 import os.path as osp
 import shutil
 import json
@@ -13,6 +14,11 @@ from torch_geometric.data import Data, InMemoryDataset, download_url, extract_zi
 import torch_geometric.transforms as T
 import multiprocessing
 import pandas as pd
+import zlib
+import imageio
+import cv2
+import png
+from tqdm import tqdm
 
 import tempfile
 import urllib
@@ -154,7 +160,7 @@ def download_release(release_scans, out_dir, file_types, use_v1_sens):
     log.info("Downloading ScanNet " + RELEASE_NAME + " release to " + out_dir + "...")
     failed = []
     for scan_id in release_scans:
-        scan_out_dir = os.path.join(out_dir, scan_id)
+        scan_out_dir = osp.join(out_dir, scan_id)
         try:
             download_scan(scan_id, scan_out_dir, file_types, use_v1_sens)
         except:
@@ -165,10 +171,10 @@ def download_release(release_scans, out_dir, file_types, use_v1_sens):
 
 
 def download_file(url, out_file):
-    out_dir = os.path.dirname(out_file)
-    if not os.path.isdir(out_dir):
+    out_dir = osp.dirname(out_file)
+    if not osp.isdir(out_dir):
         os.makedirs(out_dir)
-    if not os.path.isfile(out_file):
+    if not osp.isfile(out_file):
         log.info("\t" + url + " > " + out_file)
         fh, out_file_tmp = tempfile.mkstemp(dir=out_dir)
         f = os.fdopen(fh, "w")
@@ -183,7 +189,7 @@ def download_file(url, out_file):
 
 def download_scan(scan_id, out_dir, file_types, use_v1_sens):
     # log.info("Downloading ScanNet " + RELEASE_NAME + " scan " + scan_id + " ...")
-    if not os.path.isdir(out_dir):
+    if not osp.isdir(out_dir):
         os.makedirs(out_dir)
     for ft in file_types:
         v1_sens = use_v1_sens and ft == ".sens"
@@ -202,9 +208,9 @@ def download_label_map(out_dir):
     files = [LABEL_MAP_FILE]
     for file in files:
         url = BASE_URL + RELEASE_TASKS + "/" + file
-        localpath = os.path.join(out_dir, file)
-        localdir = os.path.dirname(localpath)
-        if not os.path.isdir(localdir):
+        localpath = osp.join(out_dir, file)
+        localdir = osp.dirname(localpath)
+        if not osp.isdir(localdir):
             os.makedirs(localdir)
         download_file(url, localpath)
     log.info("Downloaded ScanNet " + RELEASE_NAME + " label mapping file.")
@@ -228,7 +234,7 @@ def represents_int(s):
 
 
 def read_label_mapping(filename, label_from="raw_category", label_to="nyu40id"):
-    assert os.path.isfile(filename)
+    assert osp.isfile(filename)
     mapping = dict()
     with open(filename) as csvfile:
         reader = csv.DictReader(csvfile, delimiter="\t")
@@ -241,7 +247,7 @@ def read_label_mapping(filename, label_from="raw_category", label_to="nyu40id"):
 
 def read_mesh_vertices(filename):
     """read XYZ for each vertex."""
-    assert os.path.isfile(filename)
+    assert osp.isfile(filename)
     with open(filename, "rb") as f:
         plydata = PlyData.read(f)
         num_verts = plydata["vertex"].count
@@ -256,7 +262,7 @@ def read_mesh_vertices_rgb(filename):
     """read XYZ RGB for each vertex.
     Note: RGB values are in 0-255
     """
-    assert os.path.isfile(filename)
+    assert osp.isfile(filename)
     with open(filename, "rb") as f:
         plydata = PlyData.read(f)
         num_verts = plydata["vertex"].count
@@ -271,7 +277,7 @@ def read_mesh_vertices_rgb(filename):
 
 
 def read_aggregation(filename):
-    assert os.path.isfile(filename)
+    assert osp.isfile(filename)
     object_id_to_segs = {}
     label_to_segs = {}
     with open(filename) as f:
@@ -290,7 +296,7 @@ def read_aggregation(filename):
 
 
 def read_segmentation(filename):
-    assert os.path.isfile(filename)
+    assert osp.isfile(filename)
     seg_to_verts = {}
     with open(filename) as f:
         data = json.load(f)
@@ -383,6 +389,167 @@ def export(mesh_file, agg_file, seg_file, meta_file, label_map_file, output_file
     )
 
 
+# REFERENCE TO https://github.com/ScanNet/ScanNet/tree/master/SensReader/python
+# Changes were made to accelerate processing by skipping frames at load time
+########################################################################################
+#                                                                                      #
+#                                SENS FILE EXPORT UTILS                                #
+#                                                                                      #
+########################################################################################
+
+COMPRESSION_TYPE_COLOR = {-1: 'unknown', 0: 'raw', 1: 'png', 2: 'jpeg'}
+COMPRESSION_TYPE_DEPTH = {-1: 'unknown', 0: 'raw_ushort', 1: 'zlib_ushort', 2: 'occi_ushort'}
+
+
+class RGBDFrame:
+
+    def load(self, file_handle, skip_color=False, skip_depth=False):
+        self.camera_to_world = np.asarray(struct.unpack('f' * 16, file_handle.read(16 * 4)), dtype=np.float32).reshape(
+            4, 4)
+        self.timestamp_color = struct.unpack('Q', file_handle.read(8))[0]
+        self.timestamp_depth = struct.unpack('Q', file_handle.read(8))[0]
+        self.color_size_bytes = struct.unpack('Q', file_handle.read(8))[0]
+        self.depth_size_bytes = struct.unpack('Q', file_handle.read(8))[0]
+        if skip_color:
+            self.color_data = None
+            file_handle.seek(self.color_size_bytes, 1)
+        else:
+            self.color_data = b''.join(struct.unpack('c' * self.color_size_bytes, file_handle.read(self.color_size_bytes)))
+        if skip_depth:
+            self.depth_data = None
+            file_handle.seek(self.depth_size_bytes, 1)
+        else:
+            self.depth_data = b''.join(struct.unpack('c' * self.depth_size_bytes, file_handle.read(self.depth_size_bytes)))
+
+    def decompress_depth(self, compression_type):
+        if compression_type == 'zlib_ushort':
+            return self.decompress_depth_zlib()
+        else:
+            raise
+
+    def decompress_depth_zlib(self):
+        return zlib.decompress(self.depth_data)
+
+    def decompress_color(self, compression_type):
+        if compression_type == 'jpeg':
+            return self.decompress_color_jpeg()
+        else:
+            raise
+
+    def decompress_color_jpeg(self):
+        return imageio.imread(self.color_data)
+
+
+class SensorData:
+
+    def __init__(self, filename, frame_skip=1):
+        self.version = 4
+        self.frame_skip = frame_skip
+        self.load(filename)
+
+    def load(self, filename):
+        with open(filename, 'rb') as f:
+
+            # Read the sens file header
+            version = struct.unpack('I', f.read(4))[0]
+            assert self.version == version
+            strlen = struct.unpack('Q', f.read(8))[0]
+            self.sensor_name = b''.join(struct.unpack('c' * strlen, f.read(strlen)))
+            self.intrinsic_color = np.asarray(struct.unpack('f' * 16, f.read(16 * 4)), dtype=np.float32).reshape(4, 4)
+            self.extrinsic_color = np.asarray(struct.unpack('f' * 16, f.read(16 * 4)), dtype=np.float32).reshape(4, 4)
+            self.intrinsic_depth = np.asarray(struct.unpack('f' * 16, f.read(16 * 4)), dtype=np.float32).reshape(4, 4)
+            self.extrinsic_depth = np.asarray(struct.unpack('f' * 16, f.read(16 * 4)), dtype=np.float32).reshape(4, 4)
+            self.color_compression_type = COMPRESSION_TYPE_COLOR[struct.unpack('i', f.read(4))[0]]
+            self.depth_compression_type = COMPRESSION_TYPE_DEPTH[struct.unpack('i', f.read(4))[0]]
+            self.color_width = struct.unpack('I', f.read(4))[0]
+            self.color_height = struct.unpack('I', f.read(4))[0]
+            self.depth_width = struct.unpack('I', f.read(4))[0]
+            self.depth_height = struct.unpack('I', f.read(4))[0]
+            self.depth_shift = struct.unpack('f', f.read(4))[0]
+            num_frames = struct.unpack('Q', f.read(8))[0]
+
+            # Read the frames. RGBDFrame.load() knows how many bytes to
+            # read for each frame. It can speed up the parsing if
+            # frame_skip is provided
+            self.frames = []
+            for i in range(num_frames):
+                skip = (i % self.frame_skip != 0)
+                frame = RGBDFrame()
+                frame.load(f, skip_color=skip, skip_depth=skip)
+                if skip:
+                    continue
+                self.frames.append(frame)
+
+    def export_depth_images(self, output_path, image_size=None, frame_skip=1, verbose=False):
+        if not osp.exists(output_path):
+            os.makedirs(output_path)
+        if verbose:
+            print(f'exporting {len(self.frames) // frame_skip} depth frames to {output_path}')
+        for f in range(0, len(self.frames), frame_skip):
+            depth_data = self.frames[f].decompress_depth(self.depth_compression_type)
+            depth = np.fromstring(depth_data, dtype=np.uint16).reshape(self.depth_height, self.depth_width)
+            if image_size is not None:
+                depth = cv2.resize(depth, (image_size[1], image_size[0]), interpolation=cv2.INTER_NEAREST)
+            # imageio.imwrite(osp.join(output_path, str(f) + '.png'), depth)
+            with open(osp.join(output_path, str(f) + '.png'), 'wb') as f:  # write 16-bit
+                writer = png.Writer(width=depth.shape[1], height=depth.shape[0], bitdepth=16)
+                depth = depth.reshape(-1, depth.shape[1]).tolist()
+                writer.write(f, depth)
+
+    def export_color_images(self, output_path, image_size=None, frame_skip=1, verbose=False):
+        if not osp.exists(output_path):
+            os.makedirs(output_path)
+        if verbose:
+            print(f'exporting {len(self.frames) // frame_skip} color frames to {output_path}')
+        for f in range(0, len(self.frames), frame_skip):
+            color = self.frames[f].decompress_color(self.color_compression_type)
+            if image_size is not None:
+                color = cv2.resize(color, (image_size[1], image_size[0]), interpolation=cv2.INTER_NEAREST)
+            imageio.imwrite(osp.join(output_path, str(f) + '.jpg'), color)
+
+    def save_mat_to_file(self, matrix, filename):
+        with open(filename, 'w') as f:
+            for line in matrix:
+                np.savetxt(f, line[np.newaxis], fmt='%f')
+
+    def export_poses(self, output_path, frame_skip=1, verbose=False):
+        if not osp.exists(output_path):
+            os.makedirs(output_path)
+        if verbose:
+            print(f'exporting {len(self.frames) // frame_skip} camera poses to {output_path}')
+        for f in range(0, len(self.frames), frame_skip):
+            self.save_mat_to_file(self.frames[f].camera_to_world, osp.join(output_path, str(f) + '.txt'))
+
+    def export_intrinsics(self, output_path, verbose=False):
+        if not osp.exists(output_path):
+            os.makedirs(output_path)
+        if verbose:
+            print(f'exporting camera intrinsics to {output_path}')
+        self.save_mat_to_file(self.intrinsic_color, osp.join(output_path, 'intrinsic_color.txt'))
+        self.save_mat_to_file(self.extrinsic_color, osp.join(output_path, 'extrinsic_color.txt'))
+        self.save_mat_to_file(self.intrinsic_depth, osp.join(output_path, 'intrinsic_depth.txt'))
+        self.save_mat_to_file(self.extrinsic_depth, osp.join(output_path, 'extrinsic_depth.txt'))
+
+
+def export_sens_data(filename, output_path, depth_images=False, color_images=False, poses=False, intrinsics=False, frame_skip=1, verbose=False):
+    if not osp.exists(output_path):
+        os.makedirs(output_path)
+        # load the data
+    if verbose:
+        sys.stdout.write('loading %s...' % filename)
+    sd = SensorData(filename, frame_skip=frame_skip)
+    if verbose:
+        sys.stdout.write('loaded!\n')
+    if depth_images:
+        sd.export_depth_images(osp.join(output_path, 'depth'), verbose=verbose)
+    if color_images:
+        sd.export_color_images(osp.join(output_path, 'color'), verbose=verbose)
+    if poses:
+        sd.export_poses(osp.join(output_path, 'pose'), verbose=verbose)
+    if intrinsics:
+        sd.export_intrinsics(osp.join(output_path, 'intrinsic'), verbose=verbose)
+
+
 ########################################################################################
 #                                                                                      #
 #                          SCANNET InMemoryDataset DATASET                             #
@@ -436,21 +603,26 @@ class Scannet(InMemoryDataset):
     SPLITS = SPLITS
 
     def __init__(
-        self,
-        root,
-        split="train",
-        transform=None,
-        pre_transform=None,
-        pre_filter=None,
-        version="v2",
-        use_instance_labels=False,
-        use_instance_bboxes=False,
-        donotcare_class_ids=[],
-        max_num_point=None,
-        process_workers=4,
-        types=[".txt", "_vh_clean_2.ply", "_vh_clean_2.0.010000.segs.json", ".aggregation.json"],
-        normalize_rgb=True,
-        is_test=False,
+            self,
+            root,
+            split="train",
+            transform=None,
+            pre_transform=None,
+            pre_filter=None,
+            version="v2",
+            use_instance_labels=False,
+            use_instance_bboxes=False,
+            donotcare_class_ids=[],
+            max_num_point=None,
+            process_workers=4,
+            types=[".txt", "_vh_clean_2.ply", "_vh_clean_2.0.010000.segs.json", ".aggregation.json"],
+            normalize_rgb=True,
+            is_test=False,
+            frame_depth=False,
+            frame_rgb=False,
+            frame_pose=False,
+            frame_intrinsics=False,
+            frame_skip=100
     ):
 
         assert self.SPLITS == ["train", "val", "test"]
@@ -470,6 +642,11 @@ class Scannet(InMemoryDataset):
         self.types = types
         self.normalize_rgb = normalize_rgb
         self.is_test = is_test
+        self.frame_depth = frame_depth
+        self.frame_rgb = frame_rgb
+        self.frame_pose = frame_pose
+        self.frame_intrinsics = frame_intrinsics
+        self.frame_skip = frame_skip
         super().__init__(root, transform, pre_transform, pre_filter)
         if split == "train":
             path = self.processed_paths[0]
@@ -511,7 +688,7 @@ class Scannet(InMemoryDataset):
         assert stage in self.SPLITS
         mapping_idx_to_scan_names = getattr(self, "MAPPING_IDX_TO_SCAN_{}_NAMES".format(stage.upper()))
         scan_name = mapping_idx_to_scan_names[id_scan]
-        path_to_raw_scan = os.path.join(
+        path_to_raw_scan = osp.join(
             self.processed_raw_paths[self.SPLITS.index(stage.lower())], "{}.pt".format(scan_name)
         )
         data = torch.load(path_to_raw_scan)
@@ -527,26 +704,21 @@ class Scannet(InMemoryDataset):
 
     @property
     def processed_file_names(self):
-        return [
-            "{}.pt".format(
-                s,
-            )
-            for s in Scannet.SPLITS
-        ]
+        return [f"{s}.pt" for s in Scannet.SPLITS]
 
     @property
     def processed_raw_paths(self):
-        processed_raw_paths = [os.path.join(self.processed_dir, "raw_{}".format(s)) for s in Scannet.SPLITS]
+        processed_raw_paths = [osp.join(self.processed_dir, "raw_{}".format(s)) for s in Scannet.SPLITS]
         for p in processed_raw_paths:
-            if not os.path.exists(p):
+            if not osp.exists(p):
                 os.makedirs(p)
         return processed_raw_paths
 
     @property
     def path_to_submission(self):
         root = os.getcwd()
-        path_to_submission = os.path.join(root, "submission_labels")
-        if not os.path.exists(path_to_submission):
+        path_to_submission = osp.join(root, "submission_labels")
+        if not osp.exists(path_to_submission):
             os.makedirs(path_to_submission)
         return path_to_submission
 
@@ -562,8 +734,8 @@ class Scannet(InMemoryDataset):
         release_test_file = BASE_URL + RELEASE + "_test.txt"
         release_test_scans = get_release_scans(release_test_file)
         file_types_test = FILETYPES_TEST
-        out_dir_scans = os.path.join(self.raw_dir, "scans")
-        out_dir_test_scans = os.path.join(self.raw_dir, "scans_test")
+        out_dir_scans = osp.join(self.raw_dir, "scans")
+        out_dir_test_scans = osp.join(self.raw_dir, "scans_test")
 
         if self.types:  # download file type
             file_types = self.types
@@ -594,7 +766,7 @@ class Scannet(InMemoryDataset):
         if self.version == "v2":
             download_label_map(self.raw_dir)
             download_release(release_test_scans, out_dir_test_scans, file_types_test, use_v1_sens=True)
-            # download_file(os.path.join(BASE_URL, RELEASE_TASKS, TEST_FRAMES_FILE[0]), os.path.join(out_dir_tasks, TEST_FRAMES_FILE[0]))
+            # download_file(osp.join(BASE_URL, RELEASE_TASKS, TEST_FRAMES_FILE[0]), osp.join(out_dir_tasks, TEST_FRAMES_FILE[0]))
 
     def download(self):
         if self.is_test:
@@ -608,36 +780,45 @@ class Scannet(InMemoryDataset):
         input("")
         self.download_scans()
         metadata_path = osp.join(self.raw_dir, "metadata")
-        if not os.path.exists(metadata_path):
+        if not osp.exists(metadata_path):
             os.makedirs(metadata_path)
         for url in self.URLS_METADATA:
             _ = download_url(url, metadata_path)
 
     @staticmethod
-    def read_one_test_scan(scannet_dir, scan_name, normalize_rgb):
+    def read_one_test_scan(
+            scannet_dir, scan_name, normalize_rgb, frame_depth=False,
+            frame_rgb=False, frame_pose=False, frame_intrinsics=False,
+            frame_skip=1):
         mesh_file = osp.join(scannet_dir, scan_name, scan_name + "_vh_clean_2.ply")
         mesh_vertices = read_mesh_vertices_rgb(mesh_file)
+        sens_file = osp.join(scannet_dir, scan_name, scan_name + ".sens")
 
         data = {}
         data["pos"] = torch.from_numpy(mesh_vertices[:, :3])
         data["rgb"] = torch.from_numpy(mesh_vertices[:, 3:])
         if normalize_rgb:
             data["rgb"] /= 255.0
+
+        # Export image data from sens file
+        if osp.exists(sens_file) and any([frame_depth, frame_rgb, frame_pose, frame_intrinsics, frame_skip]):
+            export_sens_data(
+                sens_file, osp.join(scannet_dir, scan_name, 'sens'),
+                depth_images=frame_depth, color_images=frame_rgb,
+                poses=frame_pose, intrinsics=frame_intrinsics,
+                frame_skip=frame_skip)
+
         return Data(**data)
 
     @staticmethod
     def read_one_scan(
-        scannet_dir,
-        scan_name,
-        label_map_file,
-        donotcare_class_ids,
-        max_num_point,
-        obj_class_ids,
-        normalize_rgb,
-    ):
+            scannet_dir, scan_name, label_map_file, donotcare_class_ids,
+            max_num_point, obj_class_ids, normalize_rgb, frame_depth,
+            frame_rgb, frame_pose, frame_intrinsics, frame_skip):
         mesh_file = osp.join(scannet_dir, scan_name, scan_name + "_vh_clean_2.ply")
         agg_file = osp.join(scannet_dir, scan_name, scan_name + ".aggregation.json")
         seg_file = osp.join(scannet_dir, scan_name, scan_name + "_vh_clean_2.0.010000.segs.json")
+        sens_file = osp.join(scannet_dir, scan_name, scan_name + ".sens")
         meta_file = osp.join(
             scannet_dir, scan_name, scan_name + ".txt"
         )  # includes axisAlignment info for the train set scans.
@@ -674,6 +855,14 @@ class Scannet(InMemoryDataset):
         data["instance_labels"] = torch.from_numpy(instance_labels)
         data["instance_bboxes"] = torch.from_numpy(instance_bboxes)
 
+        # Export image data from sens file
+        if osp.exists(sens_file) and any([frame_depth, frame_rgb, frame_pose, frame_intrinsics, frame_skip]):
+            export_sens_data(
+                sens_file, osp.join(scannet_dir, scan_name, 'sens'),
+                depth_images=frame_depth, color_images=frame_rgb,
+                poses=frame_pose, intrinsics=frame_intrinsics,
+                frame_skip=frame_skip)
+
         return Data(**data)
 
     def read_from_metadata(self):
@@ -692,19 +881,32 @@ class Scannet(InMemoryDataset):
 
     @staticmethod
     def process_func(
-        id_scan,
-        total,
-        scannet_dir,
-        scan_name,
-        label_map_file,
-        donotcare_class_ids,
-        max_num_point,
-        obj_class_ids,
-        normalize_rgb,
-        split,
+            id_scan,
+            total,
+            scannet_dir,
+            scan_name,
+            label_map_file,
+            donotcare_class_ids,
+            max_num_point,
+            obj_class_ids,
+            normalize_rgb,
+            split,
+            frame_depth,
+            frame_rgb,
+            frame_pose,
+            frame_intrinsics,
+            frame_skip,
     ):
         if split == "test":
-            data = Scannet.read_one_test_scan(scannet_dir, scan_name, normalize_rgb)
+            data = Scannet.read_one_test_scan(
+                scannet_dir,
+                scan_name,
+                normalize_rgb,
+                frame_depth,
+                frame_rgb,
+                frame_pose,
+                frame_intrinsics,
+                frame_skip)
         else:
             data = Scannet.read_one_scan(
                 scannet_dir,
@@ -714,7 +916,11 @@ class Scannet(InMemoryDataset):
                 max_num_point,
                 obj_class_ids,
                 normalize_rgb,
-            )
+                frame_depth,
+                frame_rgb,
+                frame_pose,
+                frame_intrinsics,
+                frame_skip)
         log.info("{}/{}| scan_name: {}, data: {}".format(id_scan, total, scan_name, data))
 
         data["id_scan"] = torch.tensor([id_scan])
@@ -725,9 +931,8 @@ class Scannet(InMemoryDataset):
             return
         self.read_from_metadata()
 
-        scannet_dir = osp.join(self.raw_dir, "scans")
         for i, (scan_names, split) in enumerate(zip(self.scan_names, self.SPLITS)):
-            if not os.path.exists(self.processed_paths[i]):
+            if not osp.exists(self.processed_paths[i]):
                 mapping_idx_to_scan_names = getattr(self, "MAPPING_IDX_TO_SCAN_{}_NAMES".format(split.upper()))
                 scannet_dir = osp.join(self.raw_dir, "scans" if split in ["train", "val"] else "scans_test")
                 total = len(scan_names)
@@ -743,6 +948,11 @@ class Scannet(InMemoryDataset):
                         self.VALID_CLASS_IDS,
                         self.normalize_rgb,
                         split,
+                        self.frame_depth,
+                        self.frame_rgb,
+                        self.frame_pose,
+                        self.frame_intrinsics,
+                        self.frame_skip,
                     )
                     for id, scan_name in enumerate(scan_names)
                 ]
@@ -758,7 +968,7 @@ class Scannet(InMemoryDataset):
                 for data in datas:
                     id_scan = int(data.id_scan.item())
                     scan_name = mapping_idx_to_scan_names[id_scan]
-                    path_to_raw_scan = os.path.join(self.processed_raw_paths[i], "{}.pt".format(scan_name))
+                    path_to_raw_scan = osp.join(self.processed_raw_paths[i], "{}.pt".format(scan_name))
                     torch.save(data, path_to_raw_scan)
 
                 if self.pre_transform:
@@ -817,7 +1027,7 @@ class ScannetDataset(BaseDataset):
         use_instance_bboxes: bool = dataset_opt.use_instance_bboxes
         donotcare_class_ids: [] = list(dataset_opt.get('donotcare_class_ids', []))
         max_num_point: int = dataset_opt.get('max_num_point', None)
-        process_workers: int = dataset_opt.process_workers if hasattr(dataset_opt,'process_workers') else 0
+        process_workers: int = dataset_opt.process_workers if hasattr(dataset_opt, 'process_workers') else 0
         is_test: bool = dataset_opt.get('is_test', False)
 
         self.train_dataset = Scannet(
