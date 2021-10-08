@@ -1,6 +1,6 @@
 # @package data
 defaults:
-  - /data/segmentation/multimodal/default
+    - /data/segmentation/multimodal/default
 
 class: scannet.ScannetDatasetMM
 dataset_name: "scannet-sparse"
@@ -14,46 +14,71 @@ process_workers: 8
 apply_rotation: True
 mode: "last"
 
+pre_transform:
+    - transform: GridSampling3D    # Samples on a grid
+      params:
+            size: ${data.grid_size}
+            # setattr_full_pos: True  # Required to keep the full-resolution points for later local features computation
+    - transform: SaveOriginalPosId    # Required so that one can recover the multimodal mappings after the transforms
+      params:
+            key: ${data.multimodal.settings.mapping_key}
+    - transform: PCAComputePointwise
+      params:
+            num_neighbors: 50  # heuristic: at least 30
+            # r: 0.1  # heuristic: 2 * voxel - using r will force CPU computation
+            # use_full_pos: True  # Possible if GridSampling3D.setattr_full_pos = True
+            use_faiss: True
+    - transform: EigenFeatures
+      params:
+            norm: True
+            linearity: True
+            planarity: True
+            scattering: True
+    - transform: RemoveAttributes
+      params:
+            # attr_names: [full_pos, eigenvalues, eigenvectors]
+            attr_names: [eigenvalues, eigenvectors]
+
 train_pre_batch_collate_transform:
-  - transform: ClampBatchSize
-    params:
-      num_points: 400000
+    - transform: ClampBatchSize
+        params:
+            num_points: 400000
 
 train_transform:
-  - transform: ElasticDistortion
-  - transform: Random3AxisRotation
-    params:
-      apply_rotation: ${data.apply_rotation}
-      rot_x: 8
-      rot_y: 8
-      rot_z: 180
-  - transform: RandomSymmetry
-    params:
-      axis: [True, True, False]
-  - transform: RandomScaleAnisotropic
-    params:
-      scales: [0.9, 1.1]
-  - transform: GridSampling3D
-    params:
-      size: ${data.grid_size}
-      quantize_coords: True
-      mode: ${data.mode}
-  - transform: AddFeatsByKeys
-    params:
-      list_add_to_x: [True]
-      feat_names: ["rgb"]
-      delete_feats: [True]
+    - transform: ElasticDistortion
+    - transform: Random3AxisRotation
+        params:
+            apply_rotation: ${data.apply_rotation}
+            rot_x: 8
+            rot_y: 8
+            rot_z: 180
+    - transform: RandomSymmetry
+        params:
+            axis: [True, True, False]
+    - transform: RandomScaleAnisotropic
+        params:
+            scales: [0.9, 1.1]
+    - transform: GridSampling3D
+        params:
+            size: ${data.grid_size}
+            quantize_coords: True
+            mode: ${data.mode}
+    - transform: AddFeatsByKeys
+        params:
+            list_add_to_x: [True]
+            feat_names: ["rgb"]
+            delete_feats: [True]
 
 val_transform:
-  - transform: GridSampling3D
-    params:
-      size: ${data.grid_size}
-      quantize_coords: True
-      mode: ${data.mode}
-  - transform: AddFeatsByKeys
-    params:
-      list_add_to_x: [True]
-      feat_names: ["rgb"]
-      delete_feats: [True]
+    - transform: GridSampling3D
+        params:
+            size: ${data.grid_size}
+            quantize_coords: True
+            mode: ${data.mode}
+    - transform: AddFeatsByKeys
+        params:
+            list_add_to_x: [True]
+            feat_names: ["rgb"]
+            delete_feats: [True]
 
 test_transform: ${data.val_transform}
