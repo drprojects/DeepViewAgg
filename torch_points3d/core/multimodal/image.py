@@ -18,9 +18,10 @@ class SameSettingImageData(object):
     mapping information.
 
     Attributes
-        path:numpy.ndarray          image paths
-        pos:torch.Tensor            image positions
-        opk:torch.Tensor            image angular poses
+        path:numpy.ndarray          image N paths
+        pos:torch.Tensor            image Nx3 positions
+        opk:torch.Tensor            image Nx3 angular poses
+        opextrinsick:torch.Tensor   image Nx4x4 extrinsic matrix poses
 
         ref_size:tuple              initial size of the loaded images and mappings
         proj_upscale:float          upsampling of projection wrt to ref_size
@@ -35,7 +36,9 @@ class SameSettingImageData(object):
         mask:BoolTensor             projection mask
     """
     _numpy_keys = ['path']
-    _torch_keys = ['pos', 'opk', 'crop_offsets', 'rollings']
+    _torch_keys = [
+        'pos', 'opk', 'fx', 'fy', 'mx', 'my', 'extrinsic', 'crop_offsets',
+        'rollings']
     _map_key = 'mappings'
     _x_key = 'x'
     _mask_key = 'mask'
@@ -48,12 +51,10 @@ class SameSettingImageData(object):
 
     def __init__(
             self, path=np.empty(0, dtype='O'), pos=torch.empty([0, 3]),
-            opk=torch.empty([0, 3]), ref_size=(512, 256), proj_upscale=2,
+            opk=None, ref_size=(512, 256), proj_upscale=2,
             downscale=1, rollings=None, crop_size=None, crop_offsets=None,
-            x=None, mappings=None, mask=None, visibility=None, **kwargs):
-
-        assert path.shape[0] == pos.shape[0] == opk.shape[0], \
-            f"Attributes 'path', 'pos' and 'opk' must have the same length."
+            x=None, mappings=None, mask=None, visibility=None, fx=None,
+            fy=None, mx=None, my=None, extrinsic=None, **kwargs):
 
         # Initialize the private internal state attributes
         self._ref_size = None
@@ -69,7 +70,12 @@ class SameSettingImageData(object):
         # Initialize from parameters
         self.path = np.array(path)
         self.pos = pos.double()
-        self.opk = opk.double()
+        self.opk = opk.double() if opk is not None else None
+        self.fx = fx
+        self.fy = fy
+        self.mx = mx
+        self.my = my
+        self.extrinsic = extrinsic
         self.ref_size = ref_size
         self.proj_upscale = proj_upscale
         self.rollings = rollings if rollings is not None \
@@ -87,11 +93,28 @@ class SameSettingImageData(object):
         # self.debug()
 
     def debug(self):
-        assert self.path.shape[0] == self.pos.shape[0] == self.opk.shape[0], \
-            f"Attributes 'path', 'pos' and 'opk' must have the same length."
-        assert self.pos.device == self.opk.device, \
-            f"Discrepancy in the devices of 'pos' and 'opk' attributes. " \
-            f"Please use `SameSettingImageData.to()` to set the device."
+        assert self.path.shape[0] == self.num_views, \
+            f"Attributes 'path' and 'pos' must have the same length."
+
+        assert self.has_opk != self.has_extrinsic, \
+            f"Poses must either be provided as Omega-Phi-Kappa angles or as " \
+            f"a 4x4 extrinsic matrix."
+
+        if self.has_opk:
+            assert self.opk.shape[0] == self.num_views, \
+                f"Attributes 'pos' and 'opk' must have the same length."
+            assert self.device == self.opk.device, \
+                f"Discrepancy in the devices of 'pos' and 'opk' attributes. " \
+                f"Please use `SameSettingImageData.to()` to set the device."
+
+        if self.has_extrinsic:
+            assert self.extrinsic.shape[0] == self.num_views, \
+                f"Attributes 'pos' and 'extrinsic' must have the same length."
+            assert self.device == self.extrinsic.device, \
+                f"Discrepancy in the devices of 'pos' and 'extrinsic' " \
+                f"attributes. Please use `SameSettingImageData.to()` to set " \
+                f"the device."
+
         assert len(tuple(self.ref_size)) == 2, \
             f"Expected len(ref_size)=2 but got {len(self.ref_size)} instead."
         assert self.proj_upscale >= 1, \
@@ -166,6 +189,14 @@ class SameSettingImageData(object):
     @property
     def num_views(self):
         return self.pos.shape[0]
+
+    @property
+    def has_opk(self):
+        return self.opk is not None
+
+    @property
+    def has_extrinsic(self):
+        return self.extrinsic is not None
 
     @property
     def num_points(self):
@@ -489,6 +520,33 @@ class SameSettingImageData(object):
                 f"{self.img_size[1]}, {self.img_size[0]}) but got " \
                 f"{x.shape} instead."
             self._x = x.to(self.device)
+
+    @property
+    def intrinsic(self):
+        return self._intrinsic
+
+    @intrinsic.setter
+    def intrinsic(self, intrinsic):
+        if intrinsic is None:
+            self._intrinsic = None
+        else:
+            assert isinstance(intrinsic, torch.Tensor) and intrinsic.shape == (4, 4), \
+                f"Expected a 4x4 Tensor but got {type(intrinsic)} instead."
+            self._intrinsic = intrinsic.to(self.device)
+
+    @property
+    def extrinsic(self):
+        return self._extrinsic
+
+    @extrinsic.setter
+    def extrinsic(self, extrinsic):
+        if extrinsic is None:
+            self._extrinsic = None
+        else:
+            assert isinstance(extrinsic, torch.Tensor) \
+                   and extrinsic.shape == (self.num_views, 4, 4), \
+                f"Expected a 4x4 Tensor but got {type(extrinsic)} instead."
+            self._extrinsic = extrinsic.to(self.device)
 
     @property
     def mappings(self):
@@ -819,7 +877,8 @@ class SameSettingImageData(object):
         return self.__class__(
             path=self.path[idx_numpy],
             pos=self.pos[idx],
-            opk=self.opk[idx],
+            opk=self.opk[idx] if self.has_opk else None,
+            extrinsic=self.extrinsic[idx] if self.has_extrinsic else None,
             ref_size=copy.deepcopy(self.ref_size),
             proj_upscale=copy.deepcopy(self.proj_upscale),
             downscale=copy.deepcopy(self.downscale),
@@ -862,7 +921,9 @@ class SameSettingImageData(object):
     def to(self, device):
         """Set torch.Tensor attributes device."""
         out = self.__class__(
-            path=self.path, pos=self.pos.to(device), opk=self.opk.to(device),
+            path=self.path, pos=self.pos.to(device),
+            opk=self.opk.to(device) if self.has_opk else None,
+            extrinsic=self.extrinsic.to(device) if self.has_extrinsic else None,
             ref_size=self.ref_size, proj_upscale=self.proj_upscale,
             downscale=self.downscale, rollings=self.rollings.to(device),
             crop_size=self.crop_size, crop_offsets=self.crop_offsets.to(device),
@@ -938,6 +999,27 @@ class SameSettingImageData(object):
         Return the mapping features carried by the mappings.
         """
         return self.mappings.features
+
+    @property
+    def intrinsic(self):
+        intrinsic = torch.eye(4)
+        intrinsic[0][0] = self.fx
+        intrinsic[1][1] = self.fy
+        intrinsic[0][2] = self.mx
+        intrinsic[1][2] = self.my
+        return intrinsic
+
+    # create camera intrinsic
+    def adjust_intrinsic(intrinsic, intrinsic_image_dim, image_dim):
+        if intrinsic_image_dim == image_dim:
+            return intrinsic
+        resize_width = int(math.floor(image_dim[1] * float(intrinsic_image_dim[0]) / float(intrinsic_image_dim[1])))
+        intrinsic[0, 0] *= float(resize_width) / float(intrinsic_image_dim[0])
+        intrinsic[1, 1] *= float(image_dim[1]) / float(intrinsic_image_dim[1])
+        # account for cropping here
+        intrinsic[0, 2] *= float(image_dim[0] - 1) / float(intrinsic_image_dim[0] - 1)
+        intrinsic[1, 2] *= float(image_dim[1] - 1) / float(intrinsic_image_dim[1] - 1)
+        return intrinsic
 
 
 class SameSettingImageBatch(SameSettingImageData):

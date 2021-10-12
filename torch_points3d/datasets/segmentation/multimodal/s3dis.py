@@ -4,9 +4,9 @@ from torch_points3d.datasets.base_dataset_multimodal import BaseDatasetMM
 from torch_points3d.datasets.segmentation.s3dis import *
 from torch_geometric.data import Data
 from torch_points3d.core.multimodal.data import MMData
-from torch_points3d.core.multimodal.image import SameSettingImageData
 from torch_points3d.core.data_transform.multimodal.image import \
     SelectMappingFromPointId
+from .utils import read_image_pose_pairs, img_info_to_img_data
 
 ########################################################################
 #                             S3DIS Utils                              #
@@ -100,57 +100,7 @@ def read_s3dis_pose(json_file):
         xyz = M.dot(xyz) + np.array([-4.10, 6.25, 0.0])
         opk = opk + np.array([0, 0, np.pi / 2])
 
-    return xyz, opk
-
-
-# ----------------------------------------------------------------------
-
-def s3dis_image_pose_pairs(
-        image_dir, pose_dir, image_suffix='_rgb.png',
-        pose_suffix='_pose.json', skip_names=None, verbose=False):
-    """
-    Search for all image-pose correspondences in the directories.
-    Return the list of image-pose pairs. Orphans are ignored.
-    """
-    # Search for images and poses
-    image_names = sorted([
-        osp.basename(x).replace(image_suffix, '')
-        for x in glob.glob(osp.join(image_dir, '*' + image_suffix))])
-    pose_names = sorted([
-        osp.basename(x).replace(pose_suffix, '')
-        for x in glob.glob(osp.join(pose_dir, '*' + pose_suffix))])
-
-    # Remove images specified by skip_names
-    skip_names = skip_names if skip_names is not None else []
-    image_names = [x for x in image_names if x not in skip_names]
-    pose_names = [x for x in pose_names if x not in skip_names]
-
-    # Print orphans
-    if not image_names == pose_names:
-        image_orphan = [
-            osp.join(image_dir, x + image_suffix)
-            for x in set(image_names) - set(pose_names)]
-        pose_orphan = [
-            osp.join(pose_dir, x + pose_suffix)
-            for x in set(pose_names) - set(image_names)]
-        print("Could not recover all image-pose correspondences.")
-        print(f"  Orphan images : {len(image_orphan)}/{len(image_names)}")
-        if verbose:
-            for x in image_orphan:
-                print(4 * ' ' + '/'.join(x.split('/')[-4:]))
-        print(f"  Orphan poses  : {len(pose_orphan)}/{len(pose_names)}")
-        if verbose:
-            for x in pose_orphan:
-                print(4 * ' ' + '/'.join(x.split('/')[-4:]))
-
-    # Only return the recovered pairs
-    correspondences = sorted(list(set(image_names).intersection(
-        set(pose_names))))
-    pairs = [(
-        osp.join(image_dir, x + image_suffix),
-        osp.join(pose_dir, x + pose_suffix))
-        for x in correspondences]
-    return pairs
+    return {'xyz': xyz, 'opk': opk}
 
 
 # ----------------------------------------------------------------------
@@ -498,9 +448,9 @@ class S3DISOriginalFusedMM(InMemoryDataset):
                     else ["area_5a", "area_5b"]
 
                 image_info_list = [
-                    (i_file, *read_s3dis_pose(p_file))
+                    {'path': i_file, **read_s3dis_pose(p_file)}
                     for folder in folders
-                    for i_file, p_file in s3dis_image_pose_pairs(
+                    for i_file, p_file in read_image_pose_pairs(
                         osp.join(self.image_dir, folder, 'pano', 'rgb'),
                         osp.join(self.image_dir, folder, 'pano', 'pose'),
                         skip_names=S3DIS_OUTSIDE_IMAGES)]
@@ -509,26 +459,13 @@ class S3DISOriginalFusedMM(InMemoryDataset):
                 # during preprocessing
                 image_info_list = [
                     x for x in image_info_list
-                    if s3dis_image_room(x[0]) in rooms[i]]
+                    if s3dis_image_room(x['path']) in rooms[i]]
 
                 print(f"    Area {i + 1} - {len(rooms[i])} rooms - "
                       f"{len(image_info_list)} images")
 
-                # Local helper function to combine image info lists into
-                # a more convenient SameSettingImageData object.
-                def info_list_to_image_data(info_list):
-                    if len(info_list) > 0:
-                        path, pos, opk = [list(x) for x in zip(*info_list)]
-                        image_data = SameSettingImageData(
-                            path=np.array(path), pos=torch.Tensor(pos),
-                            opk=torch.Tensor(opk), ref_size=self.img_ref_size)
-                    else:
-                        image_data = SameSettingImageData(
-                            ref_size=self.img_ref_size)
-                    return image_data
-
                 # Keep all images for the test area
-                image_data_list.append(info_list_to_image_data(image_info_list))
+                image_data_list.append(img_info_to_img_data(image_info_list))
 
             # Save image data
             torch.save(image_data_list, self.image_data_path)

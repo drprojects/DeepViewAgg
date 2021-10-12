@@ -4,7 +4,7 @@ from torch_points3d.datasets.base_dataset_multimodal import BaseDatasetMM
 from torch_points3d.datasets.segmentation.s3dis import *
 from torch_geometric.data import Data
 from torch_points3d.core.multimodal.data import MMData
-from torch_points3d.core.multimodal.image import SameSettingImageData
+from .utils import read_image_pose_pairs, img_info_to_img_data
 
 ########################################################################
 #                             S3DIS Utils                              #
@@ -450,9 +450,9 @@ class S3DISOriginalFusedMM(InMemoryDataset):
                     else ["area_5a", "area_5b"]
 
                 image_info_list = [
-                    (i_file, *read_s3dis_pose(p_file))
+                    {'path': i_file, **read_s3dis_pose(p_file)}
                     for folder in folders
-                    for i_file, p_file in s3dis_image_pose_pairs(
+                    for i_file, p_file in read_image_pose_pairs(
                         osp.join(self.image_dir, folder, 'pano', 'rgb'),
                         osp.join(self.image_dir, folder, 'pano', 'pose'),
                         skip_names=S3DIS_OUTSIDE_IMAGES)]
@@ -461,26 +461,13 @@ class S3DISOriginalFusedMM(InMemoryDataset):
                 # during preprocessing
                 image_info_list = [
                     x for x in image_info_list
-                    if s3dis_image_room(x[0]) in rooms[i]]
+                    if s3dis_image_room(x['path']) in rooms[i]]
 
                 print(f"    Area {i + 1} - {len(rooms[i])} rooms - "
                       f"{len(image_info_list)} images")
 
-                # Local helper function to combine image info lists into
-                # a more convenient SameSettingImageData object.
-                def info_list_to_image_data(info_list):
-                    if len(info_list) > 0:
-                        path, pos, opk = [list(x) for x in zip(*info_list)]
-                        image_data = SameSettingImageData(
-                            path=np.array(path), pos=torch.Tensor(pos),
-                            opk=torch.Tensor(opk), ref_size=self.img_ref_size)
-                    else:
-                        image_data = SameSettingImageData(
-                            ref_size=self.img_ref_size)
-                    return image_data
-
                 # Keep all images for the test area
-                image_data_list.append(info_list_to_image_data(image_info_list))
+                image_data_list.append(img_info_to_img_data(image_info_list))
 
             # Save image data
             torch.save(image_data_list, self.image_data_path)
