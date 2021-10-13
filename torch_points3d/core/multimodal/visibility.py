@@ -137,18 +137,22 @@ def norm_cuda(v):
 
 @njit(cache=True, nogil=True)
 def equirectangular_projection_cpu(
-        xyz_to_img, radius, img_rotation, img_size):
-    """Compute the projection of 3D points into the image pixel coordinate
-    system of an equirectangular camera on the GPU with numpy and numba.
+        xyz_to_img, radius, img_opk, img_size):
+    """Compute the projection of 3D points into the image pixel
+    coordinate system of an equirectangular camera on the CPU with
+    numpy and numba.
 
     :param xyz_to_img:
     :param radius:
-    :param img_rotation:
+    :param img_opk:
     :param img_size:
     :return:
     """
+    # Rotation matrix from image Euler angle pose
+    rotation = pose_to_rotation_matrix_cpu(img_opk)
+
     # Convert point to camera coordinate system
-    v = xyz_to_img.dot(img_rotation.transpose())
+    v = xyz_to_img.dot(rotation.transpose())
 
     # Equirectangular projection
     t = np.arctan2(v[:, 1], v[:, 0])
@@ -167,18 +171,22 @@ def equirectangular_projection_cpu(
 
 
 def equirectangular_projection_cuda(
-        xyz_to_img, radius, img_rotation, img_size):
-    """Compute the projection of 3D points into the image pixel coordinate
-    system of an equirectangular camera on the GPU with torch and cuda.
+        xyz_to_img, radius, img_opk, img_size):
+    """Compute the projection of 3D points into the image pixel
+    coordinate system of an equirectangular camera on the GPU with
+    torch and cuda.
 
     :param xyz_to_img:
     :param radius:
-    :param img_rotation:
+    :param img_opk:
     :param img_size:
     :return:
     """
+    # Rotation matrix from image Euler angle pose
+    rotation = pose_to_rotation_matrix_cuda(img_opk)
+
     # Convert point to camera coordinate system
-    v = xyz_to_img.mm(img_rotation.t())
+    v = xyz_to_img.mm(rotation.t())
 
     # Equirectangular projection
     t = torch.atan2(v[:, 1], v[:, 0])
@@ -196,18 +204,92 @@ def equirectangular_projection_cuda(
     return w_pix, h_pix
 
 
+@njit(cache=True, nogil=True)
+def pinhole_projection_cpu(xyz, img_extrinsic, img_intrinsic):
+    """Compute the projection of 3D points into the image pixel
+    coordinate system of a pinhole camera described by a 4x4 intrinsic
+    and a 4x4 extrinsic parameters tensors. Computations are executed
+    on CPU with numpy and numba.
+
+    :param xyz:
+    :param img_extrinsic:
+    :param img_intrinsic:
+    :return:
+    """
+    # Transform XYZ coordinates to homogeneous coordinates
+    ones = torch.ones([xyz.shape[0], 1])
+    xyz_h = np.concatenate([xyz, ones], axis=1)
+
+    # Inverse the 4x4 camera-to-world pose tensor
+    world_to_camera = np.linalg.inv(img_extrinsic)
+
+    # Compute the projection
+    p = np.matmul(world_to_camera, xyz_h.T)
+    p[0] = (p[0] * img_intrinsic[0][0]) / p[2] + img_intrinsic[0][2]
+    p[1] = (p[1] * img_intrinsic[1][1]) / p[2] + img_intrinsic[1][2]
+
+    return p[0], p[1], p[2]
+
+
+def pinhole_projection_cuda(xyz, img_extrinsic, img_intrinsic):
+    """Compute the projection of 3D points into the image pixel
+    coordinate system of a pinhole camera described by a 4x4 intrinsic
+    and a 4x4 extrinsic parameters tensors. Computations are executed
+    on GPU with torch and cuda.
+
+    :param xyz:
+    :param img_extrinsic:
+    :param img_intrinsic:
+    :return:
+    """
+    # Transform XYZ coordinates to homogeneous coordinates
+    ones = torch.ones([xyz.shape[0], 1], device=xyz.device)
+    xyz_h = torch.cat([xyz, ones], dim=1)
+
+    # Inverse the 4x4 camera-to-world pose tensor
+    world_to_camera = torch.inverse(img_extrinsic)
+
+    # Compute the projection
+    p = world_to_camera.mm(xyz_h.T)
+    p[0] = (p[0] * img_intrinsic[0][0]) / p[2] + img_intrinsic[0][2]
+    p[1] = (p[1] * img_intrinsic[1][1]) / p[2] + img_intrinsic[1][2]
+
+    return p[0], p[1], p[2]
+
+
 @njit(cache=True, nogil=True, fastmath=True)
-def field_of_view_cpu(x_pix, y_pix, y_min, y_max, img_mask=None):
+def field_of_view_cpu(
+        x_pix, y_pix, x_min=None, x_max=None, y_min=None, y_max=None, z=None,
+        img_mask=None):
     """
 
     :param x_pix:
     :param y_pix:
+    :param x_min:
+    :param x_max:
     :param y_min:
     :param y_max:
+    :param z:
     :param img_mask:
     :return:
     """
-    in_fov = np.logical_and(y_min <= y_pix, y_pix < y_max)
+    in_fov = np.ones_like(x_pix, dtype=np.bool)
+
+    if x_min is not None:
+        in_fov *= (x_min <= x_pix)
+
+    if y_min is not None:
+        in_fov *= (y_min <= y_pix)
+
+    if x_max is not None:
+        in_fov *= (x_pix < x_max)
+
+    if y_max is not None:
+        in_fov *= (y_pix < y_max)
+
+    if z is not None:
+        in_fov *= (0 < z)
+
     if not img_mask is None:
         n_points = x_pix.shape[0]
         x_int = np.floor(x_pix).astype(np.uint32)
@@ -218,17 +300,39 @@ def field_of_view_cpu(x_pix, y_pix, y_min, y_max, img_mask=None):
     return np.where(in_fov)[0]
 
 
-def field_of_view_cuda(x_pix, y_pix, y_min, y_max, img_mask=None):
+def field_of_view_cuda(
+        x_pix, y_pix, x_min=None, x_max=None, y_min=None, y_max=None, z=None,
+        img_mask=None):
     """
 
     :param x_pix:
     :param y_pix:
+    :param x_min:
+    :param x_max:
     :param y_min:
     :param y_max:
+    :param z_min:
+    :param z_max:
     :param img_mask:
     :return:
     """
-    in_fov = torch.logical_and(y_min <= y_pix, y_pix < y_max)
+    in_fov = torch.ones_like(x_pix).bool()
+
+    if x_min is not None:
+        in_fov *= (x_min <= x_pix)
+
+    if y_min is not None:
+        in_fov *= (y_min <= y_pix)
+
+    if x_max is not None:
+        in_fov *= (x_pix < x_max)
+
+    if y_max is not None:
+        in_fov *= (y_pix < y_max)
+
+    if z is not None:
+        in_fov *= (0 < z)
+
     if not img_mask is None:
         x_int = torch.floor(x_pix).long()
         y_int = torch.floor(y_pix).long()
@@ -239,36 +343,42 @@ def field_of_view_cuda(x_pix, y_pix, y_min, y_max, img_mask=None):
 @torch_to_numba
 @njit(cache=True, nogil=True)
 def camera_projection_cpu(
-        xyz_to_img, img_opk, img_mask=None, img_size=(1024, 512), crop_top=0,
-        crop_bottom=0, r_max=30, r_min=0.5):
+        xyz, img_xyz, img_opk=None, img_intrinsic=None, img_extrinsic=None,
+        img_mask=None, img_size=(1024, 512), crop_top=0, crop_bottom=0,
+        r_max=30, r_min=0.5, equirectangular=True):
     assert img_mask is None or img_mask.shape == img_size
 
     # We store indices in int64 format so we only accept indices up to
     # np.iinfo(np.int64).max
-    num_points = xyz_to_img.shape[0]
+    num_points = xyz.shape[0]
     if num_points >= 9223372036854775807:
         raise OverflowError
 
     # Initialize the indices to keep track of selected points
     indices = np.arange(num_points)
 
-    # Rotation matrix from image Euler angle pose
-    img_rotation = pose_to_rotation_matrix_cpu(img_opk)
-
     # Remove points outside of image range
-    dist = norm_cpu(xyz_to_img)
+    dist = norm_cpu(xyz - img_xyz)
     in_range = np.where(np.logical_and(r_min < dist, dist < r_max))[0]
-    xyz_to_img = xyz_to_img[in_range]
+    xyz = xyz[in_range]
     dist = dist[in_range]
     indices = indices[in_range]
 
     # Project points to float pixel coordinates
-    x_proj, y_proj = equirectangular_projection_cpu(
-        xyz_to_img, dist, img_rotation, img_size)
+    if not equirectangular:
+        x_proj, y_proj, z_proj = pinhole_projection_cpu(
+            xyz, img_extrinsic, img_intrinsic)
+    elif img_opk is not None:
+        x_proj, y_proj = equirectangular_projection_cpu(
+            xyz - img_xyz, dist, img_opk, img_size)
+        z_proj = None
+    else:
+        raise ValueError
 
     # Remove points outside of camera field of view
     in_fov = field_of_view_cpu(
-        x_proj, y_proj, crop_top, img_size[1] - crop_bottom, img_mask=img_mask)
+        x_proj, y_proj, x_min=0, x_max=img_size[0], y_min=crop_top,
+        y_max=img_size[1] - crop_bottom, z=z_proj, img_mask=img_mask)
     dist = dist[in_fov]
     indices = indices[in_fov]
     x_proj = x_proj[in_fov]
@@ -278,38 +388,44 @@ def camera_projection_cpu(
 
 
 def camera_projection_cuda(
-        xyz_to_img, img_opk, img_mask=None, img_size=(1024, 512), crop_top=0,
-        crop_bottom=0, r_max=30, r_min=0.5, **kwargs):
+        xyz, img_xyz, img_opk=None, img_intrinsic=None, img_extrinsic=None,
+        img_mask=None, img_size=(1024, 512), crop_top=0, crop_bottom=0,
+        r_max=30, r_min=0.5, equirectangular=True, **kwargs):
     assert img_mask is None or img_mask.shape == img_size, \
         f'Expected img_mask to be a torch.BoolTensor of shape ' \
         f'img_size={img_size} but got size={img_mask.shape}.'
 
     # We store indices in int64 format so we only accept indices up to
     # torch.iinfo(torch.long).max
-    num_points = xyz_to_img.shape[0]
+    num_points = xyz.shape[0]
     if num_points >= 9223372036854775807:
         raise OverflowError
 
     # Initialize the indices to keep track of selected points
-    indices = torch.arange(num_points, device=xyz_to_img.device)
-
-    # Rotation matrix from image Euler angle pose
-    img_rotation = pose_to_rotation_matrix_cuda(img_opk)
+    indices = torch.arange(num_points, device=xyz.device)
 
     # Remove points outside of image range
-    dist = norm_cuda(xyz_to_img)
+    dist = norm_cuda(xyz - img_xyz)
     in_range = torch.where(torch.logical_and(r_min < dist, dist < r_max))[0]
-    xyz_to_img = xyz_to_img[in_range]
+    xyz = xyz[in_range]
     dist = dist[in_range]
     indices = indices[in_range]
 
     # Project points to float pixel coordinates
-    x_proj, y_proj = equirectangular_projection_cuda(
-        xyz_to_img, dist, img_rotation, img_size)
+    if not equirectangular:
+        x_proj, y_proj, z_proj = pinhole_projection_cuda(
+            xyz, img_extrinsic, img_intrinsic)
+    elif img_opk is not None:
+        x_proj, y_proj = equirectangular_projection_cuda(
+            xyz - img_xyz, dist, img_opk, img_size)
+        z_proj = None
+    else:
+        raise ValueError
 
     # Remove points outside of camera field of view
     in_fov = field_of_view_cuda(
-        x_proj, y_proj, crop_top, img_size[1] - crop_bottom, img_mask=img_mask)
+        x_proj, y_proj, x_min=0, x_max=img_size[0], y_min=crop_top,
+        y_max=img_size[1] - crop_bottom, z=z_proj, img_mask=img_mask)
     dist = dist[in_fov]
     indices = indices[in_fov]
     x_proj = x_proj[in_fov]
@@ -319,12 +435,16 @@ def camera_projection_cuda(
 
 
 def camera_projection(
-        xyz_to_img, img_opk, img_mask=None, img_size=(1024, 512), crop_top=0,
-        crop_bottom=0, r_max=30, r_min=0.5, **kwargs):
+        xyz, img_xyz, img_opk=None, img_intrinsic=None, img_extrinsic=None,
+        img_mask=None, img_size=(1024, 512), crop_top=0, crop_bottom=0,
+        r_max=30, r_min=0.5, equirectangular=True, **kwargs):
     """
 
-    :param xyz_to_img:
+    :param xyz:
+    :param img_xyz:
     :param img_opk:
+    :param img_intrinsic:
+    :param img_extrinsic:
     :param img_mask:
     :param img_size:
     :param crop_top:
@@ -338,11 +458,13 @@ def camera_projection(
         f'Expected img_mask to be a torch.BoolTensor of shape ' \
         f'img_size={img_size} but got size={img_mask.shape}.'
 
-    f = camera_projection_cuda if xyz_to_img.is_cuda else camera_projection_cpu
+    f = camera_projection_cuda if xyz.is_cuda else camera_projection_cpu
 
     return f(
-        xyz_to_img, img_opk, img_mask=img_mask, img_size=img_size,
-        crop_top=crop_top, crop_bottom=crop_bottom, r_max=r_max, r_min=r_min)
+        xyz, img_xyz, img_opk=img_opk, img_intrinsic=img_intrinsic,
+        img_extrinsic=img_extrinsic, img_mask=img_mask, img_size=img_size,
+        crop_top=crop_top, crop_bottom=crop_bottom, r_max=r_max, r_min=r_min,
+        equirectangular=equirectangular)
 
 
 # -------------------------------------------------------------------- #
@@ -480,6 +602,121 @@ def equirectangular_splat_cuda(
     return splat
 
 
+@njit(cache=True, nogil=True)
+def pinhole_splat_cpu(
+        x_proj, y_proj, dist, img_intrinsic, img_size=(1024, 512), crop_top=0,
+        crop_bottom=0, voxel=0.02, k_swell=1.0, d_swell=1000):
+    """
+
+    :param x_proj:
+    :param y_proj:
+    :param dist:
+    :param img_intrinsic:
+    :param img_size:
+    :param crop_top:
+    :param crop_bottom:
+    :param voxel:
+    :param k_swell:
+    :param d_swell:
+    :return:
+    """
+    # Compute angular width. 3D points' projected masks are grown based
+    # on their distance. Close-by points are further swollen with a
+    # heuristic based on k_swell and d_swell.
+    # Small angular widths assumption: tan(x)~x
+    swell = (1 + k_swell * np.exp(-dist / np.log(d_swell))) * voxel / dist
+    width_x = swell * img_intrinsic[0, 0]
+    width_y = swell * img_intrinsic[1, 1]
+
+    # NB: stack+transpose faster than column stack
+    splat_xy_width = np.stack((width_x, width_y)).transpose()
+
+    # Compute projection masks bounding box pixel coordinates
+    x_a = np.empty_like(x_proj, dtype=np.float32)
+    x_b = np.empty_like(x_proj, dtype=np.float32)
+    y_a = np.empty_like(x_proj, dtype=np.float32)
+    y_b = np.empty_like(x_proj, dtype=np.float32)
+    np.round(x_proj - splat_xy_width[:, 0] / 2, 0, x_a)
+    np.round(x_proj + splat_xy_width[:, 0] / 2 + 1, 0, x_b)
+    np.round(y_proj - splat_xy_width[:, 1] / 2, 0, y_a)
+    np.round(y_proj + splat_xy_width[:, 1] / 2 + 1, 0, y_b)
+    splat = np.stack((x_a, x_b, y_a, y_b)).transpose().astype(np.int32)
+
+    # Adjust masks at the image border
+    x_min = 0
+    x_max = img_size[0]
+    y_min = crop_top
+    y_max = img_size[1] - crop_bottom
+    for i in range(splat.shape[0]):
+        if splat[i, 0] < x_min:
+            splat[i, 0] = x_min
+        if splat[i, 0] > x_max - 1:
+            splat[i, 0] = x_max - 1
+
+        if splat[i, 1] < x_min + 1:
+            splat[i, 1] = x_min + 1
+        if splat[i, 1] > x_max:
+            splat[i, 1] = x_max
+
+        if splat[i, 2] < y_min:
+            splat[i, 2] = y_min
+        if splat[i, 2] > y_max - 1:
+            splat[i, 2] = y_max - 1
+
+        if splat[i, 3] < y_min + 1:
+            splat[i, 3] = y_min + 1
+        if splat[i, 3] > y_max:
+            splat[i, 3] = y_max
+
+    return splat
+
+
+def pinhole_splat_cuda(
+        x_proj, y_proj, dist, img_intrinsic, img_size=(1024, 512), crop_top=0,
+        crop_bottom=0, voxel=0.02, k_swell=1.0, d_swell=1000):
+    """
+
+    :param x_proj:
+    :param y_proj:
+    :param dist:
+    :param img_intrinsic:
+    :param img_size:
+    :param crop_top:
+    :param crop_bottom:
+    :param voxel:
+    :param k_swell:
+    :param d_swell:
+    :return:
+    """
+    # Compute angular width. 3D points' projected masks are grown based
+    # on their distance. Close-by points are further swollen with a
+    # heuristic based on k_swell and d_swell.
+    # Small angular widths assumption: tan(x)~x
+    swell = (1 + k_swell * torch.exp(-dist / np.log(d_swell))) * voxel / dist
+    width_x = swell * img_intrinsic[0, 0]
+    width_y = swell * img_intrinsic[1, 1]
+    splat_xy_width = torch.stack((width_x, width_y)).t()
+
+    # Compute projection masks bounding box pixel coordinates
+    x_a = torch.round(x_proj - splat_xy_width[:, 0] / 2)
+    x_b = torch.round(x_proj + splat_xy_width[:, 0] / 2 + 1)
+    y_a = torch.round(y_proj - splat_xy_width[:, 1] / 2)
+    y_b = torch.round(y_proj + splat_xy_width[:, 1] / 2 + 1)
+    splat = torch.stack((x_a, x_b, y_a, y_b)).t().long()
+
+    # Adjust masks at the image border
+    x_min = 0
+    x_max = img_size[0]
+    y_min = crop_top
+    y_max = img_size[1] - crop_bottom
+    splat[:, 0] = splat[:, 0].clamp(min=x_min, max=x_max - 1)
+    splat[:, 1] = splat[:, 1].clamp(min=x_min + 1, max=x_max)
+    splat[:, 2] = splat[:, 2].clamp(min=y_min, max=y_max - 1)
+    splat[:, 3] = splat[:, 3].clamp(min=y_min + 1, max=y_max)
+
+    return splat
+
+
 def bbox_to_xy_grid_cuda(bbox):
     """Convert a tensor of bounding boxes pixel coordinates to tensors
     of x and y pixel coordinates accounting for all pixels in the
@@ -543,8 +780,9 @@ def bbox_to_xy_grid_cuda(bbox):
 @torch_to_numba
 @njit(cache=True, nogil=True)
 def visibility_from_splatting_cpu(
-        x_proj, y_proj, dist, img_size=(1024, 512), crop_top=0, crop_bottom=0,
-        voxel=0.1, k_swell=1.0, d_swell=1000, exact=False):
+        x_proj, y_proj, dist, img_intrinsic=None, img_size=(1024, 512),
+        crop_top=0, crop_bottom=0, voxel=0.1, k_swell=1.0, d_swell=1000,
+        exact=False, equirectangular=True):
     """Compute visibility model with splatting on the CPU with numpy and
     numba.
 
@@ -555,6 +793,7 @@ def visibility_from_splatting_cpu(
     :param x_proj:
     :param y_proj:
     :param dist:
+    :param img_intrinsic:
     :param img_size:
     :param crop_top:
     :param crop_bottom:
@@ -562,14 +801,22 @@ def visibility_from_splatting_cpu(
     :param k_swell:
     :param d_swell:
     :param exact:
+    :param equirectangular:
     :return:
     """
     assert x_proj.shape[0] == y_proj.shape[0] == dist.shape[0] > 0
 
-    # Compute splatting masks for equirectangular images
-    splat = equirectangular_splat_cpu(
-        x_proj, y_proj, dist, img_size=img_size, crop_top=crop_top,
-        crop_bottom=crop_bottom, voxel=voxel, k_swell=k_swell, d_swell=d_swell)
+    # Compute splatting masks
+    if equirectangular:
+        splat = equirectangular_splat_cpu(
+            x_proj, y_proj, dist, img_size=img_size, crop_top=crop_top,
+            crop_bottom=crop_bottom, voxel=voxel, k_swell=k_swell,
+            d_swell=d_swell)
+    else:
+        splat = pinhole_splat_cpu(
+            x_proj, y_proj, dist, img_intrinsic, img_size=img_size, crop_top=crop_top,
+            crop_bottom=crop_bottom, voxel=voxel, k_swell=k_swell,
+            d_swell=d_swell)
 
     # Cropped depth map initialization
     d_max = dist.max() + 1
@@ -636,8 +883,9 @@ def visibility_from_splatting_cpu(
 
 
 def visibility_from_splatting_cuda(
-        x_proj, y_proj, dist, img_size=(1024, 512), crop_top=0, crop_bottom=0,
-        voxel=0.1, k_swell=1.0, d_swell=1000, exact=False, **kwargs):
+        x_proj, y_proj, dist, img_intrinsic=None, img_size=(1024, 512),
+        crop_top=0, crop_bottom=0, voxel=0.1, k_swell=1.0, d_swell=1000,
+        exact=False, equirectangular=True):
     """Compute visibility model with splatting on the GPU with torch and
     cuda.
 
@@ -648,6 +896,7 @@ def visibility_from_splatting_cuda(
     :param x_proj:
     :param y_proj:
     :param dist:
+    :param img_intrinsic:
     :param img_size:
     :param crop_top:
     :param crop_bottom:
@@ -655,6 +904,8 @@ def visibility_from_splatting_cuda(
     :param k_swell:
     :param d_swell:
     :param exact:
+    :param equirectangular:
+    :param kwargs:
     :return:
     """
     assert x_proj.shape[0] == y_proj.shape[0] == dist.shape[0] > 0
@@ -663,10 +914,17 @@ def visibility_from_splatting_cuda(
     device = x_proj.device
     n_points = x_proj.shape[0]
 
-    # Compute splatting masks for equirectangular images
-    splat = equirectangular_splat_cuda(
-        x_proj, y_proj, dist, img_size=img_size, crop_top=crop_top,
-        crop_bottom=crop_bottom, voxel=voxel, k_swell=k_swell, d_swell=d_swell)
+    # Compute splatting masks
+    if equirectangular:
+        splat = equirectangular_splat_cuda(
+            x_proj, y_proj, dist, img_size=img_size, crop_top=crop_top,
+            crop_bottom=crop_bottom, voxel=voxel, k_swell=k_swell,
+            d_swell=d_swell)
+    else:
+        splat = pinhole_splat_cuda(
+            x_proj, y_proj, dist, img_intrinsic, img_size=img_size, crop_top=crop_top,
+            crop_bottom=crop_bottom, voxel=voxel, k_swell=k_swell,
+            d_swell=d_swell)
 
     # Convert splats to flattened global pixel coordinates
     x_all_splat, y_all_splat = bbox_to_xy_grid_cuda(splat)
@@ -705,13 +963,15 @@ def visibility_from_splatting_cuda(
 
 
 def visibility_from_splatting(
-        x_proj, y_proj, dist, img_size=(1024, 512), crop_top=0, crop_bottom=0,
-        voxel=0.1, k_swell=1.0, d_swell=1000, exact=False, **kwargs):
+        x_proj, y_proj, dist, img_intrinsic=None, img_size=(1024, 512),
+        crop_top=0, crop_bottom=0, voxel=0.1, k_swell=1.0, d_swell=1000,
+        exact=False, equirectangular=True, **kwargs):
     """
 
     :param x_proj:
     :param y_proj:
     :param dist:
+    :param img_intrinsic:
     :param img_size:
     :param crop_top:
     :param crop_bottom:
@@ -719,6 +979,7 @@ def visibility_from_splatting(
     :param k_swell:
     :param d_swell:
     :param exact:
+    :param equirectangular:
     :param kwargs:
     :return:
     """
@@ -726,9 +987,10 @@ def visibility_from_splatting(
         else visibility_from_splatting_cpu
 
     return f(
-        x_proj, y_proj, dist, img_size=img_size, crop_top=crop_top,
-        crop_bottom=crop_bottom, voxel=voxel, k_swell=k_swell, d_swell=d_swell,
-        exact=exact)
+        x_proj, y_proj, dist, img_intrinsic=img_intrinsic, img_size=img_size,
+        crop_top=crop_top, crop_bottom=crop_bottom, voxel=voxel,
+        k_swell=k_swell, d_swell=d_swell, exact=exact,
+        equirectangular=equirectangular)
 
 
 # -------------------------------------------------------------------- #
@@ -980,34 +1242,35 @@ def postprocess_features(
 # -------------------------------------------------------------------- #
 
 def visibility(
-        xyz_to_img, img_opk, method='splatting', linearity=None, planarity=None,
+        xyz, img_xyz, method='splatting', linearity=None, planarity=None,
         scattering=None, normals=None, use_cuda=True, **kwargs):
     """Compute the visibility of a point cloud with respect to a given
     camera pose.
 
-    :param xyz_to_img:
-    :param img_opk:
+    :param xyz:
+    :param img_xyz:
     :param method:
     :param linearity:
     :param planarity:
     :param scattering:
     :param normals:
     :param use_cuda:
+    :param kwargs:
     :return:
     """
     METHODS = ['splatting', 'depth_map', 'biasutti']
     assert method in METHODS, \
         f'Unknown method {method}, expected one of {METHODS}.'
 
-    in_device = xyz_to_img.device
-    if xyz_to_img.is_cuda:
+    in_device = xyz.device
+    if xyz.is_cuda:
         use_cuda = True
     elif not torch.cuda.is_available():
         use_cuda = False
 
     if use_cuda:
-        xyz_to_img = xyz_to_img.cuda()
-        img_opk = img_opk.cuda()
+        xyz = xyz.cuda()
+        img_xyz = img_xyz.cuda()
         linearity = linearity.cuda() if linearity is not None else None
         planarity = planarity.cuda() if planarity is not None else None
         scattering = scattering.cuda() if scattering is not None else None
@@ -1015,8 +1278,9 @@ def visibility(
         kwargs = {
             k: v.cuda() if isinstance(v, torch.Tensor) else v
             for k, v in kwargs.items()}
-    idx_1, dist, x_proj, y_proj = camera_projection(
-        xyz_to_img, img_opk, **kwargs)
+
+    # Compute camera projection
+    idx_1, dist, x_proj, y_proj = camera_projection(xyz, img_xyz, **kwargs)
 
     # Return if no projections are found
     if x_proj.shape[0] == 0:
@@ -1055,7 +1319,7 @@ def visibility(
     if linearity is not None and planarity is not None \
             and scattering is not None and normals is not None:
         out['features'] = postprocess_features(
-            xyz_to_img[idx], y_proj[idx_2], dist, linearity[idx],
+            xyz[idx] - img_xyz, y_proj[idx_2], dist, linearity[idx],
             planarity[idx], scattering[idx], normals[idx], **kwargs)
 
     return out
@@ -1063,9 +1327,14 @@ def visibility(
 
 class VisibilityModel(ABC):
 
-    @abstractmethod
-    def __init__(self):
-        pass
+    def __init__(
+            self, img_size=(1024, 512), crop_top=0, crop_bottom=0, r_max=30,
+            r_min=0.5):
+        self.img_size = img_size
+        self.crop_top = crop_top
+        self.crop_bottom = crop_bottom
+        self.r_max = r_max
+        self.r_min = r_min
 
     def _camera_projection(self, *args, **kwargs):
         return camera_projection(*args, **self.__dict__, **kwargs)
@@ -1078,25 +1347,25 @@ class VisibilityModel(ABC):
         return postprocess_features(*args, **self.__dict__)
 
     def __call__(
-            self, xyz_to_img, img_opk, img_mask=None, linearity=None,
-            planarity=None, scattering=None, normals=None, **kwargs):
+            self, xyz, img_xyz, linearity=None, planarity=None, scattering=None,
+            normals=None, **kwargs):
         """Compute the visibility of a point cloud with respect to a
         given camera pose.
 
-        :param xyz_to_img:
-        :param img_opk:
-        :param img_mask:
+        :param xyz:
+        :param img_xyz:
         :param linearity:
         :param planarity:
         :param scattering:
         :param normals:
+        :param kwargs:
         :return:
         """
-        in_device = xyz_to_img.device
+        in_device = xyz.device
 
         # Compute camera projection
         idx_1, dist, x_proj, y_proj = self._camera_projection(
-            xyz_to_img, img_opk, img_mask=img_mask, **kwargs)
+            xyz, img_xyz, **kwargs)
 
         # Return if no projections are found
         if x_proj.shape[0] == 0:
@@ -1127,7 +1396,7 @@ class VisibilityModel(ABC):
         if linearity is not None and planarity is not None \
                 and scattering is not None and normals is not None:
             out['features'] = self._postprocess_features(
-                xyz_to_img[idx], y_proj[idx_2], dist, linearity[idx],
+                xyz[idx] - img_xyz, y_proj[idx_2], dist, linearity[idx],
                 planarity[idx], scattering[idx], normals[idx])
 
         return out
@@ -1140,13 +1409,8 @@ class VisibilityModel(ABC):
 class SplattingVisibility(VisibilityModel, ABC):
 
     def __init__(
-            self, img_size=(1024, 512), crop_top=0, crop_bottom=0, r_max=30,
-            r_min=0.5, voxel=0.1, k_swell=1.0, d_swell=1000, exact=False):
-        self.img_size = img_size
-        self.crop_top = crop_top
-        self.crop_bottom = crop_bottom
-        self.r_max = r_max
-        self.r_min = r_min
+            self, voxel=0.1, k_swell=1.0, d_swell=1000, exact=False, **kwargs):
+        super(SplattingVisibility, self).__init__(**kwargs)
         self.voxel = voxel
         self.k_swell = k_swell
         self.d_swell = d_swell
@@ -1158,14 +1422,8 @@ class SplattingVisibility(VisibilityModel, ABC):
 
 class DepthBasedVisibility(VisibilityModel, ABC):
 
-    def __init__(
-            self, img_size=(1024, 512), crop_top=0, crop_bottom=0, r_max=30,
-            r_min=0.5, depth_threshold=0.05):
-        self.img_size = img_size
-        self.crop_top = crop_top
-        self.crop_bottom = crop_bottom
-        self.r_max = r_max
-        self.r_min = r_min
+    def __init__(self, depth_threshold=0.05, **kwargs):
+        super(SplattingVisibility, self).__init__(**kwargs)
         self.depth_threshold = depth_threshold
 
     def _visibility(self, *args, **kwargs):
@@ -1174,14 +1432,8 @@ class DepthBasedVisibility(VisibilityModel, ABC):
 
 class BiasuttiVisibility(VisibilityModel, ABC):
 
-    def __init__(
-            self, img_size=(1024, 512), crop_top=0, crop_bottom=0, r_max=30,
-            r_min=0.5, k=75, margin=None, threshold=None):
-        self.img_size = img_size
-        self.crop_top = crop_top
-        self.crop_bottom = crop_bottom
-        self.r_max = r_max
-        self.r_min = r_min
+    def __init__(self, k=75, margin=None, threshold=None, **kwargs):
+        super(SplattingVisibility, self).__init__(**kwargs)
         self.k = k
         self.margin = margin
         self.threshold = threshold
@@ -1189,5 +1441,4 @@ class BiasuttiVisibility(VisibilityModel, ABC):
     def _visibility(self, *args, **kwargs):
         return visibility_biasutti(*args, **self.__dict__, **kwargs)
 
-# TODO: support other camera models than equirectangular image
 # TODO: support other depth map files formats. For now, only S3DIS format supported

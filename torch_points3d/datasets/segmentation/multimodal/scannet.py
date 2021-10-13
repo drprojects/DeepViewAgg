@@ -31,6 +31,8 @@ def load_pose(filename):
 ########################################################################################
 
 class ScannetMM(Scannet):
+    DEPTH_IMG_SIZE = (640, 480)
+
     def __init__(self, *args, img_ref_size=(320, 240), **kwargs):
         self.img_ref_size = img_ref_size
         super(ScannetMM, self).__init__(*args, **kwargs)
@@ -105,11 +107,22 @@ class ScannetMM(Scannet):
                     my = intrinsic[1][2].repeat(len(image_info_list))
 
                     # Save scan images as SameSettingImageData
+                    # NB: the image is first initialized to
+                    # DEPTH_IMG_SIZE because the intrinsic parameters
+                    # are defined accordingly. Setting ref_size
+                    # afterwards calls the @adjust_intrinsic method to
+                    # rectify the intrinsics consequently
                     image_data = SameSettingImageData(
-                        path=path, pos=xyz, fx=fx, fy=fy, mx=mx, my=my,
-                        ref_size=self.img_ref_size, extrinsic=extrinsic)
+                        ref_size=self.DEPTH_IMG_SIZE, proj_upscale=1, path=path,
+                        pos=xyz, fx=fx, fy=fy, mx=mx, my=my,
+                        extrinsic=extrinsic)
+                    image_data.ref_size = self.img_ref_size
 
-                    # TODO: integrate intrinsics and extrinsics in SameSettingImageData
+                    # TODO: WHAT NEXT ?
+
+
+
+
 
 
     def _init_load(self, split):

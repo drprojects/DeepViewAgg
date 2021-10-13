@@ -204,7 +204,7 @@ class MapImages(ImageTransform):
 
         # Instantiate the visibility model
         visi_cls = getattr(visibility_module, self.method)
-        visi = visi_cls(img_size=images.proj_size, **self.kwargs)
+        visi_model = visi_cls(img_size=images.proj_size, **self.kwargs)
 
         # Initialize the mapping arrays
         image_ids = []
@@ -227,14 +227,12 @@ class MapImages(ImageTransform):
             # Subsample the surrounding point cloud
             torch.cuda.synchronize()
             start = time()
-            sampler = SphereSampling(visi.r_max, image.pos, align_origin=False)
+            sampler = SphereSampling(visi_model.r_max, image.pos, align_origin=False)
             data_sample = sampler(data)
             torch.cuda.synchronize()
             t_sphere_sampling += time() - start
 
             # Prepare the visibility model input parameters
-            xyz_to_img = (data_sample.pos - image.pos.squeeze()).float().to(device)
-            img_opk = image.opk.squeeze().float().to(device)
             linearity = getattr(data_sample, 'linearity', None)
             planarity = getattr(data_sample, 'planarity', None)
             scattering = getattr(data_sample, 'scattering', None)
@@ -243,7 +241,6 @@ class MapImages(ImageTransform):
             planarity = planarity.to(device) if planarity is not None else None
             scattering = scattering.to(device) if scattering is not None else None
             normals = normals.to(device) if normals is not None else None
-            mask = image.mask.to(device) if image.mask is not None else None
 
             # TEMPORARY - read depth map from file for S3DIS images
             # TODO: better handle depth map files if DepthMapBasedVisibility is
@@ -259,11 +256,19 @@ class MapImages(ImageTransform):
             # (on CPU or GPU)
             torch.cuda.synchronize()
             start = time()
-            out_vm = visi(
-                xyz_to_img, img_opk, img_mask=mask, linearity=linearity,
-                planarity=planarity, scattering=scattering, normals=normals,
+            out_vm = visi_model(
+                data_sample.pos.float().to(device),
+                image.pos.squeeze().float().to(device),
+                img_opk=image.opk.squeeze().float().to(device) if image.has_opk else None,
+                img_intrinsic=image.intrinsic.squeeze().float().to(device) if image.has_intrinsic else None,
+                img_extrinsic=image.extrinsic.squeeze().float().to(device) if image.has_extrinsic else None,
+                img_mask=image.mask.to(device) if image.mask is not None else None,
+                linearity=linearity.to(device) if linearity is not None else None,
+                planarity=planarity.to(device) if planarity is not None else None,
+                scattering=scattering.to(device) if scattering is not None else None,
+                normals=normals.to(device) if normals is not None else None,
                 depth_map_path=depth_map_path)
-            del xyz_to_img, img_opk, linearity, planarity, scattering, normals, mask
+            del linearity, planarity, scattering, normals
 
             # Skip image if no mapping was found
             if out_vm['idx'].shape[0] == 0:
@@ -404,7 +409,7 @@ class MapImages(ImageTransform):
         # Save the mappings and visibility model in the
         # SameSettingImageData
         images.mappings = mappings.to(in_device)
-        images.visibility = visi
+        images.visibility = visi_model
 
         return data, images
 
