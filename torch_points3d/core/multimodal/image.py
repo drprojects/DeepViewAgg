@@ -297,15 +297,16 @@ class SameSettingImageData(object):
 
     @property
     def has_opk(self):
-        return self.opk is not None
+        return getattr(self, 'opk', None) is not None
 
     @property
     def has_extrinsic(self):
-        return self.extrinsic is not None
+        return getattr(self, 'extrinsic', None) is not None
 
     @property
     def has_intrinsic(self):
-        return not all(x is None for x in [self.fx, self.fy, self.mx, self.my])
+        return not any(
+            getattr(self, a, None) is None for a in ['fx', 'fy', 'mx', 'my'])
 
     @property
     def intrinsic(self):
