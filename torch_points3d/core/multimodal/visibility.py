@@ -217,14 +217,15 @@ def pinhole_projection_cpu(xyz, img_extrinsic, img_intrinsic):
     :return:
     """
     # Transform XYZ coordinates to homogeneous coordinates
-    ones = torch.ones([xyz.shape[0], 1])
-    xyz_h = np.concatenate([xyz, ones], axis=1)
+    ones = np.ones((xyz.shape[0], 1), dtype=np.float32)
+    xyz_h = np.concatenate((xyz, ones), axis=1)
 
     # Inverse the 4x4 camera-to-world pose tensor
     world_to_camera = np.linalg.inv(img_extrinsic)
 
     # Compute the projection
-    p = np.matmul(world_to_camera, xyz_h.T)
+    p = world_to_camera @ xyz_h.T
+    # p = np.matmul(world_to_camera, xyz_h.T)
     p[0] = (p[0] * img_intrinsic[0][0]) / p[2] + img_intrinsic[0][2]
     p[1] = (p[1] * img_intrinsic[1][1]) / p[2] + img_intrinsic[1][2]
 
@@ -273,7 +274,7 @@ def field_of_view_cpu(
     :param img_mask:
     :return:
     """
-    in_fov = np.ones_like(x_pix, dtype=np.bool)
+    in_fov = np.ones_like(x_pix, dtype=np.bool_)
 
     if x_min is not None:
         in_fov *= (x_min <= x_pix)
@@ -459,7 +460,6 @@ def camera_projection(
         f'img_size={img_size} but got size={img_mask.shape}.'
 
     f = camera_projection_cuda if xyz.is_cuda else camera_projection_cpu
-
     return f(
         xyz, img_xyz, img_opk=img_opk, img_intrinsic=img_intrinsic,
         img_extrinsic=img_extrinsic, img_mask=img_mask, img_size=img_size,
@@ -1227,14 +1227,31 @@ def postprocess_features(
     #     - scattering
     #     - orientation to the surface
     #     - normalized pixel height
-    depth = normalize_dist_cuda(dist, low=r_min, high=r_max)
-    orientation = orientation_cuda(
-        xyz_to_img / (dist + 1e-4).reshape((-1, 1)), normals)
-    height = (y_proj / img_size[1]).float()
-    features = torch.stack(
-        (depth, linearity, planarity, scattering, orientation, height)).t()
+    features = []
 
-    return features
+    # Depth
+    if dist is not None:
+        features.append(normalize_dist_cuda(dist, low=r_min, high=r_max))
+    # Linearity
+    if linearity is not None:
+        features.append(linearity)
+    # Planarity
+    if planarity is not None:
+        features.append(planarity)
+    # Scattering
+    if scattering is not None:
+        features.append(scattering)
+
+    # Orientation to the normal
+    if xyz_to_img is not None and dist is not None and normals is not None:
+        features.append(orientation_cuda(
+            xyz_to_img / (dist + 1e-4).reshape((-1, 1)), normals))
+
+    # Pixel height
+    if y_proj is not None:
+        features.append((y_proj / img_size[1]).float())
+
+    return torch.stack(features).t()
 
 
 # -------------------------------------------------------------------- #
@@ -1306,21 +1323,25 @@ def visibility(
 
     # Keep data only for mapped point
     idx = idx_1[idx_2]
+    xyz = xyz[idx]
     dist = dist[idx_2]
+    x_proj = x_proj[idx_2]
+    y_proj = y_proj[idx_2]
 
     out = {}
     out['idx'] = idx.to(in_device)
     out['x'] = x_pix.to(in_device)
     out['y'] = y_pix.to(in_device)
     out['depth'] = dist.to(in_device)
-    out['features'] = None
 
     # Compute mapping features
-    if linearity is not None and planarity is not None \
-            and scattering is not None and normals is not None:
-        out['features'] = postprocess_features(
-            xyz[idx] - img_xyz, y_proj[idx_2], dist, linearity[idx],
-            planarity[idx], scattering[idx], normals[idx], **kwargs)
+    linearity = linearity[idx] if linearity is not None else None
+    planarity = planarity[idx] if planarity is not None else None
+    scattering = scattering[idx] if scattering is not None else None
+    normals = normals[idx] if normals is not None else None
+    out['features'] = postprocess_features(
+        xyz - img_xyz, y_proj, dist, linearity, planarity, scattering,
+        normals)
 
     return out
 
@@ -1329,12 +1350,13 @@ class VisibilityModel(ABC):
 
     def __init__(
             self, img_size=(1024, 512), crop_top=0, crop_bottom=0, r_max=30,
-            r_min=0.5):
+            r_min=0.5, equirectangular=True):
         self.img_size = img_size
         self.crop_top = crop_top
         self.crop_bottom = crop_bottom
         self.r_max = r_max
         self.r_min = r_min
+        self.equirectangular = equirectangular
 
     def _camera_projection(self, *args, **kwargs):
         return camera_projection(*args, **self.__dict__, **kwargs)
@@ -1383,21 +1405,25 @@ class VisibilityModel(ABC):
 
         # Keep data only for mapped point
         idx = idx_1[idx_2]
+        xyz = xyz[idx]
         dist = dist[idx_2]
+        x_proj = x_proj[idx_2]
+        y_proj = y_proj[idx_2]
 
         out = {}
         out['idx'] = idx
         out['x'] = x_pix
         out['y'] = y_pix
         out['depth'] = dist
-        out['features'] = None
 
         # Compute mapping features
-        if linearity is not None and planarity is not None \
-                and scattering is not None and normals is not None:
-            out['features'] = self._postprocess_features(
-                xyz[idx] - img_xyz, y_proj[idx_2], dist, linearity[idx],
-                planarity[idx], scattering[idx], normals[idx])
+        linearity = linearity[idx] if linearity is not None else None
+        planarity = planarity[idx] if planarity is not None else None
+        scattering = scattering[idx] if scattering is not None else None
+        normals = normals[idx] if normals is not None else None
+        out['features'] = self._postprocess_features(
+            xyz - img_xyz, y_proj, dist, linearity, planarity, scattering,
+            normals)
 
         return out
 

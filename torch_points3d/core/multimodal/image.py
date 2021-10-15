@@ -10,6 +10,8 @@ from torch_points3d.utils.multimodal import lexargsort, lexunique, \
     lexargunique, CompositeTensor
 from torch_points3d.utils.multimodal import tensor_idx
 from torch_points3d.core.multimodal.visibility import VisibilityModel
+from torch_points3d.core.multimodal.visibility import \
+    pose_to_rotation_matrix_cuda
 
 
 # -------------------------------------------------------------------- #
@@ -56,8 +58,8 @@ def _adjust_intrinsic(
 
 
 def adjust_intrinsic(func):
-    def wrapper(self: SameSettingImageData, *args, **kwargs):
-        assert isinstance(self, SameSettingImageData)
+    def wrapper(self, *args, **kwargs):
+        # assert isinstance(self, SameSettingImageData)
 
         if not self.has_intrinsic:
             return func(self, *args, **kwargs)
@@ -324,6 +326,18 @@ class SameSettingImageData(object):
         return intrinsic
 
     @property
+    def axes(self):
+        if self.has_opk:
+            rotations = torch.cat([
+                pose_to_rotation_matrix_cuda(x).unsqueeze(0)
+                for x in self.opk.view(-1, 3)], dim=0)
+        elif self.has_extrinsic:
+            rotations = self.extrinsic[:, :3, :3].transpose(1, 2)
+        else:
+            raise ValueError('No available pose information to compute axes.')
+        return rotations
+
+    @property
     def num_points(self):
         """
         Number of points implied by ImageMapping. Zero is 'mappings' is
@@ -362,7 +376,9 @@ class SameSettingImageData(object):
             "are not all None."
         assert len(ref_size) == 2, \
             f"Expected len(ref_size)=2 but got {len(ref_size)} instead."
+        # Warning: modifying 'ref_size', has the effect of resetting 'crop_size'
         self._ref_size = ref_size
+        self.crop_size = ref_size
 
     @property
     def pixel_dtype(self):
@@ -456,7 +472,7 @@ class SameSettingImageData(object):
             f"CenterRoll cannot operate if images and mappings " \
             f"underwent prior cropping or resizing."
         assert self.crop_size is None \
-               or self.crop_size[0] == self.ref_size[0], \
+               or self.crop_size == self.ref_size, \
             f"CenterRoll cannot operate if images and mappings " \
             f"underwent prior cropping or resizing."
         assert self.downscale is None or self.downscale == 1, \
@@ -996,8 +1012,7 @@ class SameSettingImageData(object):
             mappings=self.mappings.select_images(idx)
             if self.mappings is not None else None,
             mask=self.mask.clone() if self.mask is not None else None,
-            visibility=copy.deepcopy(self.visibility)
-            if hasattr(self, 'visibility') else None)
+            visibility=copy.deepcopy(self.visibility) if hasattr(self, 'visibility') else None)
 
     def __iter__(self):
         """
