@@ -469,7 +469,7 @@ def visualize_2d(mm_data, figsize=800, width=None, height=None, alpha=3,
             or any([getattr(im, back).shape[0] != im.num_views for im in images]) \
             or any([getattr(im, back).shape[-2:] != im.img_size[::-1] for im in images]):
         raise ValueError(f"Background attribute '{back}' cannot be treated as an image tensor.")
-    elif back is not 'pred' and any([len(getattr(im, back).shape) != 4 for im in images]):
+    elif back != 'pred' and any([len(getattr(im, back).shape) != 4 for im in images]):
         raise ValueError(f"Background attribute '{back}' must have shape (Num_Views, C, H, W).")
 
     # Load images, if need be
