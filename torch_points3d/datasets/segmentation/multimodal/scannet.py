@@ -1,7 +1,12 @@
+from abc import ABC
+
 from ..scannet import *
 from .utils import read_image_pose_pairs
 from torch_points3d.core.multimodal.image import SameSettingImageData
 from torch_points3d.datasets.base_dataset_multimodal import BaseDatasetMM
+from torch_points3d.core.multimodal.data import MMData
+from tqdm.auto import tqdm as tq
+from itertools import repeat
 
 
 log = logging.getLogger(__name__)
@@ -17,7 +22,6 @@ def load_pose(filename):
     """Read ScanNet pose file.
     Credit: https://github.com/angeladai/3DMV/blob/f889b531f8813d409253fe065fb9b18c5ca2b495/3dmv/data_util.py
     """
-    pose = torch.Tensor(4, 4)
     lines = open(filename).read().splitlines()
     assert len(lines) == 4
     lines = [[x[0], x[1], x[2], x[3]] for x in (x.split(" ") for x in lines)]
@@ -33,7 +37,11 @@ def load_pose(filename):
 class ScannetMM(Scannet):
     DEPTH_IMG_SIZE = (640, 480)
 
-    def __init__(self, *args, img_ref_size=(320, 240), **kwargs):
+    def __init__(
+            self, *args, img_ref_size=(320, 240), pre_transform_image=None,
+            transform_image=None, **kwargs):
+        self.pre_transform_image = pre_transform_image
+        self.transform_image = transform_image
         self.img_ref_size = img_ref_size
         super(ScannetMM, self).__init__(*args, **kwargs)
 
@@ -46,7 +54,7 @@ class ScannetMM(Scannet):
         # Download, pre_transform and pre_filter raw 3D data
         # Output will be saved to preprocessed_<SPLIT>.pt
         # --------------------------------------------------------------
-        super().process()
+        super(ScannetMM, self).process()
 
         # --------------------------------------------------------------
         # Recover image data
@@ -57,11 +65,16 @@ class ScannetMM(Scannet):
         #  - compute the mappings
 
         for i, (scan_names, split) in enumerate(zip(self.scan_names, self.SPLITS)):
-            if not osp.exists(self.image_data_paths[i]):
-                mapping_idx_to_scan_names = getattr(self, "MAPPING_IDX_TO_SCAN_{}_NAMES".format(split.upper()))
-                scannet_dir = osp.join(self.raw_dir, "scans" if split in ["train", "val"] else "scans_test")
 
-                for id, scan_name in enumerate(scan_names):
+            # ----------------------------------------------------------
+            # Recover image data
+            # ----------------------------------------------------------
+            if not osp.exists(self.image_data_paths[i]):
+                print('Computing image data...')
+                scannet_dir = osp.join(self.raw_dir, "scans" if split in ["train", "val"] else "scans_test")
+                image_data_dict = {}
+
+                for scan_name in tq(scan_names):
                     scan_sens_dir = osp.join(scannet_dir, scan_name, 'sens')
                     meta_file = osp.join(scannet_dir, scan_name, scan_name + ".txt")
 
@@ -100,7 +113,8 @@ class ScannetMM(Scannet):
                     # Strangely, using the color camera intrinsic along
                     # with the pose does not produce the expected
                     # projection
-                    intrinsic = load_pose(osp.join(scan_sens_dir, 'intrinsic/intrinsic_depth.txt'))
+                    intrinsic = load_pose(osp.join(
+                        scan_sens_dir, 'intrinsic/intrinsic_depth.txt'))
                     fx = intrinsic[0][0].repeat(len(image_info_list))
                     fy = intrinsic[1][1].repeat(len(image_info_list))
                     mx = intrinsic[0][2].repeat(len(image_info_list))
@@ -113,17 +127,56 @@ class ScannetMM(Scannet):
                     # afterwards calls the @adjust_intrinsic method to
                     # rectify the intrinsics consequently
                     image_data = SameSettingImageData(
-                        ref_size=self.DEPTH_IMG_SIZE, proj_upscale=1, path=path,
-                        pos=xyz, fx=fx, fy=fy, mx=mx, my=my,
+                        ref_size=self.DEPTH_IMG_SIZE, proj_upscale=1,
+                        path=path, pos=xyz, fx=fx, fy=fy, mx=mx, my=my,
                         extrinsic=extrinsic)
                     image_data.ref_size = self.img_ref_size
 
-                    # TODO: WHAT NEXT ?
+                    # Stack SameSettingImageData for each ScanNet scene
+                    # of the current split. Using a dictionnary makes it
+                    # easier to pair up 3D and 2D data before running
+                    # pre_transform_image
+                    image_data_dict[scan_name] = image_data
 
+                # Save split's image data, before pre_transform_image
+                # is performed
+                torch.save(image_data_dict, self.image_data_paths[i])
 
+            else:
+                print('Loading the image data...')
+                image_data_dict = torch.load(self.image_data_paths[i])
 
+            print('Done\n')
 
+            # ----------------------------------------------------------
+            # Pre-transform image data
+            # This is where images are loaded and mappings are computed
+            # ----------------------------------------------------------
+            print('Running the image pre-transforms...')
 
+            # Recover the list Data (one for each scene) produced by
+            # super().process(). Uncollate to a list of Data
+            data_collated, slices = torch.load(self.processed_paths[i])
+            data_list = self.uncollate(data_collated, slices)
+
+            # Make sure data and images are properly matched by
+            # rearranging scans' SameSettingImageData into a list
+            mapping_idx_to_scan_names = getattr(
+                self, f"MAPPING_IDX_TO_SCAN_{split.upper()}_NAMES")
+            scan_names_data = [
+                mapping_idx_to_scan_names[int(id_scan.item())]
+                for id_scan in data_collated.id_scan]
+            image_data_list = [image_data_dict[s] for s in scan_names_data]
+
+            # Get the corresponding images and mappings
+            if self.pre_transform_image is not None:
+                _, image_data_list = self.pre_transform_image(
+                    data_list, image_data_list)
+
+            torch.save(
+                (data_collated, image_data_list, slices),
+                self.processed_paths[3 + i])
+            print('Done\n')
 
     def _init_load(self, split):
         if split == "train":
@@ -133,24 +186,76 @@ class ScannetMM(Scannet):
         elif split == "test":
             path = self.processed_paths[5]
         else:
-            raise ValueError((f"Split {split} found, but expected either " "train, val, or test"))
+            raise ValueError(f"Split {split} found, but expected either " "train, val, or test")
         self.data, self.images, self.slices = torch.load(path)
 
     @property
     def processed_file_names(self):
-        return [f"preprocessed_{s}.pt" for s in Scannet.SPLITS] + [f"{s}.pt" for s in Scannet.SPLITS]
+        return [f"preprocessed_3d_{s}.pt" for s in Scannet.SPLITS] \
+               + [f"{s}.pt" for s in Scannet.SPLITS]
 
     @property
     def image_data_paths(self):
         return [osp.join(self.processed_dir, f"image_data_{s}.pt") for s in Scannet.SPLITS]
 
-    @property
-    def pre_transformed_image_path(self):
-        return osp.join(self.processed_dir, "pre_transform_image.pt")
+    def __getitem__(self, idx):
+        """
+        Indexing mechanism for the Dataset. Only supports int indexing.
+
+        Overwrites the torch_geometric.InMemoryDataset.__getitem__()
+        used for indexing Dataset. Extends its mechanisms to multimodal
+        data.
+
+        Get a ScanNet scene 3D points as Data along with 2D image data
+        and mapping, along with the list idx.
+        """
+        assert isinstance(idx, int), \
+            f"Indexing with {type(idx)} is not supported, only " \
+            f"{int} are accepted."
+
+        # Get the 3D point sample and apply transforms
+        data = self.get(idx)
+        data = data if self.transform is None else self.transform(data)
+
+        # Get the corresponding images and mappings
+        data, images = self.transform_image(data, self.images[idx].clone())
+
+        return MMData(data, image=images)
+
+    @staticmethod
+    def uncollate(data_collated, slices_dict, skip_keys=[]):
+        r"""Reverses collate. Transforms a collated Data and associated
+        slices into a python list of Data objects.
+        """
+        data_list = []
+        for idx in range(data_collated.id_scan.shape[0]):
+
+            data = data_collated.__class__()
+            if hasattr(data_collated, '__num_nodes__'):
+                data.num_nodes = data_collated.__num_nodes__[idx]
+
+            for key in data_collated.keys:
+                if key in skip_keys:
+                    continue
+
+                item, slices = data_collated[key], slices_dict[key]
+                start, end = slices[idx].item(), slices[idx + 1].item()
+                if torch.is_tensor(item):
+                    s = list(repeat(slice(None), item.dim()))
+                    s[data_collated.__cat_dim__(key, item)] = slice(start, end)
+                elif start + 1 == end:
+                    s = slices[start]
+                else:
+                    s = slice(start, end)
+                data[key] = item[s]
+
+            data_list.append(data)
+
+        return data_list
 
 
 
-class ScannetDatasetMM(BaseDatasetMM):
+class ScannetDatasetMM(BaseDatasetMM, ABC):
     """ Wrapper around Scannet that creates train and test datasets.
     Parameters
     ----------
@@ -165,6 +270,11 @@ class ScannetDatasetMM(BaseDatasetMM):
             - pre_transforms (optional)
             - train_transforms (optional)
             - val_transforms (optional)
+            - frame_depth (optional)
+            - frame_rgb (optional)
+            - frame_pose (optional)
+            - frame_intrinsics (optional)
+            - frame_skip (optional)
     """
 
     SPLITS = SPLITS
@@ -176,15 +286,22 @@ class ScannetDatasetMM(BaseDatasetMM):
         use_instance_bboxes: bool = dataset_opt.use_instance_bboxes
         donotcare_class_ids: [] = list(dataset_opt.get('donotcare_class_ids', []))
         max_num_point: int = dataset_opt.get('max_num_point', None)
-        process_workers: int = dataset_opt.process_workers if hasattr(dataset_opt, 'process_workers') else 0
+        process_workers: int = dataset_opt.get('process_workers', 0)
         is_test: bool = dataset_opt.get('is_test', False)
         types = [".sens", ".txt", "_vh_clean_2.ply", "_vh_clean_2.0.010000.segs.json", ".aggregation.json"]
+        frame_depth: int = dataset_opt.get('frame_depth', False)
+        frame_rgb: int = dataset_opt.get('frame_rgb', True)
+        frame_pose: int = dataset_opt.get('frame_pose', True)
+        frame_intrinsics: int = dataset_opt.get('frame_intrinsics', True)
+        frame_skip: int = dataset_opt.get('frame_skip', 50)
 
-        self.train_dataset = Scannet(
+        self.train_dataset = ScannetMM(
             self._data_path,
             split="train",
             pre_transform=self.pre_transform,
             transform=self.train_transform,
+            pre_transform_image=self.pre_transform_image,
+            transform_image=self.train_transform_image,
             version=dataset_opt.version,
             use_instance_labels=use_instance_labels,
             use_instance_bboxes=use_instance_bboxes,
@@ -193,18 +310,20 @@ class ScannetDatasetMM(BaseDatasetMM):
             process_workers=process_workers,
             is_test=is_test,
             types=types,
-            frame_depth=True,
-            frame_rgb=True,
-            frame_pose=True,
-            frame_intrinsics=True,
-            frame_skip=100
+            frame_depth=frame_depth,
+            frame_rgb=frame_rgb,
+            frame_pose=frame_pose,
+            frame_intrinsics=frame_intrinsics,
+            frame_skip=frame_skip
         )
 
-        self.val_dataset = Scannet(
+        self.val_dataset = ScannetMM(
             self._data_path,
             split="val",
             transform=self.val_transform,
             pre_transform=self.pre_transform,
+            pre_transform_image=self.pre_transform_image,
+            transform_image=self.val_transform_image,
             version=dataset_opt.version,
             use_instance_labels=use_instance_labels,
             use_instance_bboxes=use_instance_bboxes,
@@ -213,18 +332,20 @@ class ScannetDatasetMM(BaseDatasetMM):
             process_workers=process_workers,
             is_test=is_test,
             types=types,
-            frame_depth=True,
-            frame_rgb=True,
-            frame_pose=True,
-            frame_intrinsics=True,
-            frame_skip=100
+            frame_depth=frame_depth,
+            frame_rgb=frame_rgb,
+            frame_pose=frame_pose,
+            frame_intrinsics=frame_intrinsics,
+            frame_skip=frame_skip
         )
 
-        self.test_dataset = Scannet(
+        self.test_dataset = ScannetMM(
             self._data_path,
             split="test",
             transform=self.val_transform,
             pre_transform=self.pre_transform,
+            pre_transform_image=self.pre_transform_image,
+            transform_image=self.test_transform_image,
             version=dataset_opt.version,
             use_instance_labels=use_instance_labels,
             use_instance_bboxes=use_instance_bboxes,
@@ -233,11 +354,11 @@ class ScannetDatasetMM(BaseDatasetMM):
             process_workers=process_workers,
             is_test=is_test,
             types=types,
-            frame_depth=True,
-            frame_rgb=True,
-            frame_pose=True,
-            frame_intrinsics=True,
-            frame_skip=100
+            frame_depth=frame_depth,
+            frame_rgb=frame_rgb,
+            frame_pose=frame_pose,
+            frame_intrinsics=frame_intrinsics,
+            frame_skip=frame_skip
         )
 
     @property
@@ -272,10 +393,10 @@ if __name__ == '__main__':
 
     # Recover dataset options
     DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.getcwd())))
-    dataset_options = OmegaConf.load(os.path.join(DIR,'conf/data/multimodal/scannet.yaml'))
+    dataset_options = OmegaConf.load(os.path.join(DIR, 'conf/data/multimodal/scannet.yaml'))
 
     # Choose download root directory
-    dataset_options.data.dataroot = os.path.join(DIR,"data")
+    dataset_options.data.dataroot = os.path.join(DIR, "data")
     reply = input(f"Save dataset to {dataset_options.data.dataroot} ? [y/n] ")
     if reply.lower() == 'n':
         dataset_options.data.dataroot = ""

@@ -627,7 +627,7 @@ class Scannet(InMemoryDataset):
             frame_rgb=False,
             frame_pose=False,
             frame_intrinsics=False,
-            frame_skip=100
+            frame_skip=50
     ):
 
         assert self.SPLITS == ["train", "val", "test"]

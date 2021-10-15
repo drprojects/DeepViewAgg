@@ -62,6 +62,14 @@ class ImageTransform:
         return f'{self.__class__.__name__}({attr_repr})'
 
 
+class ToImageData(ImageTransform):
+    """
+    Transform to transform SameSettingImageData into ToImageData.
+    """
+    def _process(self, data: Data, images: SameSettingImageData):
+        return data, ImageData([images])
+
+
 class LoadImages(ImageTransform):
     """
     Transform to load images from disk to the SameSettingImageData.

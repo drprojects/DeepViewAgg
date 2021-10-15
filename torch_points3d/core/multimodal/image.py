@@ -1203,9 +1203,15 @@ class SameSettingImageBatch(SameSettingImageData):
         for key in SameSettingImageData._numpy_keys:
             batch_dict[key] = np.concatenate(batch_dict[key])
 
-        # Concatenate torch array attributes
+        # Concatenate torch array attributes. Special care needed here
+        # for backward compatibility with former version of
+        # SameSettingImageData not holding intrinsic nor extrinsic
+        # attributes
         for key in SameSettingImageData._torch_keys:
-            batch_dict[key] = torch.cat(batch_dict[key])
+            try:
+                batch_dict[key] = torch.cat(batch_dict[key])
+            except:
+                batch_dict[key] = None
 
         # Concatenate images, unless one of the items does not have
         # image features
