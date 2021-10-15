@@ -3,11 +3,10 @@ from torch_points3d.core.multimodal.image import SameSettingImageData, \
     ImageData
 from torch_geometric.transforms import FixedPoints
 from torch_points3d.core.data_transform import GridSampling3D
-from torch_points3d.core.multimodal.visibility import \
-    pose_to_rotation_matrix_cpu
 from torch_points3d.core.data_transform.multimodal.image import \
     SelectMappingFromPointId
 import os.path as osp
+import plotly
 import plotly.graph_objects as go
 import numpy as np
 import torch
@@ -17,6 +16,10 @@ from itertools import chain
 # TODO: To go further with ipwidgets :
 #  - https://plotly.com/python/figurewidget-app/
 #  - https://ipywidgets.readthedocs.io/en/stable/
+
+
+PALETTE = plotly.colors.qualitative.Plotly
+
 
 def rgb_to_plotly_rgb(rgb):
     """Convert torch.Tensor of float RGB values in [0, 1] to
@@ -28,6 +31,12 @@ def rgb_to_plotly_rgb(rgb):
         rgb = rgb.unsqueeze(0)
 
     return [f"rgb{tuple(x)}" for x in (rgb * 255).int().numpy()]
+
+
+def hex_to_tensor(h):
+    h = h.lstrip('#')
+    rgb = tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+    return torch.Tensor(rgb) / 255
 
 
 def feats_to_rgb(feats, normalize=False):
@@ -324,18 +333,18 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
 
         if images.num_settings > 1:
             image_xyz = torch.cat([im.pos for im in images]).numpy()
-            image_opk = torch.cat([im.opk for im in images]).numpy()
+            image_axes = torch.cat([im.axes for im in images]).numpy()
         else:
             image_xyz = images[0].pos.numpy()
-            image_opk = images[0].opk.numpy()
+            image_axes = images[0].axes.numpy()
         if len(image_xyz.shape) == 1:
             image_xyz = image_xyz.reshape((1, -1))
-        for i, (xyz, opk) in enumerate(zip(image_xyz, image_opk)):
+        for i, (xyz, axes) in enumerate(zip(image_xyz, image_axes)):
 
             # Draw image coordinate system axes
             arrow_length = 0.1
-            for v, color in zip(np.eye(3), ['red', 'green', 'blue']):
-                v = xyz + pose_to_rotation_matrix_cpu(opk).dot(v * arrow_length)
+            for v, color in zip(axes, ['red', 'green', 'blue']):
+                v = xyz + v * arrow_length
                 fig.add_trace(
                     go.Scatter3d(
                         x=[xyz[0], v[0]],
@@ -360,11 +369,11 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
                     mode='markers+text',
                     marker=dict(
                         line_width=2,
-                        size=pointsize + 4, ),
+                        size=pointsize + 4,
+                        color=PALETTE[i % len(PALETTE)], ),
                     text=f"<b>{i}</b>",
                     textposition="bottom center",
-                    textfont=dict(
-                        size=16),
+                    textfont=dict(size=16),
                     hoverinfo='x+y+z+name',
                     showlegend=False,
                     visible=True, ))

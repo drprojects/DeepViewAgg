@@ -295,6 +295,16 @@ def read_aggregation(filename):
     return object_id_to_segs, label_to_segs
 
 
+def read_axis_align_matrix(filename):
+    lines = open(filename).readlines()
+    axis_align_matrix = None
+    for line in lines:
+        if "axisAlignment" in line:
+            axis_align_matrix = torch.Tensor([float(x) for x in line.rstrip().strip("axisAlignment = ").split(" ")]).reshape((4, 4))
+            break
+    return axis_align_matrix
+
+
 def read_segmentation(filename):
     assert osp.isfile(filename)
     seg_to_verts = {}
@@ -320,12 +330,7 @@ def export(mesh_file, agg_file, seg_file, meta_file, label_map_file, output_file
     mesh_vertices = read_mesh_vertices_rgb(mesh_file)
 
     # Load scene axis alignment matrix
-    lines = open(meta_file).readlines()
-    for line in lines:
-        if "axisAlignment" in line:
-            axis_align_matrix = [float(x) for x in line.rstrip().strip("axisAlignment = ").split(" ")]
-            break
-    axis_align_matrix = np.array(axis_align_matrix).reshape((4, 4))
+    axis_align_matrix = read_axis_align_matrix(meta_file).numpy()
     pts = np.ones((mesh_vertices.shape[0], 4))
     pts[:, 0:3] = mesh_vertices[:, 0:3]
     pts = np.dot(pts, axis_align_matrix.transpose())  # Nx4
@@ -622,7 +627,7 @@ class Scannet(InMemoryDataset):
             frame_rgb=False,
             frame_pose=False,
             frame_intrinsics=False,
-            frame_skip=100
+            frame_skip=50
     ):
 
         assert self.SPLITS == ["train", "val", "test"]
@@ -648,16 +653,8 @@ class Scannet(InMemoryDataset):
         self.frame_intrinsics = frame_intrinsics
         self.frame_skip = frame_skip
         super().__init__(root, transform, pre_transform, pre_filter)
-        if split == "train":
-            path = self.processed_paths[0]
-        elif split == "val":
-            path = self.processed_paths[1]
-        elif split == "test":
-            path = self.processed_paths[2]
-        else:
-            raise ValueError((f"Split {split} found, but expected either " "train, val, or test"))
 
-        self.data, self.slices = torch.load(path)
+        self._init_load(self, split)
 
         if split != "test":
             if not use_instance_bboxes:
@@ -670,6 +667,17 @@ class Scannet(InMemoryDataset):
             self.has_labels = False
 
         self.read_from_metadata()
+
+    def _init_load(self, split):
+        if split == "train":
+            path = self.processed_paths[0]
+        elif split == "val":
+            path = self.processed_paths[1]
+        elif split == "test":
+            path = self.processed_paths[2]
+        else:
+            raise ValueError((f"Split {split} found, but expected either " "train, val, or test"))
+        self.data, self.slices = torch.load(path)
 
     def get_raw_data(self, id_scan, remap_labels=True) -> Data:
         """Grabs the raw data associated with a scan index
@@ -793,6 +801,7 @@ class Scannet(InMemoryDataset):
         mesh_file = osp.join(scannet_dir, scan_name, scan_name + "_vh_clean_2.ply")
         mesh_vertices = read_mesh_vertices_rgb(mesh_file)
         sens_file = osp.join(scannet_dir, scan_name, scan_name + ".sens")
+        sens_dir = osp.join(scannet_dir, scan_name, 'sens')
 
         data = {}
         data["pos"] = torch.from_numpy(mesh_vertices[:, :3])
@@ -802,6 +811,10 @@ class Scannet(InMemoryDataset):
 
         # Export image data from sens file
         if osp.exists(sens_file) and any([frame_depth, frame_rgb, frame_pose, frame_intrinsics, frame_skip]):
+            if osp.exists(sens_dir):
+                raise ValueError(
+                    f"Cannot export 'sens' data to {osp.exists(sens_dir)} "
+                    f"because folder already exists.")
             export_sens_data(
                 sens_file, osp.join(scannet_dir, scan_name, 'sens'),
                 depth_images=frame_depth, color_images=frame_rgb,
@@ -819,6 +832,7 @@ class Scannet(InMemoryDataset):
         agg_file = osp.join(scannet_dir, scan_name, scan_name + ".aggregation.json")
         seg_file = osp.join(scannet_dir, scan_name, scan_name + "_vh_clean_2.0.010000.segs.json")
         sens_file = osp.join(scannet_dir, scan_name, scan_name + ".sens")
+        sens_dir = osp.join(scannet_dir, scan_name, 'sens')
         meta_file = osp.join(
             scannet_dir, scan_name, scan_name + ".txt"
         )  # includes axisAlignment info for the train set scans.
@@ -857,6 +871,10 @@ class Scannet(InMemoryDataset):
 
         # Export image data from sens file
         if osp.exists(sens_file) and any([frame_depth, frame_rgb, frame_pose, frame_intrinsics, frame_skip]):
+            if osp.exists(sens_dir):
+                raise ValueError(
+                    f"Cannot export 'sens' data to {osp.exists(sens_dir)} "
+                    f"because folder already exists.")
             export_sens_data(
                 sens_file, osp.join(scannet_dir, scan_name, 'sens'),
                 depth_images=frame_depth, color_images=frame_rgb,
