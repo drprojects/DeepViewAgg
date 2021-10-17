@@ -99,7 +99,8 @@ class LoadImages(ImageTransform):
             images.downscale = self.downscale
 
         # Load images wrt SameSettingImageData internal state
-        print("    LoadImages...")
+        if self.show_progress:
+            print("    LoadImages...")
         images.load(show_progress=self.show_progress)
 
         return data, images
@@ -230,11 +231,14 @@ class MapImages(ImageTransform):
 
         # Project each image and gather the point-pixel mappings (on
         # CPU or GPU)
-        print("    MapImages...")
+        if self.verbose:
+            print("    MapImages...")
         for i_image, image in tq(enumerate(images)):
             # Subsample the surrounding point cloud
             torch.cuda.synchronize()
             start = time()
+            if image.pos.isnan().any():
+                print(f'Image : {i_image} - has_nan={image.pos.isnan().any()}, path={image.path}')
             sampler = SphereSampling(visi_model.r_max, image.pos, align_origin=False)
             data_sample = sampler(data)
             torch.cuda.synchronize()
@@ -411,8 +415,7 @@ class MapImages(ImageTransform):
         del point_ids, image_ids, pixels, features
         if self.verbose:
             torch.cuda.synchronize()
-            print(f"        t_ImageMapping_init: {time() - start:0.3f}\n")
-            print()
+            print(f"        t_ImageMapping_init: {time() - start:0.3f}\n\n")
 
         # Save the mappings and visibility model in the
         # SameSettingImageData
@@ -475,7 +478,8 @@ class NeighborhoodBasedMappingFeatures(ImageTransform):
             "At least one of `density` or `occlusion` must be True."
 
     def _process(self, data: Data, images):
-        print("    NeighborhoodBasedMappingFeatures...")
+        if self.verbose:
+            print("    NeighborhoodBasedMappingFeatures...")
 
         assert isinstance(data, Data)
         assert images.mappings is not None
