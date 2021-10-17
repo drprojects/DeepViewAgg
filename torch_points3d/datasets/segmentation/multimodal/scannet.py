@@ -25,7 +25,9 @@ def load_pose(filename):
     lines = open(filename).read().splitlines()
     assert len(lines) == 4
     lines = [[x[0], x[1], x[2], x[3]] for x in (x.split(" ") for x in lines)]
-    return torch.from_numpy(np.asarray(lines).astype(np.float32))
+    out = torch.from_numpy(np.asarray(lines).astype(np.float32))
+    lines.close()
+    return out
 
 
 ########################################################################################
@@ -170,8 +172,9 @@ class ScannetMM(Scannet):
 
             # Get the corresponding images and mappings
             if self.pre_transform_image is not None:
-                _, image_data_list = self.pre_transform_image(
-                    data_list, image_data_list)
+                for j, (data, image_data) in tq(enumerate(zip(data_list, image_data_list))):
+                    _, image_data = self.pre_transform_image(data, image_data)
+                    image_data_list[j] = image_data
 
             torch.save(
                 (data_collated, image_data_list, slices),
