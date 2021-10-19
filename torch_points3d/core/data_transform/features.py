@@ -472,7 +472,6 @@ class PCAComputePointwise(object):
         return data
 
     def __call__(self, data):
-        print(self)
         if isinstance(data, list):
             data = [self._process(d) for d in tq(data)]
         else:

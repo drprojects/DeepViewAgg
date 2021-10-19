@@ -233,12 +233,13 @@ class MapImages(ImageTransform):
         # CPU or GPU)
         if self.verbose:
             print("    MapImages...")
-        for i_image, image in tq(enumerate(images)):
+            enumerator = tq(enumerate(images))
+        else:
+            enumerator = enumerate(images)
+        for i_image, image in enumerator:
             # Subsample the surrounding point cloud
             torch.cuda.synchronize()
             start = time()
-            if image.pos.isnan().any():
-                print(f'Image : {i_image} - has_nan={image.pos.isnan().any()}, path={image.path}')
             sampler = SphereSampling(visi_model.r_max, image.pos, align_origin=False)
             data_sample = sampler(data)
             torch.cuda.synchronize()
