@@ -619,12 +619,24 @@ class Scannet(InMemoryDataset):
         Class ids to be discarded
     max_num_point : [type], optional
         Max number of points to keep during the pre processing step
-    use_multiprocessing : bool, optional
-        Wether we use multiprocessing or not
     process_workers : int, optional
         Number of process workers
     normalize_rgb : bool, optional
         Normalise rgb values, by default True
+    types : list, optional
+        File types to download from the ScanNet repository
+    frame_depth : bool, optional
+        Whether depth images should be exported from the `.sens`file
+    frame_rgb : bool, optional
+        Whether RGB images should be exported from the `.sens`file
+    frame_pose : bool, optional
+        Whether poses should be exported from the `.sens`file
+    frame_intrinsics : bool, optional
+        Whether intrinsic parameters should be exported from the `.sens`file
+    frame_skip : int, optional
+        Period of frames to skip when parsing the `.sens` frame streams. e.g. setting `frame_skip=50` will export 2% of the stream frames.
+    is_test : bool, optional
+        Switch to help debugging the dataset
     """
 
     CLASS_LABELS = CLASS_LABELS
@@ -646,17 +658,19 @@ class Scannet(InMemoryDataset):
             donotcare_class_ids=[],
             max_num_point=None,
             process_workers=4,
-            types=[".txt", "_vh_clean_2.ply", "_vh_clean_2.0.010000.segs.json", ".aggregation.json"],
             normalize_rgb=True,
-            is_test=False,
+            types=[".txt", "_vh_clean_2.ply", "_vh_clean_2.0.010000.segs.json", ".aggregation.json"],
             frame_depth=False,
             frame_rgb=False,
             frame_pose=False,
             frame_intrinsics=False,
-            frame_skip=50
+            frame_skip=50,
+            is_test=False
     ):
 
         assert self.SPLITS == ["train", "val", "test"]
+        assert split in self.SPLITS
+        self.split = split
         if not isinstance(donotcare_class_ids, list):
             raise Exception("donotcare_class_ids should be list with indices of class to ignore")
         self.donotcare_class_ids = donotcare_class_ids
@@ -680,7 +694,7 @@ class Scannet(InMemoryDataset):
         self.frame_skip = frame_skip
         super().__init__(root, transform, pre_transform, pre_filter)
 
-        self._init_load(self, split)
+        self._init_load(split)
 
         if split != "test":
             if not use_instance_bboxes:
@@ -824,94 +838,94 @@ class Scannet(InMemoryDataset):
             scannet_dir, scan_name, normalize_rgb, frame_depth=False,
             frame_rgb=False, frame_pose=False, frame_intrinsics=False,
             frame_skip=1):
-        # mesh_file = osp.join(scannet_dir, scan_name, scan_name + "_vh_clean_2.ply")
-        # mesh_vertices = read_mesh_vertices_rgb(mesh_file)
+        mesh_file = osp.join(scannet_dir, scan_name, scan_name + "_vh_clean_2.ply")
+        mesh_vertices = read_mesh_vertices_rgb(mesh_file)
         sens_file = osp.join(scannet_dir, scan_name, scan_name + ".sens")
         sens_dir = osp.join(scannet_dir, scan_name, 'sens')
-        #
-        # data = {}
-        # data["pos"] = torch.from_numpy(mesh_vertices[:, :3])
-        # data["rgb"] = torch.from_numpy(mesh_vertices[:, 3:])
-        # if normalize_rgb:
-        #     data["rgb"] /= 255.0
+
+        data = {}
+        data["pos"] = torch.from_numpy(mesh_vertices[:, :3])
+        data["rgb"] = torch.from_numpy(mesh_vertices[:, 3:])
+        if normalize_rgb:
+            data["rgb"] /= 255.0
 
         # Export image data from sens file
         if osp.exists(sens_file) and any([frame_depth, frame_rgb, frame_pose, frame_intrinsics, frame_skip]):
             if osp.exists(sens_dir):
-                shutil.rmtree(sens_dir)
-            #     raise ValueError(
-            #         f"Cannot export 'sens' data to {osp.exists(sens_dir)} "
-            #         f"because folder already exists.")
-            export_sens_data(
-                sens_file, osp.join(scannet_dir, scan_name, 'sens'),
-                depth_images=frame_depth, color_images=frame_rgb,
-                poses=frame_pose, intrinsics=frame_intrinsics,
-                frame_skip=frame_skip)
+                print(f"{osp.exists(sens_dir)} already exists, skipping 'sens' data export.")
+                # raise ValueError(
+                #     f"Cannot export 'sens' data to {osp.exists(sens_dir)} "
+                #     f"because folder already exists.")
+            else:
+                export_sens_data(
+                    sens_file, osp.join(scannet_dir, scan_name, 'sens'),
+                    depth_images=frame_depth, color_images=frame_rgb,
+                    poses=frame_pose, intrinsics=frame_intrinsics,
+                    frame_skip=frame_skip)
 
-        # return Data(**data)
-        return None
+        return Data(**data)
 
     @staticmethod
     def read_one_scan(
             scannet_dir, scan_name, label_map_file, donotcare_class_ids,
             max_num_point, obj_class_ids, normalize_rgb, frame_depth,
             frame_rgb, frame_pose, frame_intrinsics, frame_skip):
-        # mesh_file = osp.join(scannet_dir, scan_name, scan_name + "_vh_clean_2.ply")
-        # agg_file = osp.join(scannet_dir, scan_name, scan_name + ".aggregation.json")
-        # seg_file = osp.join(scannet_dir, scan_name, scan_name + "_vh_clean_2.0.010000.segs.json")
+        mesh_file = osp.join(scannet_dir, scan_name, scan_name + "_vh_clean_2.ply")
+        agg_file = osp.join(scannet_dir, scan_name, scan_name + ".aggregation.json")
+        seg_file = osp.join(scannet_dir, scan_name, scan_name + "_vh_clean_2.0.010000.segs.json")
         sens_file = osp.join(scannet_dir, scan_name, scan_name + ".sens")
         sens_dir = osp.join(scannet_dir, scan_name, 'sens')
-        # meta_file = osp.join(
-        #     scannet_dir, scan_name, scan_name + ".txt"
-        # )  # includes axisAlignment info for the train set scans.
-        # mesh_vertices, semantic_labels, instance_labels, instance_bboxes, instance2semantic = export(
-        #     mesh_file, agg_file, seg_file, meta_file, label_map_file, None
-        # )
-        #
-        # # Discard unwanted classes
-        # mask = np.logical_not(np.in1d(semantic_labels, donotcare_class_ids))
-        # mesh_vertices = mesh_vertices[mask, :]
-        # semantic_labels = semantic_labels[mask]
-        # instance_labels = instance_labels[mask]
-        #
-        # bbox_mask = np.in1d(instance_bboxes[:, -1], obj_class_ids)
-        # instance_bboxes = instance_bboxes[bbox_mask, :]
-        #
-        # # Subsample
-        # N = mesh_vertices.shape[0]
-        # if max_num_point:
-        #     if N > max_num_point:
-        #         choices = np.random.choice(N, max_num_point, replace=False)
-        #         mesh_vertices = mesh_vertices[choices, :]
-        #         semantic_labels = semantic_labels[choices]
-        #         instance_labels = instance_labels[choices]
-        #
-        # # Build data container
-        # data = {}
-        # data["pos"] = torch.from_numpy(mesh_vertices[:, :3])
-        # data["rgb"] = torch.from_numpy(mesh_vertices[:, 3:])
-        # if normalize_rgb:
-        #     data["rgb"] /= 255.0
-        # data["y"] = torch.from_numpy(semantic_labels)
-        # data["x"] = None
-        # data["instance_labels"] = torch.from_numpy(instance_labels)
-        # data["instance_bboxes"] = torch.from_numpy(instance_bboxes)
+        meta_file = osp.join(
+            scannet_dir, scan_name, scan_name + ".txt"
+        )  # includes axisAlignment info for the train set scans.
+        mesh_vertices, semantic_labels, instance_labels, instance_bboxes, instance2semantic = export(
+            mesh_file, agg_file, seg_file, meta_file, label_map_file, None
+        )
+
+        # Discard unwanted classes
+        mask = np.logical_not(np.in1d(semantic_labels, donotcare_class_ids))
+        mesh_vertices = mesh_vertices[mask, :]
+        semantic_labels = semantic_labels[mask]
+        instance_labels = instance_labels[mask]
+
+        bbox_mask = np.in1d(instance_bboxes[:, -1], obj_class_ids)
+        instance_bboxes = instance_bboxes[bbox_mask, :]
+
+        # Subsample
+        N = mesh_vertices.shape[0]
+        if max_num_point:
+            if N > max_num_point:
+                choices = np.random.choice(N, max_num_point, replace=False)
+                mesh_vertices = mesh_vertices[choices, :]
+                semantic_labels = semantic_labels[choices]
+                instance_labels = instance_labels[choices]
+
+        # Build data container
+        data = {}
+        data["pos"] = torch.from_numpy(mesh_vertices[:, :3])
+        data["rgb"] = torch.from_numpy(mesh_vertices[:, 3:])
+        if normalize_rgb:
+            data["rgb"] /= 255.0
+        data["y"] = torch.from_numpy(semantic_labels)
+        data["x"] = None
+        data["instance_labels"] = torch.from_numpy(instance_labels)
+        data["instance_bboxes"] = torch.from_numpy(instance_bboxes)
 
         # Export image data from sens file
         if osp.exists(sens_file) and any([frame_depth, frame_rgb, frame_pose, frame_intrinsics, frame_skip]):
             if osp.exists(sens_dir):
-                shutil.rmtree(sens_dir)
+                print(f"{osp.exists(sens_dir)} already exists, skipping 'sens' data export.")
                 # raise ValueError(
                 #     f"Cannot export 'sens' data to {osp.exists(sens_dir)} "
                 #     f"because folder already exists.")
-            export_sens_data(
-                sens_file, osp.join(scannet_dir, scan_name, 'sens'),
-                depth_images=frame_depth, color_images=frame_rgb,
-                poses=frame_pose, intrinsics=frame_intrinsics,
-                frame_skip=frame_skip)
+            else:
+                export_sens_data(
+                    sens_file, osp.join(scannet_dir, scan_name, 'sens'),
+                    depth_images=frame_depth, color_images=frame_rgb,
+                    poses=frame_pose, intrinsics=frame_intrinsics,
+                    frame_skip=frame_skip)
 
-        # return Data(**data)
-        return None
+        return Data(**data)
 
     def read_from_metadata(self):
         metadata_path = osp.join(self.raw_dir, "metadata")
@@ -971,9 +985,8 @@ class Scannet(InMemoryDataset):
                 frame_skip)
         log.info("{}/{}| scan_name: {}, data: {}".format(id_scan, total, scan_name, data))
 
-        # data["id_scan"] = torch.tensor([id_scan])
-        # return cT.SaveOriginalPosId()(data)
-        return None
+        data["id_scan"] = torch.tensor([id_scan])
+        return cT.SaveOriginalPosId()(data)
 
     def process(self):
         if self.is_test:
@@ -981,8 +994,7 @@ class Scannet(InMemoryDataset):
         self.read_from_metadata()
 
         for i, (scan_names, split) in enumerate(zip(self.scan_names, self.SPLITS)):
-            # if not osp.exists(self.processed_paths[i]):
-            if True:
+            if not osp.exists(self.processed_paths[i]):
                 mapping_idx_to_scan_names = getattr(self, "MAPPING_IDX_TO_SCAN_{}_NAMES".format(split.upper()))
                 scannet_dir = osp.join(self.raw_dir, "scans" if split in ["train", "val"] else "scans_test")
                 total = len(scan_names)
@@ -1015,17 +1027,17 @@ class Scannet(InMemoryDataset):
                         data = Scannet.process_func(*arg)
                         datas.append(data)
 
-                # for data in datas:
-                #     id_scan = int(data.id_scan.item())
-                #     scan_name = mapping_idx_to_scan_names[id_scan]
-                #     path_to_raw_scan = osp.join(self.processed_raw_paths[i], "{}.pt".format(scan_name))
-                #     torch.save(data, path_to_raw_scan)
+                for data in datas:
+                    id_scan = int(data.id_scan.item())
+                    scan_name = mapping_idx_to_scan_names[id_scan]
+                    path_to_raw_scan = osp.join(self.processed_raw_paths[i], "{}.pt".format(scan_name))
+                    torch.save(data, path_to_raw_scan)
 
-                # if self.pre_transform:
-                #     datas = [self.pre_transform(data) for data in datas]
+                if self.pre_transform:
+                    datas = [self.pre_transform(data) for data in datas]
 
-                # log.info("SAVING TO {}".format(self.processed_paths[i]))
-                # torch.save(self.collate(datas), self.processed_paths[i])
+                log.info("SAVING TO {}".format(self.processed_paths[i]))
+                torch.save(self.collate(datas), self.processed_paths[i])
 
     def _remap_labels(self, semantic_label):
         """Remaps labels to [0 ; num_labels -1]. Can be overriden."""

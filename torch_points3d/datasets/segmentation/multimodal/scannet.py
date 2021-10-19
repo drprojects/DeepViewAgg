@@ -26,7 +26,6 @@ def load_pose(filename):
     assert len(lines) == 4
     lines = [[x[0], x[1], x[2], x[3]] for x in (x.split(" ") for x in lines)]
     out = torch.from_numpy(np.asarray(lines).astype(np.float32))
-    lines.close()
     return out
 
 
@@ -37,6 +36,71 @@ def load_pose(filename):
 ########################################################################################
 
 class ScannetMM(Scannet):
+    """Scannet dataset for multimodal learning on 3D points and 2D images, you
+    will have to agree to terms and conditions by hitting enter so that it
+    downloads the dataset.
+
+    http://www.scan-net.org/
+
+    Inherits from `torch_points3d.datasets.segmentation.scannet.Scannet`.
+    However, because 2D data is too heavy to be entirely loaded in memory, it
+    does not follow the exact philosophy of `InMemoryDataset`. More
+    specifically, 3D data is preprocessed and loaded in memory in the same way,
+    while 2D data is preprocessed into per-scan files which are loaded at
+    __getitem__ time.
+
+
+    Parameters
+    ----------
+    root : str
+        Path to the data
+    split : str, optional
+        Split used (train, val or test)
+    transform (callable, optional):
+        A function/transform that takes in an :obj:`torch_geometric.data.Data` object and returns a transformed
+        version. The data object will be transformed before every access.
+    pre_transform (callable, optional):
+        A function/transform that takes in an :obj:`torch_geometric.data.Data` object and returns a
+        transformed version. The data object will be transformed before being saved to disk.
+    pre_filter (callable, optional):
+        A function that takes in an :obj:`torch_geometric.data.Data` object and returns a boolean
+        value, indicating whether the data object should be included in the final dataset.
+    version : str, optional
+        version of scannet, by default "v2"
+    use_instance_labels : bool, optional
+        Wether we use instance labels or not, by default False
+    use_instance_bboxes : bool, optional
+        Wether we use bounding box labels or not, by default False
+    donotcare_class_ids : list, optional
+        Class ids to be discarded
+    max_num_point : [type], optional
+        Max number of points to keep during the pre processing step
+    process_workers : int, optional
+        Number of process workers
+    normalize_rgb : bool, optional
+        Normalise rgb values, by default True
+    types : list, optional
+        File types to download from the ScanNet repository
+    frame_depth : bool, optional
+        Whether depth images should be exported from the `.sens`file
+    frame_rgb : bool, optional
+        Whether RGB images should be exported from the `.sens`file
+    frame_pose : bool, optional
+        Whether poses should be exported from the `.sens`file
+    frame_intrinsics : bool, optional
+        Whether intrinsic parameters should be exported from the `.sens`file
+    frame_skip : int, optional
+        Period of frames to skip when parsing the `.sens` frame streams. e.g. setting `frame_skip=50` will export 2% of the stream frames.
+    is_test : bool, optional
+        Switch to help debugging the dataset
+    img_ref_size : tuple, optional
+        The size at which rgb images will be processed
+    pre_transform_image : (callable, optional):
+        Image pre_transforms
+    transform_image : (callable, optional):
+        Image transforms
+    """
+
     DEPTH_IMG_SIZE = (640, 480)
 
     def __init__(
@@ -54,152 +118,119 @@ class ScannetMM(Scannet):
         # --------------------------------------------------------------
         # Preprocess 3D data
         # Download, pre_transform and pre_filter raw 3D data
-        # Output will be saved to preprocessed_<SPLIT>.pt
+        # Output will be saved to <SPLIT>.pt
         # --------------------------------------------------------------
         super(ScannetMM, self).process()
 
-        # --------------------------------------------------------------
-        # Recover image data
-        # --------------------------------------------------------------
-        # TODO: Multimodal pre_transform here
-        #  - decide file structure for image_data
-        #  - build the image_data list, without mappings
-        #  - compute the mappings
-
+        # ----------------------------------------------------------
+        # Recover image data and run image pre-transforms
+        # This is where images are loaded and mappings are computed.
+        # Output is saved to processed_2d_<SPLIT>/<SCAN_NAME>.pt
+        # ----------------------------------------------------------
         for i, (scan_names, split) in enumerate(zip(self.scan_names, self.SPLITS)):
 
-            # ----------------------------------------------------------
-            # Recover image data
-            # ----------------------------------------------------------
-            if not osp.exists(self.image_data_paths[i]):
-                print('Computing image data...')
-                scannet_dir = osp.join(self.raw_dir, "scans" if split in ["train", "val"] else "scans_test")
-                image_data_dict = {}
+            print(f'\nStarting preprocessing 2d for {split} split')
 
-                for scan_name in tq(scan_names):
-                    scan_sens_dir = osp.join(scannet_dir, scan_name, 'sens')
-                    meta_file = osp.join(scannet_dir, scan_name, scan_name + ".txt")
+            # Prepare the processed_2d_<SPLIT> directory where per-scan
+            # images and mappings will be saved
+            if not osp.exists(self.processed_2d_paths[i]):
+                os.makedirs(self.processed_2d_paths[i])
 
-                    # Recover the image-pose pairs
-                    image_info_list = [
-                        {'path': i_file, 'extrinsic': load_pose(p_file)}
-                        for i_file, p_file in read_image_pose_pairs(
-                            osp.join(scan_sens_dir, 'color'),
-                            osp.join(scan_sens_dir, 'pose'),
-                            image_suffix='.jpg', pose_suffix='.txt')]
+            if set(os.listdir(self.processed_2d_paths[i])) == set([s + '.pt' for s in scan_names]):
+                print(f'skipping split {split}')
+                continue
 
-                    # Aggregate all RGB image paths
-                    path = np.array([info['path'] for info in image_info_list])
-
-                    # Aggregate all extrinsic 4x4 matrices
-                    # Train and val scans have undergone axis alignment
-                    # transformations. Need to recover and apply those
-                    # to camera poses too. Test scans have no axis
-                    # alignment
-                    axis_align_matrix = read_axis_align_matrix(meta_file)
-                    if axis_align_matrix is not None:
-                        extrinsic = torch.cat([
-                            axis_align_matrix.mm(info['extrinsic']).unsqueeze(0)
-                            for info in image_info_list], dim=0)
-                    else:
-                        extrinsic = torch.cat([
-                            info['extrinsic'].unsqueeze(0)
-                            for info in image_info_list], dim=0)
-
-                    # For easier image handling, extract the images
-                    # position from the extrinsic matrices
-                    xyz = extrinsic[:, :3, 3]
-
-                    # Read intrinsic parameters for the depth camera
-                    # because this is the one related to the extrinsic.
-                    # Strangely, using the color camera intrinsic along
-                    # with the pose does not produce the expected
-                    # projection
-                    intrinsic = load_pose(osp.join(
-                        scan_sens_dir, 'intrinsic/intrinsic_depth.txt'))
-                    fx = intrinsic[0][0].repeat(len(image_info_list))
-                    fy = intrinsic[1][1].repeat(len(image_info_list))
-                    mx = intrinsic[0][2].repeat(len(image_info_list))
-                    my = intrinsic[1][2].repeat(len(image_info_list))
-
-                    # Save scan images as SameSettingImageData
-                    # NB: the image is first initialized to
-                    # DEPTH_IMG_SIZE because the intrinsic parameters
-                    # are defined accordingly. Setting ref_size
-                    # afterwards calls the @adjust_intrinsic method to
-                    # rectify the intrinsics consequently
-                    image_data = SameSettingImageData(
-                        ref_size=self.DEPTH_IMG_SIZE, proj_upscale=1,
-                        path=path, pos=xyz, fx=fx, fy=fy, mx=mx, my=my,
-                        extrinsic=extrinsic)
-                    image_data.ref_size = self.img_ref_size
-
-                    # Stack SameSettingImageData for each ScanNet scene
-                    # of the current split. Using a dictionnary makes it
-                    # easier to pair up 3D and 2D data before running
-                    # pre_transform_image
-                    image_data_dict[scan_name] = image_data
-
-                # Save split's image data, before pre_transform_image
-                # is performed
-                torch.save(image_data_dict, self.image_data_paths[i])
-
-            else:
-                print('Loading the image data...')
-                image_data_dict = torch.load(self.image_data_paths[i])
-
-            print('Done\n')
-
-            # ----------------------------------------------------------
-            # Pre-transform image data
-            # This is where images are loaded and mappings are computed
-            # ----------------------------------------------------------
-            print('Running the image pre-transforms...')
-
-            # Recover the list Data (one for each scene) produced by
-            # super().process(). Uncollate to a list of Data
-            data_collated, slices = torch.load(self.processed_paths[i])
-            data_list = self.uncollate(data_collated, slices)
-
-            # Make sure data and images are properly matched by
-            # rearranging scans' SameSettingImageData into a list
-            mapping_idx_to_scan_names = getattr(
+            # Recover the collated Data (one for each scan) produced by
+            # super().process(). Uncollate into a dictionary of Data
+            print('Loading preprocessed 3D data...')
+            scan_id_to_name = getattr(
                 self, f"MAPPING_IDX_TO_SCAN_{split.upper()}_NAMES")
-            scan_names_data = [
-                mapping_idx_to_scan_names[int(id_scan.item())]
-                for id_scan in data_collated.id_scan]
-            image_data_list = [image_data_dict[s] for s in scan_names_data]
+            data_collated, slices = torch.load(self.processed_paths[i])
+            data_dict = self.uncollate(data_collated, slices, scan_id_to_name)
+            del data_collated
 
-            # Get the corresponding images and mappings
-            if self.pre_transform_image is not None:
-                for j, (data, image_data) in tq(enumerate(zip(data_list, image_data_list))):
-                    _, image_data = self.pre_transform_image(data, image_data)
-                    image_data_list[j] = image_data
+            print('Preprocessing 2D data...')
+            scannet_dir = osp.join(self.raw_dir, "scans" if split in ["train", "val"] else "scans_test")
 
-            torch.save(
-                (data_collated, image_data_list, slices),
-                self.processed_paths[3 + i])
-            print('Done\n')
+            for scan_name in tq(scan_names):
 
-    def _init_load(self, split):
-        if split == "train":
-            path = self.processed_paths[3]
-        elif split == "val":
-            path = self.processed_paths[4]
-        elif split == "test":
-            path = self.processed_paths[5]
-        else:
-            raise ValueError(f"Split {split} found, but expected either " "train, val, or test")
-        self.data, self.images, self.slices = torch.load(path)
+                scan_sens_dir = osp.join(scannet_dir, scan_name, 'sens')
+                meta_file = osp.join(scannet_dir, scan_name, scan_name + ".txt")
+                processed_2d_scan_path = osp.join(self.processed_2d_paths[i], scan_name + '.pt')
+
+                if osp.exists(processed_2d_scan_path):
+                    continue
+
+                # Recover the image-pose pairs
+                image_info_list = [
+                    {'path': i_file, 'extrinsic': load_pose(p_file)}
+                    for i_file, p_file in read_image_pose_pairs(
+                        osp.join(scan_sens_dir, 'color'),
+                        osp.join(scan_sens_dir, 'pose'),
+                        image_suffix='.jpg', pose_suffix='.txt')]
+
+                # Aggregate all RGB image paths
+                path = np.array([info['path'] for info in image_info_list])
+
+                # Aggregate all extrinsic 4x4 matrices
+                # Train and val scans have undergone axis alignment
+                # transformations. Need to recover and apply those
+                # to camera poses too. Test scans have no axis
+                # alignment
+                axis_align_matrix = read_axis_align_matrix(meta_file)
+                if axis_align_matrix is not None:
+                    extrinsic = torch.cat([
+                        axis_align_matrix.mm(info['extrinsic']).unsqueeze(0)
+                        for info in image_info_list], dim=0)
+                else:
+                    extrinsic = torch.cat([
+                        info['extrinsic'].unsqueeze(0)
+                        for info in image_info_list], dim=0)
+
+                # For easier image handling, extract the images
+                # position from the extrinsic matrices
+                xyz = extrinsic[:, :3, 3]
+
+                # Read intrinsic parameters for the depth camera
+                # because this is the one related to the extrinsic.
+                # Strangely, using the color camera intrinsic along
+                # with the pose does not produce the expected
+                # projection
+                intrinsic = load_pose(osp.join(
+                    scan_sens_dir, 'intrinsic/intrinsic_depth.txt'))
+                fx = intrinsic[0][0].repeat(len(image_info_list))
+                fy = intrinsic[1][1].repeat(len(image_info_list))
+                mx = intrinsic[0][2].repeat(len(image_info_list))
+                my = intrinsic[1][2].repeat(len(image_info_list))
+
+                # Save scan images as SameSettingImageData
+                # NB: the image is first initialized to
+                # DEPTH_IMG_SIZE because the intrinsic parameters
+                # are defined accordingly. Setting ref_size
+                # afterwards calls the @adjust_intrinsic method to
+                # rectify the intrinsics consequently
+                image_data = SameSettingImageData(
+                    ref_size=self.DEPTH_IMG_SIZE, proj_upscale=1,
+                    path=path, pos=xyz, fx=fx, fy=fy, mx=mx, my=my,
+                    extrinsic=extrinsic)
+                image_data.ref_size = self.img_ref_size
+
+                # Run image pre-transform
+                if self.pre_transform_image is not None:
+                    _, image_data = self.pre_transform_image(
+                        data_dict[scan_name], image_data)
+
+                # Save scan 2D data to a file that will be loaded when
+                # __get_item__ is called
+                torch.save(image_data, processed_2d_scan_path)
 
     @property
     def processed_file_names(self):
-        return [f"preprocessed_3d_{s}.pt" for s in Scannet.SPLITS] \
-               + [f"{s}.pt" for s in Scannet.SPLITS]
+        return [f"{s}.pt" for s in Scannet.SPLITS] + self.processed_2d_paths
 
     @property
-    def image_data_paths(self):
-        return [osp.join(self.processed_dir, f"image_data_{s}.pt") for s in Scannet.SPLITS]
+    def processed_2d_paths(self):
+        return [osp.join(self.processed_dir, f"processed_2d_{s}") for s in Scannet.SPLITS]
 
     def __getitem__(self, idx):
         """
@@ -211,6 +242,10 @@ class ScannetMM(Scannet):
 
         Get a ScanNet scene 3D points as Data along with 2D image data
         and mapping, along with the list idx.
+
+        Note that 3D data is already loaded in memory, which allows fast
+        indexing. 2D data, however, is too heavy to be entirely kept in
+        memory, so it is loaded on the fly from preprocessing files.
         """
         assert isinstance(idx, int), \
             f"Indexing with {type(idx)} is not supported, only " \
@@ -220,17 +255,29 @@ class ScannetMM(Scannet):
         data = self.get(idx)
         data = data if self.transform is None else self.transform(data)
 
-        # Get the corresponding images and mappings
-        data, images = self.transform_image(data, self.images[idx].clone())
+        # Recover the scan name
+        mapping_idx_to_scan = getattr(
+            self, f"MAPPING_IDX_TO_SCAN_{self.split.upper()}_NAMES")
+        scan_name = mapping_idx_to_scan[int(data.id_scan.item())]
+
+        # Load the corresponding 2D data and mappings
+        i_split = self.SPLITS.index(self.split)
+        images = torch.load(osp.join(
+            self.processed_2d_paths[i_split], scan_name + '.pt'))
+
+        # Run image transforms
+        if self.transform_image is not None:
+            data, images = self.transform_image(data, images)
 
         return MMData(data, image=images)
 
     @staticmethod
-    def uncollate(data_collated, slices_dict, skip_keys=[]):
+    def uncollate(data_collated, slices_dict, scan_id_to_name, skip_keys=[]):
         r"""Reverses collate. Transforms a collated Data and associated
-        slices into a python list of Data objects.
+        slices into a python dictionary of Data objects. The keys are
+        the scan names provided by scan_id_to_name.
         """
-        data_list = []
+        data_dict = {}
         for idx in range(data_collated.id_scan.shape[0]):
 
             data = data_collated.__class__()
@@ -252,9 +299,9 @@ class ScannetMM(Scannet):
                     s = slice(start, end)
                 data[key] = item[s]
 
-            data_list.append(data)
+            data_dict[scan_id_to_name[int(data.id_scan.item())]] = data
 
-        return data_list
+        return data_dict
 
 
 

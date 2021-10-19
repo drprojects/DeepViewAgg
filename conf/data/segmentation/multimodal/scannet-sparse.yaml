@@ -125,13 +125,13 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
               method: SplattingVisibility
               ref_size: ${data.resolution_2d}
               proj_upscale: ${data.multimodal.settings.proj_upscale}
-              use_cuda: False # True !!!!!!!!!!!!!!!!!!!!!!!
+              use_cuda: False
               voxel: ${data.full_resolution_3d}
               r_max: ${data.multimodal.settings.r_max}
               r_min: ${data.multimodal.settings.r_min}
               exact: ${data.exact_splatting_2d}
               equirectangular: False
-#              verbose: True  # True to print computation times
+              k_swell: 2
         - transform: NeighborhoodBasedMappingFeatures  # Compute local density and occlusion
           params:
               k: 50  # empirically-chosen heuristic [30-100] is fine
@@ -139,7 +139,6 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
               density: True
               occlusion: True
               use_faiss: True
-#              verbose: True  # True to print computation times
 
     train_transforms:
         - transform: SelectMappingFromPointId  # Select mappings after 3D points sampling
