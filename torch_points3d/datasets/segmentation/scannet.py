@@ -938,6 +938,7 @@ class Scannet(InMemoryDataset):
             f.close()
 
         for idx_split, split in enumerate(Scannet.SPLITS):
+            # self.scan_names[idx_split] = self.scan_names[idx_split][:5]  # to test on mini dataset
             idx_mapping = {idx: scan_name for idx, scan_name in enumerate(self.scan_names[idx_split])}
             setattr(self, "MAPPING_IDX_TO_SCAN_{}_NAMES".format(split.upper()), idx_mapping)
 

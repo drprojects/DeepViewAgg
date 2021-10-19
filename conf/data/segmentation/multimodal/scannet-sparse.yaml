@@ -126,12 +126,11 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
               ref_size: ${data.resolution_2d}
               proj_upscale: ${data.multimodal.settings.proj_upscale}
               use_cuda: False
-              voxel: ${data.full_resolution_3d}
+              voxel: ${data.resolution_3d}  # using the lower resolution here produces better occlusions for splatting
               r_max: ${data.multimodal.settings.r_max}
               r_min: ${data.multimodal.settings.r_min}
               exact: ${data.exact_splatting_2d}
               equirectangular: False
-              k_swell: 2
         - transform: NeighborhoodBasedMappingFeatures  # Compute local density and occlusion
           params:
               k: 50  # empirically-chosen heuristic [30-100] is fine
