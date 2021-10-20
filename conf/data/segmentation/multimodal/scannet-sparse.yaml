@@ -16,7 +16,7 @@ use_instance_labels: False
 use_instance_bboxes: False
 donotcare_class_ids: []
 use_category: False
-process_workers: 0 #8
+process_workers: 8
 apply_rotation: True
 mode: "last"
 frame_depth: False  # set this to True if you need to use ScanNet depth maps. Defaulting to False to save space and preprocessing time
