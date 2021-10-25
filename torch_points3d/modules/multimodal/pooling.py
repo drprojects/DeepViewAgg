@@ -673,6 +673,20 @@ class DeepSetFeat(nn.Module, ABC):
         return "\n".join([f'{a}={getattr(self, a)}' for a in repr_attr])
 
 
+class MLPSetFeat(nn.Module, ABC):
+    """Produce element-wise set features with a simple MLP
+    """
+
+    def __init__(self, d_in, d_out):
+        super(MLPSetFeat, self).__init__()
+        self.d_in = d_in
+        self.d_out = d_out
+        self.mlp = MLP([d_in, d_out, d_out], bias=False)
+
+    def forward(self, x, csr_idx):
+        return self.mlp(x)
+
+
 class Gating(nn.Module):
     """Rectified-tanh gating mechanism with learnable linear correction."""
     def __init__(self, num_groups, weight=True, bias=True, activation='tanh+'):
