@@ -675,12 +675,18 @@ class DeepSetFeat(nn.Module, ABC):
 
 class Gating(nn.Module):
     """Rectified-tanh gating mechanism with learnable linear correction."""
-    def __init__(self, num_groups, weight=True, bias=True):
+    def __init__(self, num_groups, weight=True, bias=True, activation='tanh+'):
         super(Gating, self).__init__()
         self.num_groups = num_groups
         self.weight = nn.Parameter(torch.ones(1, num_groups)) if weight \
             else None
         self.bias = nn.Parameter(torch.zeros(1, num_groups)) if bias else None
+        if activation == 'tanh+':
+            self.activation = lambda x: torch.tanh_(F.relu(x, inplace=True))
+        elif activation == 'sigmoid':
+            self.activation = lambda x: torch.sigmoid_(x)
+        else:
+            raise ValueError(f"Activation '{activation}' not supported for Gating")
 
     def forward(self, x):
         if self.weight is not None:
