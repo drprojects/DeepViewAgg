@@ -27,38 +27,38 @@ class S3DISTracker(SegmentationTracker):
         """
         super().track(model)
 
-        # For val and test sets, we want to be careful with S3DIS
-        # overlapping spheres or cylinders and multi-run voting. The
-        # real metrics must be computed with respect to overlaps and
-        # voting schemes
-        if self._stage == "train":
-            return
+#         # For val and test sets, we want to be careful with S3DIS
+#         # overlapping spheres or cylinders and multi-run voting. The
+#         # real metrics must be computed with respect to overlaps and
+#         # voting schemes
+#         if self._stage == "train":
+#             return
 
-        # Test mode, compute votes in order to get full res predictions
-        if self._test_area is None:
-            self._test_area = self._dataset.test_data.clone()
-            if self._test_area.y is None:
-                raise ValueError("It seems that the test area data does not have labels (attribute y).")
-            self._test_area.prediction_count = torch.zeros(self._test_area.y.shape[0], dtype=torch.int)
-            self._test_area.votes = torch.zeros((self._test_area.y.shape[0], self._num_classes), dtype=torch.float)
-            self._test_area.to(model.device)
+#         # Test mode, compute votes in order to get full res predictions
+#         if self._test_area is None:
+#             self._test_area = self._dataset.test_data.clone()
+#             if self._test_area.y is None:
+#                 raise ValueError("It seems that the test area data does not have labels (attribute y).")
+#             self._test_area.prediction_count = torch.zeros(self._test_area.y.shape[0], dtype=torch.int)
+#             self._test_area.votes = torch.zeros((self._test_area.y.shape[0], self._num_classes), dtype=torch.float)
+#             self._test_area.to(model.device)
         
-        # Gather origin ids and check that it fits with the test set
-        inputs = data if data is not None else model.get_input()
-        originids = inputs[SaveOriginalPosId.KEY] if not model.is_multimodal else inputs.data[SaveOriginalPosId.KEY]
-        if originids is None:
-            raise ValueError("The inputs given to the model do not have a %s attribute." % SaveOriginalPosId.KEY)
-        if originids.dim() == 2:
-            originids = originids.flatten()
-        if originids.max() >= self._test_area.pos.shape[0]:
-            raise ValueError("Origin ids are larger than the number of points in the original point cloud.")
+#         # Gather origin ids and check that it fits with the test set
+#         inputs = data if data is not None else model.get_input()
+#         originids = inputs[SaveOriginalPosId.KEY] if not model.is_multimodal else inputs.data[SaveOriginalPosId.KEY]
+#         if originids is None:
+#             raise ValueError("The inputs given to the model do not have a %s attribute." % SaveOriginalPosId.KEY)
+#         if originids.dim() == 2:
+#             originids = originids.flatten()
+#         if originids.max() >= self._test_area.pos.shape[0]:
+#             raise ValueError("Origin ids are larger than the number of points in the original point cloud.")
             
-        # Set predictions
-        # WARNING. If a point appears multiple times in originids, only
-        # one of its 'outputs' and one 'prediction_count' will be counted
-        outputs = model.get_output()
-        self._test_area.votes[originids] += outputs
-        self._test_area.prediction_count[originids] += 1
+#         # Set predictions
+#         # WARNING. If a point appears multiple times in originids, only
+#         # one of its 'outputs' and one 'prediction_count' will be counted
+#         outputs = model.get_output()
+#         self._test_area.votes[originids] += outputs
+#         self._test_area.prediction_count[originids] += 1
 
     def finalise(self, full_res=False, vote_miou=True, ply_output="", **kwargs):
         per_class_iou = self._confusion_matrix.get_intersection_union_per_class()[0]
