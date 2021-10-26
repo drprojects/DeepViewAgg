@@ -677,7 +677,7 @@ class MLPSetFeat(nn.Module, ABC):
     """Produce element-wise set features with a simple MLP
     """
 
-    def __init__(self, d_in, d_out):
+    def __init__(self, d_in, d_out, **kwargs):
         super(MLPSetFeat, self).__init__()
         self.d_in = d_in
         self.d_out = d_out
