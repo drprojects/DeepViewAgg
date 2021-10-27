@@ -237,7 +237,7 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
         initialized_visibility = True
 
     # Draw a trace for 3D point cloud of number of images seen
-    if has_2d:
+    if has_2d and images[0].mappings is not None:
         n_seen = sum([
             im.mappings.pointers[1:] - im.mappings.pointers[:-1]
             for im in images])
