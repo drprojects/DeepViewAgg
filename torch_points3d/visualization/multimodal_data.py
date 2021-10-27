@@ -117,26 +117,31 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
 
     # Make copies of the data and images to be modified in this scope
     data = mm_data.data.clone()
-    images = mm_data.modalities['image'].clone()
+    has_2d = mm_data.modalities.get('image', None) is not None \
+             and mm_data.modalities['image'].num_views > 0
+    if has_2d:
+        images = mm_data.modalities['image'].clone()
 
     # Convert images to ImageData for convenience
-    if isinstance(images, SameSettingImageData):
-        images = ImageData([images])
+    # if isinstance(images, SameSettingImageData):
+    #     images = ImageData([images])
 
     # Subsample to limit the drawing time
-    data = GridSampling3D(voxel)(data)
+    data = GridSampling3D(voxel, mode='last')(data)
     if data.num_nodes > max_points:
         data = FixedPoints(
             max_points, replace=False, allow_duplicates=False)(data)
 
     # Subsample the mappings accordingly
-    transform = SelectMappingFromPointId()
-    data, images = transform(data, images)
+    if has_2d:
+        transform = SelectMappingFromPointId()
+        data, images = transform(data, images)
 
     # Round to the cm for cleaner hover info
     data.pos = (data.pos * 100).round() / 100
-    for im in images:
-        im.pos = (im.pos * 100).round() / 100
+    if has_2d:
+        for im in images:
+            im.pos = (im.pos * 100).round() / 100
 
     # CLass colors initialization
     if class_colors is not None and not isinstance(class_colors[0], str):
@@ -232,7 +237,7 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
         initialized_visibility = True
 
     # Draw a trace for 3D point cloud of number of images seen
-    if len(images) > 0:
+    if has_2d:
         n_seen = sum([
             im.mappings.pointers[1:] - im.mappings.pointers[:-1]
             for im in images])
@@ -328,9 +333,9 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
         modes['num_traces'].append(1)
 
     # Draw image positions
-    img_traces = []
-    if images.num_settings > 0:
+    if has_2d:
 
+        img_traces = []
         if images.num_settings > 1:
             image_xyz = torch.cat([im.pos for im in images]).numpy()
             image_axes = torch.cat([im.axes for im in images]).numpy()
@@ -436,11 +441,11 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
             xanchor="right",
             x=0.99))
 
-    output = {
-        'figure': fig,
-        'images': images,
-        'data': data,
-        'img_traces': img_traces}
+    output = {'figure': fig, 'data': data}
+
+    if has_2d:
+        output['images'] = images
+        output['img_traces'] = img_traces
 
     return output
 
