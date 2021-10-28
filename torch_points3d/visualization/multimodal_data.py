@@ -267,7 +267,9 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
     # Draw a trace for position-colored 3D point cloud
     # radius = torch.norm(data.pos - data.pos.mean(dim=0), dim=1).max()
     # data.pos_rgb = (data.pos - data.pos.mean(dim=0)) / (2 * radius) + 0.5
-    data.pos_rgb = (data.pos - data.pos.min(dim=0)) / (data.pos.max(dim=0) - data.pos.min(dim=0) + 1e-6)
+    mini = data.pos.min(dim=0).values
+    maxi = data.pos.max(dim=0).values
+    data.pos_rgb = (data.pos - mini) / (maxi - mini + 1e-6)
     fig.add_trace(
         go.Scatter3d(
             name='Position RGB',
