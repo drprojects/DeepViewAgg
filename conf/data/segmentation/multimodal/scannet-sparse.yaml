@@ -130,7 +130,7 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
               r_max: ${data.multimodal.settings.r_max}
               r_min: ${data.multimodal.settings.r_min}
               exact: ${data.exact_splatting_2d}
-              equirectangular: False
+              camera: scannet
         - transform: NeighborhoodBasedMappingFeatures  # Compute local density and occlusion
           params:
               k: 50  # empirically-chosen heuristic [30-100] is fine

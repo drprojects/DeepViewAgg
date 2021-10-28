@@ -205,7 +205,7 @@ def equirectangular_projection_cuda(
 
 
 @njit(cache=True, nogil=True)
-def pinhole_projection_cpu(xyz, img_extrinsic, img_intrinsic):
+def pinhole_projection_cpu(xyz, img_extrinsic, img_intrinsic, camera='scannet'):
     """Compute the projection of 3D points into the image pixel
     coordinate system of a pinhole camera described by a 4x4 intrinsic
     and a 4x4 extrinsic parameters tensors. Computations are executed
@@ -216,23 +216,28 @@ def pinhole_projection_cpu(xyz, img_extrinsic, img_intrinsic):
     :param img_intrinsic:
     :return:
     """
-    # Transform XYZ coordinates to homogeneous coordinates
-    ones = np.ones((xyz.shape[0], 1), dtype=np.float32)
-    xyz_h = np.concatenate((xyz, ones), axis=1)
+    # Recover the 4x4 camera-to-world matrix
+    if camera == 'scannet':
+        camera_to_world = np.linalg.inv(img_extrinsic)
+        T = camera_to_world[:3, 3]
+        R = camera_to_world[:3, :3]
+        p = R @ xyz.T + T
 
-    # Inverse the 4x4 camera-to-world pose tensor
-    world_to_camera = np.linalg.inv(img_extrinsic)
+    elif camera == 'kitti360_perspective':
+        camera_to_world = img_extrinsic
+        T = camera_to_world[:3, 3].reshape((1, 3))
+        R = camera_to_world[:3, :3]
+        p = R.T @ (xyz - T).T
+    else:
+        raise ValueError
 
-    # Compute the projection
-    p = world_to_camera @ xyz_h.T
-    # p = np.matmul(world_to_camera, xyz_h.T)
     p[0] = (p[0] * img_intrinsic[0][0]) / p[2] + img_intrinsic[0][2]
     p[1] = (p[1] * img_intrinsic[1][1]) / p[2] + img_intrinsic[1][2]
 
     return p[0], p[1], p[2]
 
 
-def pinhole_projection_cuda(xyz, img_extrinsic, img_intrinsic):
+def pinhole_projection_cuda(xyz, img_extrinsic, img_intrinsic, camera='scannet'):
     """Compute the projection of 3D points into the image pixel
     coordinate system of a pinhole camera described by a 4x4 intrinsic
     and a 4x4 extrinsic parameters tensors. Computations are executed
@@ -243,15 +248,21 @@ def pinhole_projection_cuda(xyz, img_extrinsic, img_intrinsic):
     :param img_intrinsic:
     :return:
     """
-    # Transform XYZ coordinates to homogeneous coordinates
-    ones = torch.ones([xyz.shape[0], 1], device=xyz.device)
-    xyz_h = torch.cat([xyz, ones], dim=1)
+    if camera == 'scannet':
+        camera_to_world = torch.inverse(img_extrinsic)
+        T = camera_to_world[:3, 3].view(1, 3)
+        R = camera_to_world[:3, :3]
+        p = R @ xyz.T + T
 
-    # Inverse the 4x4 camera-to-world pose tensor
-    world_to_camera = torch.inverse(img_extrinsic)
+    elif camera == 'kitti360_perspective':
+        camera_to_world = img_extrinsic
+        T = camera_to_world[:3, 3]
+        R = camera_to_world[:3, :3]
+        p = R.T @ (xyz - T).T
 
-    # Compute the projection
-    p = world_to_camera.mm(xyz_h.T)
+    else:
+        raise ValueError
+
     p[0] = (p[0] * img_intrinsic[0][0]) / p[2] + img_intrinsic[0][2]
     p[1] = (p[1] * img_intrinsic[1][1]) / p[2] + img_intrinsic[1][2]
 
@@ -346,7 +357,7 @@ def field_of_view_cuda(
 def camera_projection_cpu(
         xyz, img_xyz, img_opk=None, img_intrinsic=None, img_extrinsic=None,
         img_mask=None, img_size=(1024, 512), crop_top=0, crop_bottom=0,
-        r_max=30, r_min=0.5, equirectangular=True):
+        r_max=30, r_min=0.5, camera='s3dis_equirectangular'):
     assert img_mask is None or img_mask.shape == img_size
 
     # We store indices in int64 format so we only accept indices up to
@@ -366,10 +377,10 @@ def camera_projection_cpu(
     indices = indices[in_range]
 
     # Project points to float pixel coordinates
-    if not equirectangular:
+    if camera in ['kitti360_perspective', 'scannet']:
         x_proj, y_proj, z_proj = pinhole_projection_cpu(
-            xyz, img_extrinsic, img_intrinsic)
-    elif img_opk is not None:
+            xyz, img_extrinsic, img_intrinsic, camera=camera)
+    elif camera == 's3dis_equirectangular' and img_opk is not None:
         x_proj, y_proj = equirectangular_projection_cpu(
             xyz - img_xyz, dist, img_opk, img_size)
         z_proj = None
@@ -391,7 +402,7 @@ def camera_projection_cpu(
 def camera_projection_cuda(
         xyz, img_xyz, img_opk=None, img_intrinsic=None, img_extrinsic=None,
         img_mask=None, img_size=(1024, 512), crop_top=0, crop_bottom=0,
-        r_max=30, r_min=0.5, equirectangular=True, **kwargs):
+        r_max=30, r_min=0.5, camera='s3dis_equirectangular', **kwargs):
     assert img_mask is None or img_mask.shape == img_size, \
         f'Expected img_mask to be a torch.BoolTensor of shape ' \
         f'img_size={img_size} but got size={img_mask.shape}.'
@@ -413,10 +424,10 @@ def camera_projection_cuda(
     indices = indices[in_range]
 
     # Project points to float pixel coordinates
-    if not equirectangular:
+    if camera in ['kitti360_perspective', 'scannet']:
         x_proj, y_proj, z_proj = pinhole_projection_cuda(
             xyz, img_extrinsic, img_intrinsic)
-    elif img_opk is not None:
+    elif camera == 's3dis_equirectangular' and img_opk is not None:
         x_proj, y_proj = equirectangular_projection_cuda(
             xyz - img_xyz, dist, img_opk, img_size)
         z_proj = None
@@ -438,7 +449,7 @@ def camera_projection_cuda(
 def camera_projection(
         xyz, img_xyz, img_opk=None, img_intrinsic=None, img_extrinsic=None,
         img_mask=None, img_size=(1024, 512), crop_top=0, crop_bottom=0,
-        r_max=30, r_min=0.5, equirectangular=True, **kwargs):
+        r_max=30, r_min=0.5, camera='s3dis_equirectangular', **kwargs):
     """
 
     :param xyz:
@@ -464,7 +475,7 @@ def camera_projection(
         xyz, img_xyz, img_opk=img_opk, img_intrinsic=img_intrinsic,
         img_extrinsic=img_extrinsic, img_mask=img_mask, img_size=img_size,
         crop_top=crop_top, crop_bottom=crop_bottom, r_max=r_max, r_min=r_min,
-        equirectangular=equirectangular)
+        camera=camera)
 
 
 # -------------------------------------------------------------------- #
@@ -782,7 +793,7 @@ def bbox_to_xy_grid_cuda(bbox):
 def visibility_from_splatting_cpu(
         x_proj, y_proj, dist, img_intrinsic=None, img_size=(1024, 512),
         crop_top=0, crop_bottom=0, voxel=0.1, k_swell=1.0, d_swell=1000,
-        exact=False, equirectangular=True):
+        exact=False, camera='s3dis_equirectangular'):
     """Compute visibility model with splatting on the CPU with numpy and
     numba.
 
@@ -801,22 +812,24 @@ def visibility_from_splatting_cpu(
     :param k_swell:
     :param d_swell:
     :param exact:
-    :param equirectangular:
+    :param camera:
     :return:
     """
     assert x_proj.shape[0] == y_proj.shape[0] == dist.shape[0] > 0
 
     # Compute splatting masks
-    if equirectangular:
+    if camera == 's3dis_equirectangular':
         splat = equirectangular_splat_cpu(
             x_proj, y_proj, dist, img_size=img_size, crop_top=crop_top,
             crop_bottom=crop_bottom, voxel=voxel, k_swell=k_swell,
             d_swell=d_swell)
-    else:
+    elif camera in ['kitti360_perspective', 'scannet']:
         splat = pinhole_splat_cpu(
             x_proj, y_proj, dist, img_intrinsic, img_size=img_size, crop_top=crop_top,
             crop_bottom=crop_bottom, voxel=voxel, k_swell=k_swell,
             d_swell=d_swell)
+    else:
+        raise ValueError
 
     # Cropped depth map initialization
     d_max = dist.max() + 1
@@ -885,7 +898,7 @@ def visibility_from_splatting_cpu(
 def visibility_from_splatting_cuda(
         x_proj, y_proj, dist, img_intrinsic=None, img_size=(1024, 512),
         crop_top=0, crop_bottom=0, voxel=0.1, k_swell=1.0, d_swell=1000,
-        exact=False, equirectangular=True):
+        exact=False, camera='s3dis_equirectangular'):
     """Compute visibility model with splatting on the GPU with torch and
     cuda.
 
@@ -904,7 +917,7 @@ def visibility_from_splatting_cuda(
     :param k_swell:
     :param d_swell:
     :param exact:
-    :param equirectangular:
+    :param camera:
     :param kwargs:
     :return:
     """
@@ -915,16 +928,18 @@ def visibility_from_splatting_cuda(
     n_points = x_proj.shape[0]
 
     # Compute splatting masks
-    if equirectangular:
+    if camera == 's3dis_equirectangular':
         splat = equirectangular_splat_cuda(
             x_proj, y_proj, dist, img_size=img_size, crop_top=crop_top,
             crop_bottom=crop_bottom, voxel=voxel, k_swell=k_swell,
             d_swell=d_swell)
-    else:
+    elif camera in ['kitti360_perspective', 'scannet']:
         splat = pinhole_splat_cuda(
             x_proj, y_proj, dist, img_intrinsic, img_size=img_size, crop_top=crop_top,
             crop_bottom=crop_bottom, voxel=voxel, k_swell=k_swell,
             d_swell=d_swell)
+    else:
+        raise ValueError(f"Unknown camera '{camera}'")
 
     # Convert splats to flattened global pixel coordinates
     x_all_splat, y_all_splat = bbox_to_xy_grid_cuda(splat)
@@ -965,7 +980,7 @@ def visibility_from_splatting_cuda(
 def visibility_from_splatting(
         x_proj, y_proj, dist, img_intrinsic=None, img_size=(1024, 512),
         crop_top=0, crop_bottom=0, voxel=0.1, k_swell=1.0, d_swell=1000,
-        exact=False, equirectangular=True, **kwargs):
+        exact=False, camera='s3dis_equirectangular', **kwargs):
     """
 
     :param x_proj:
@@ -979,7 +994,7 @@ def visibility_from_splatting(
     :param k_swell:
     :param d_swell:
     :param exact:
-    :param equirectangular:
+    :param camera:
     :param kwargs:
     :return:
     """
@@ -990,7 +1005,7 @@ def visibility_from_splatting(
         x_proj, y_proj, dist, img_intrinsic=img_intrinsic, img_size=img_size,
         crop_top=crop_top, crop_bottom=crop_bottom, voxel=voxel,
         k_swell=k_swell, d_swell=d_swell, exact=exact,
-        equirectangular=equirectangular)
+        camera=camera)
 
 
 # -------------------------------------------------------------------- #
@@ -1006,7 +1021,7 @@ def read_s3dis_depth_map(path, img_size=None, empty=-1):
     128m and a sensitivity of 1/512m. Missing values are encoded with
     the value 2^16 - 1. Note that [...] it [depth] is defined as the
     distance from the point-center of the camera in the
-    [equirectangular] panoramics.
+    (equirectangular) panoramic images.
     "
 
     :param path:
@@ -1350,13 +1365,13 @@ class VisibilityModel(ABC):
 
     def __init__(
             self, img_size=(1024, 512), crop_top=0, crop_bottom=0, r_max=30,
-            r_min=0.5, equirectangular=True):
+            r_min=0.5, camera='s3dis_equirectangular'):
         self.img_size = img_size
         self.crop_top = crop_top
         self.crop_bottom = crop_bottom
         self.r_max = r_max
         self.r_min = r_min
-        self.equirectangular = equirectangular
+        self.camera = camera
 
     def _camera_projection(self, *args, **kwargs):
         return camera_projection(*args, **self.__dict__, **kwargs)
