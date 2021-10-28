@@ -77,6 +77,7 @@ class LateFeatureFusion(APIModel):
             sp3d.nn.Conv3d)
 
         self.head = nn.Linear(96, dataset.num_classes)
+#         self.head = nn.Linear(self.backbone_3d.output_nc + self.backbone_no3d.output_nc, dataset.num_classes)
 
         self.loss_names = ["loss_seg"]
 
@@ -99,10 +100,10 @@ class LateFeatureFusion(APIModel):
         self.loss_names = ['loss_seg'] \
                           + self._use_cross_entropy * ['loss_cross_entropy'] \
                           + self._use_lovasz * ['loss_lovasz'] \
-                          + (self._use_cross_entropy and self.head_no3d) * ['loss_cross_entropy_no3d'] \
-                          + (self._use_cross_entropy and self.head_3d) * ['loss_cross_entropy_3d'] \
-                          + (self._use_lovasz and self.head_no3d) * ['loss_lovasz_no3d'] \
-                          + (self._use_lovasz and self.head_3d) * ['loss_lovasz_3d']
+                          + (self._use_cross_entropy and self.head_no3d is not None) * ['loss_cross_entropy_no3d'] \
+                          + (self._use_cross_entropy and self.head_3d is not None) * ['loss_cross_entropy_3d'] \
+                          + (self._use_lovasz and self.head_no3d is not None) * ['loss_lovasz_no3d'] \
+                          + (self._use_lovasz and self.head_3d is not None) * ['loss_lovasz_3d']
 
     def forward(self, *args, **kwargs):
         # 3D backbone
@@ -121,6 +122,7 @@ class LateFeatureFusion(APIModel):
         # Restore self.input.data.x
         self.input.data.x = input_x_backup
 
+#         features = self.fusion(features_3d, features_no3d)
         multimodal_features = self.fusion(features_3d, features_no3d)
 
         # DIRTY: get sparse tensor with proper coords and pass it multimodal features
@@ -149,8 +151,8 @@ class LateFeatureFusion(APIModel):
                 self.loss_seg += loss_3d
 
             if self._use_cross_entropy:
-                self.loss_cross_entropy = F.nll_loss(self.output, self.labels, ignore_index=IGNORE_LABEL,
-                                                     weight=self._weight_classes)
+                self.loss_cross_entropy = F.nll_loss(
+                    self.output, self.labels, ignore_index=IGNORE_LABEL, weight=getattr(self, '_weight_classes', None))
                 self.loss_seg += self.loss_cross_entropy
 
             if self._use_lovasz:
