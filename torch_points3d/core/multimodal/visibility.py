@@ -219,7 +219,7 @@ def pinhole_projection_cpu(xyz, img_extrinsic, img_intrinsic, camera='scannet'):
     # Recover the 4x4 camera-to-world matrix
     if camera == 'scannet':
         camera_to_world = np.linalg.inv(img_extrinsic)
-        T = camera_to_world[:3, 3]
+        T = camera_to_world[:3, 3].reshape((3, 1))
         R = camera_to_world[:3, :3]
         p = R @ xyz.T + T
 
@@ -250,13 +250,13 @@ def pinhole_projection_cuda(xyz, img_extrinsic, img_intrinsic, camera='scannet')
     """
     if camera == 'scannet':
         camera_to_world = torch.inverse(img_extrinsic)
-        T = camera_to_world[:3, 3].view(1, 3)
+        T = camera_to_world[:3, 3].view(3, 1)
         R = camera_to_world[:3, :3]
         p = R @ xyz.T + T
 
     elif camera == 'kitti360_perspective':
         camera_to_world = img_extrinsic
-        T = camera_to_world[:3, 3]
+        T = camera_to_world[:3, 3].view(1, 3)
         R = camera_to_world[:3, :3]
         p = R.T @ (xyz - T).T
 
@@ -426,7 +426,7 @@ def camera_projection_cuda(
     # Project points to float pixel coordinates
     if camera in ['kitti360_perspective', 'scannet']:
         x_proj, y_proj, z_proj = pinhole_projection_cuda(
-            xyz, img_extrinsic, img_intrinsic)
+            xyz, img_extrinsic, img_intrinsic, camera=camera)
     elif camera == 's3dis_equirectangular' and img_opk is not None:
         x_proj, y_proj = equirectangular_projection_cuda(
             xyz - img_xyz, dist, img_opk, img_size)
