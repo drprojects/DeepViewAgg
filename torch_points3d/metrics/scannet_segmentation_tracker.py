@@ -36,7 +36,9 @@ class ScannetSegmentationTracker(SegmentationTracker):
         if not full_res or self._stage == "train" or kwargs.get("data") is None:
             return
 
-        self._vote(kwargs.get("data"), model.get_output())
+        data = kwargs.get("data", model.get_input())
+        data = data.data if model.is_multimodal else data
+        self._vote(data, model.get_output())
 
     def get_metrics(self, verbose=False) -> Dict[str, Any]:
         """ Returns a dictionnary of all metrics and losses being tracked
