@@ -1966,7 +1966,7 @@ class ImageMapping(CSRData):
         # Work on a clone of self, to avoid in-place modifications.
         # Images are not affected if no mappings are present or idx is
         # None
-        if self.mappings is None or idx is None or idx.shape[0] == 0:
+        if idx is None or idx.shape[0] == 0:
             return self.clone()
 
         # Picking mode by default
