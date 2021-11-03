@@ -732,13 +732,14 @@ class SameSettingImageData(object):
         """
         # TODO: make sure the merge mode works on real data...
 
-        # Images are not affected if no mappings are present or idx is
-        # None
-        if self.mappings is None or idx is None:
-            return self.clone()
+        # Convert idx to a convenient indexing format
+        idx = tensor_idx(idx).to(self.device)
 
         # Work on a clone of self, to avoid in-place modifications.
-        idx = tensor_idx(idx).to(self.device)
+        # Images are not affected if no mappings are present or idx is
+        # None
+        if self.mappings is None or idx is None or idx.shape[0] == 0:
+            return self.clone()
 
         # Picking mode by default
         if mode == 'pick':
@@ -1959,10 +1960,14 @@ class ImageMapping(CSRData):
         assert mode in MODES, \
             f"Unknown mode '{mode}'. Supported modes are {MODES}."
 
-        # Mappings are not affected if idx is None
-        if idx is None:
-            return self.clone()
+        # Convert idx to a convenient indexing format
         idx = tensor_idx(idx).to(self.device)
+
+        # Work on a clone of self, to avoid in-place modifications.
+        # Images are not affected if no mappings are present or idx is
+        # None
+        if self.mappings is None or idx is None or idx.shape[0] == 0:
+            return self.clone()
 
         # Picking mode by default
         if mode == 'pick':
