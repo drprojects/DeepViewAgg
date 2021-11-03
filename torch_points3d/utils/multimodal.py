@@ -5,7 +5,9 @@ import copy
 
 def tensor_idx(idx):
     """Convert an int, slice, list or numpy index to a torch.LongTensor."""
-    if isinstance(idx, int):
+    if idx is None:
+        idx =torch.LongTensor([])
+    elif isinstance(idx, int):
         idx = torch.LongTensor([idx])
     elif isinstance(idx, list):
         idx = torch.LongTensor(idx)
