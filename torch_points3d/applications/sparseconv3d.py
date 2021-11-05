@@ -224,20 +224,8 @@ class SparseConv3dUnet(BaseSparseConv3d):
         self._set_input(data)
         data = self.input
         stack_down = []
-        if self.is_multimodal:
-            stack_down_mod_without_x = [{m: data['modalities'][m].clone(drop_x=True) for m in self.modalities}]
-            # stack_down_mod = [{
-            #     'x_3d': data['x_3d'],
-            #     'x_seen': data['x_seen'],
-            #     'modalities': {m: v.clone() for m, v in data['modalities'].items()}
-            # }]
-
-        early_mod_x = None
         for i in range(len(self.down_modules) - 1):
             data = self.down_modules[i](data)
-
-            if early_mod_x is None:
-                early_mod_x = {m: data['modalities'][m].x for m in self.modalities}
 
             # Early down modules operate on raw data, their output is
             # not passed in skip connections
@@ -248,15 +236,6 @@ class SparseConv3dUnet(BaseSparseConv3d):
             # modality features are discarded, if any.
             if self.is_multimodal:
                 stack_down.append(data['x_3d'])
-                # stack_down_mod.append({
-                #     'x_3d': data['x_3d'],
-                #     'x_seen': data['x_seen'],
-                #     'modalities': {m: v.clone() for m, v in data['modalities'].items()}
-                # })
-                stack_down_mod_without_x.append({m: data['modalities'][m].clone(drop_x=True) for m in self.modalities})
-                # for m in self.modalities:
-                #     stack_down_mod[m].append(data['modalities'][m].clone(drop_x=True))
-                    # TODO: check if you can append MMData while preserving mappings. This would allow for cool multimodal upconv...
             else:
                 stack_down.append(data)
 
@@ -266,28 +245,9 @@ class SparseConv3dUnet(BaseSparseConv3d):
         if self.is_multimodal:
             # Discard the modalities used in the down modules, only
             # pointwise features are used in subsequent modules.
-            # for m in self.modalities:
-            #     stack_down_mod[m].append(data['modalities'][m].clone(drop_x=True))
-            # stack_down_mod.append({
-            #     'x_3d': data['x_3d'],
-            #     'x_seen': data['x_seen'],
-            #     'modalities': {m: v.clone() for m, v in data['modalities'].items()}
-            # })
-            stack_down_mod_without_x.append({m: data['modalities'][m].clone(drop_x=True) for m in self.modalities})
             data = data['x_3d']
 
         # TODO : Manage the inner module
-
-
-        # for i, mm_data_dict in enumerate(stack_down_mod):
-        for i, mm_data_dict in enumerate(stack_down_mod_without_x):
-            print(f'\nDown: {i}')
-            print(mm_data_dict)
-            print([im.img_size for im in mm_data_dict['image']])
-        print()
-        print([im.shape for im in early_mod_x['image']])
-        print()
-
 
         # Recover the skip mode from the up modules
         if self.up_modules[0].skip_first:
@@ -297,8 +257,6 @@ class SparseConv3dUnet(BaseSparseConv3d):
         for i in range(len(self.up_modules)):
             skip = stack_down.pop(-1) if stack_down else None
             data = self.up_modules[i](data, skip)
-
-        self.last_sparse_tensor = data
 
         out = Batch(x=data.F, pos=self.xyz).to(self.device)
         if self.has_mlp_head:

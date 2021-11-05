@@ -34,7 +34,7 @@ class APIModel(BaseModel):
     def set_input(self, data, device):
         self.batch_idx = data.batch.squeeze()
         self.input = data
-        if data.y is not None:
+        if getattr(data, 'y', None) is not None:
             self.labels = data.y.to(self.device)
         else:
             self.labels = None
