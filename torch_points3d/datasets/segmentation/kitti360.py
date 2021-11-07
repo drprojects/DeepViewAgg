@@ -322,10 +322,15 @@ WINDOWS = {
         '2013_05_28_drive_0010_sync/001109_001252',
         '2013_05_28_drive_0010_sync/001724_001879',
         '2013_05_28_drive_0010_sync/000984_001116',
-        '2013_05_28_drive_0010_sync/000353_000557'
-        ],
+        '2013_05_28_drive_0010_sync/000353_000557'],
 
-    'val': [],
+    # These are 3 randomly-picked windows also in train for now. Need
+    # to define a true validation set with all classes represented and
+    # with no overlap with train.
+    'val': [
+        '2013_05_28_drive_0000_sync/009886_010098',
+        '2013_05_28_drive_0009_sync/001005_001244',
+        '2013_05_28_drive_0010_sync/000549_000726'],
 
     'test': [
         '2013_05_28_drive_0008_sync/0000006988_0000007177',
@@ -369,9 +374,7 @@ WINDOWS = {
         '2013_05_28_drive_0018_sync/0000003033_0000003229',
         '2013_05_28_drive_0018_sync/0000003215_0000003513',
         '2013_05_28_drive_0018_sync/0000001878_0000002099',
-        '2013_05_28_drive_0018_sync/0000002269_0000002496'
-    ]
-}
+        '2013_05_28_drive_0018_sync/0000002269_0000002496']}
 
 
 ########################################################################
@@ -668,7 +671,7 @@ class KITTI360Cylinder(InMemoryDataset):
     num_classes = KITTI360_NUM_CLASSES
 
     def __init__(
-            self, root, split="train", sample_per_epoch=3000, radius=6,
+            self, root, split="train", sample_per_epoch=15000, radius=6,
             sample_res=0.3, transform=None, pre_transform=None,
             pre_filter=None, keep_instance=False):
 
@@ -733,6 +736,11 @@ class KITTI360Cylinder(InMemoryDataset):
     @property
     def split(self):
         return self._split
+
+    @property
+    def has_labels(self):
+        """Self-explanatory attribute needed for BaseDataset."""
+        return self.split != 'test'
 
     @property
     def sample_per_epoch(self):
@@ -803,6 +811,15 @@ class KITTI360Cylinder(InMemoryDataset):
         return ['data_3d_semantics', 'data_3d_semantics_test']
 
     @property
+    def raw_3d_file_names(self):
+        """These are the absolute paths to the raw window files."""
+        # The directory where train/test raw scans are
+        raw_3d_dir = self.raw_file_names[1] if self.split == 'test' else self.raw_file_names[0]
+        return [
+            osp.join(self.raw_dir, raw_3d_dir, '/'.split(x)[0], 'static', '/'.split(x)[1] + '.ply')
+            for x in self.windows]
+
+    @property
     def processed_3d_file_names(self):
         return [osp.join(split, '3d', f'{p}.pt') for split, w in WINDOWS.items() for p in w]
 
@@ -826,7 +843,7 @@ class KITTI360Cylinder(InMemoryDataset):
 
     def process(self):
         # TODO: for 2D, can't simply loop over those, need to treat 2D and 3D separately
-        for path in tq(self.processed_3d_file_names):
+        for i_window, path in tq(enumerate(self.processed_3d_file_names)):
 
             # Extract useful information from <path>
             split, modality, sequence_name, window_name = osp.splitext(path)[0].split('/')
@@ -851,9 +868,9 @@ class KITTI360Cylinder(InMemoryDataset):
                 os.makedirs(osp.dirname(window_path), exist_ok=True)
 
                 # Read the raw window data
-                raw_3d_dir = self.raw_file_names[1] if split == 'test' else self.raw_file_names[0]
-                raw_window_path = osp.join(self.raw_dir, raw_3d_dir, sequence_name, 'static', window_name + '.ply')
-                data = read_kitti360_window(raw_window_path, instance=self._keep_instance, remap=True)
+                data = read_kitti360_window(
+                    self.raw_3d_file_names[i_window],
+                    instance=self._keep_instance, remap=True)
 
                 # Apply pre_transform
                 if self.pre_transform is not None:
@@ -946,7 +963,14 @@ class KITTI360Cylinder(InMemoryDataset):
         # Get the cylindrical sampling
         center = self.window.centers.pos[idx_center]
         sampler = cT.CylinderSampling(self._radius, center, align_origin=False)
-        return sampler(self.window.data)
+        data = sampler(self.window.data)
+
+        # Save the window index and center index in the data. This will
+        # be used in the KITTI360Tracker to accumulate per-window votes
+        data.idx_window = idx_window
+        data.idx_center = idx_center
+
+        return data
 
     def _get_from_global_idx(self, idx):
         """Load the cylindrical sample of global index `idx`. The global
@@ -965,7 +989,14 @@ class KITTI360Cylinder(InMemoryDataset):
         # Get the cylindrical sampling
         center = self.window.centers.pos[idx_center]
         sampler = cT.CylinderSampling(self._radius, center, align_origin=False)
-        return sampler(self.window.data)
+        data = sampler(self.window.data)
+
+        # Save the window index and center index in the data. This will
+        # be used in the KITTI360Tracker to accumulate per-window votes
+        data.idx_window = idx_window
+        data.idx_center = idx_center
+
+        return data
 
     def _pick_random_label_and_window(self):
         """Generates an `(label, idx_window)` tuple as expected by
@@ -1057,7 +1088,7 @@ class KITTI360Dataset(BaseDataset):
         train_sample_res = dataset_opt.get('train_sample_res', 0.3)
         eval_sample_res = dataset_opt.get('eval_sample_res', radius / 2)
         keep_instance = dataset_opt.get('keep_instance', False)
-        sample_per_epoch = dataset_opt.get('sample_per_epoch', 3000)
+        sample_per_epoch = dataset_opt.get('sample_per_epoch', 15000)
         train_is_trainval = dataset_opt.get('train_is_trainval', False)
 
         self.train_dataset = KITTI360Cylinder(
