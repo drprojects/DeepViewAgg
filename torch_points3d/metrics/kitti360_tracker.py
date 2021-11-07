@@ -57,6 +57,7 @@ class KITTI360Tracker(SegmentationTracker):
         # overlapping cylinders and multi-run voting. The real metrics
         # must be computed with respect to overlaps and voting schemes
 
+        # TODO: compute vote for val and test by default, because other measures are wrong ?
         # if self._test_area is None:
         #     self._test_area = self._dataset.test_data.clone()
         #     if self._test_area.y is None:
@@ -86,6 +87,7 @@ class KITTI360Tracker(SegmentationTracker):
         per_class_iou = self._confusion_matrix.get_intersection_union_per_class()[0]
         self._iou_per_class = {self._dataset.INV_OBJECT_LABEL[k]: v for k, v in enumerate(per_class_iou)}
 
+        # TODO: compute vote for val and test by default, because other measures are wrong ?
         # if not self._test_area:
         #     return
         #
@@ -145,6 +147,7 @@ class KITTI360Tracker(SegmentationTracker):
         if verbose:
             metrics[f'{self._stage}_iou'] = self._iou_per_class
 
+            # TODO
             # if self._full_vote_miou:
             #     metrics[f'{self._stage}_full_vote_miou'] = self._full_vote_miou
             #     metrics[f'{self._stage}_full_vote_iou'] = self._full_vote_iou_per_class

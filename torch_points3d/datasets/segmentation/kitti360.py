@@ -13,10 +13,10 @@ from collections import namedtuple
 import torch_points3d.core.data_transform as cT
 from torch_points3d.datasets.base_dataset import BaseDataset
 from torch_points3d.datasets.segmentation import IGNORE_LABEL as IGNORE
+from torch_points3d.metrics.kitti360_tracker import KITTI360Tracker
 
 DIR = os.path.dirname(os.path.realpath(__file__))
 log = logging.getLogger(__name__)
-
 
 ########################################################################
 #                              Data splits                             #
@@ -376,7 +376,6 @@ WINDOWS = {
         '2013_05_28_drive_0018_sync/0000001878_0000002099',
         '2013_05_28_drive_0018_sync/0000002269_0000002496']}
 
-
 ########################################################################
 #                                Labels                                #
 ########################################################################
@@ -430,53 +429,53 @@ Label = namedtuple('Label', [
 #   training, which affects all trainIds beyond 10 compared to the default
 #   KITTI360 setup.
 labels = [
-    #       name                     id    kittiId,    trainId   category            catId     hasInstances   ignoreInEval   color
-    Label(  'unlabeled'            ,  0 ,       -1 ,    IGNORE , 'void'            , 0       , False        , True         , (  0,  0,  0) ),
-    Label(  'ego vehicle'          ,  1 ,       -1 ,    IGNORE , 'void'            , 0       , False        , True         , (  0,  0,  0) ),
-    Label(  'rectification border' ,  2 ,       -1 ,    IGNORE , 'void'            , 0       , False        , True         , (  0,  0,  0) ),
-    Label(  'out of roi'           ,  3 ,       -1 ,    IGNORE , 'void'            , 0       , False        , True         , (  0,  0,  0) ),
-    Label(  'static'               ,  4 ,       -1 ,    IGNORE , 'void'            , 0       , False        , True         , (  0,  0,  0) ),
-    Label(  'dynamic'              ,  5 ,       -1 ,    IGNORE , 'void'            , 0       , False        , True         , (111, 74,  0) ),
-    Label(  'ground'               ,  6 ,       -1 ,    IGNORE , 'void'            , 0       , False        , True         , ( 81,  0, 81) ),
-    Label(  'road'                 ,  7 ,        1 ,         0 , 'flat'            , 1       , False        , False        , (128, 64,128) ),
-    Label(  'sidewalk'             ,  8 ,        3 ,         1 , 'flat'            , 1       , False        , False        , (244, 35,232) ),
-    Label(  'parking'              ,  9 ,        2 ,    IGNORE , 'flat'            , 1       , False        , True         , (250,170,160) ),
-    Label(  'rail track'           , 10 ,        10,    IGNORE , 'flat'            , 1       , False        , True         , (230,150,140) ),
-    Label(  'building'             , 11 ,        11,         2 , 'construction'    , 2       , True         , False        , ( 70, 70, 70) ),
-    Label(  'wall'                 , 12 ,        7 ,         3 , 'construction'    , 2       , False        , False        , (102,102,156) ),
-    Label(  'fence'                , 13 ,        8 ,         4 , 'construction'    , 2       , False        , False        , (190,153,153) ),
-    Label(  'guard rail'           , 14 ,        30,    IGNORE , 'construction'    , 2       , False        , True         , (180,165,180) ),
-    Label(  'bridge'               , 15 ,        31,    IGNORE , 'construction'    , 2       , False        , True         , (150,100,100) ),
-    Label(  'tunnel'               , 16 ,        32,    IGNORE , 'construction'    , 2       , False        , True         , (150,120, 90) ),
-    Label(  'pole'                 , 17 ,        21,         5 , 'object'          , 3       , True         , False        , (153,153,153) ),
-    Label(  'polegroup'            , 18 ,       -1 ,    IGNORE , 'object'          , 3       , False        , True         , (153,153,153) ),
-    Label(  'traffic light'        , 19 ,        23,         6 , 'object'          , 3       , True         , False        , (250,170, 30) ),
-    Label(  'traffic sign'         , 20 ,        24,         7 , 'object'          , 3       , True         , False        , (220,220,  0) ),
-    Label(  'vegetation'           , 21 ,        5 ,         8 , 'nature'          , 4       , False        , False        , (107,142, 35) ),
-    Label(  'terrain'              , 22 ,        4 ,         9 , 'nature'          , 4       , False        , False        , (152,251,152) ),
-    Label(  'sky'                  , 23 ,        9 ,    IGNORE , 'sky'             , 5       , False        , True         , ( 70,130,180) ),
-    Label(  'person'               , 24 ,        19,        10 , 'human'           , 6       , True         , False        , (220, 20, 60) ),
-    Label(  'rider'                , 25 ,        20,        11 , 'human'           , 6       , True         , False        , (255,  0,  0) ),
-    Label(  'car'                  , 26 ,        13,        12 , 'vehicle'         , 7       , True         , False        , (  0,  0,142) ),
-    Label(  'truck'                , 27 ,        14,        13 , 'vehicle'         , 7       , True         , False        , (  0,  0, 70) ),
-    Label(  'bus'                  , 28 ,        34,        14 , 'vehicle'         , 7       , True         , False        , (  0, 60,100) ),
-    Label(  'caravan'              , 29 ,        16,    IGNORE , 'vehicle'         , 7       , True         , True         , (  0,  0, 90) ),
-    Label(  'trailer'              , 30 ,        15,    IGNORE , 'vehicle'         , 7       , True         , True         , (  0,  0,110) ),
-    Label(  'train'                , 31 ,        33,        15 , 'vehicle'         , 7       , True         , False        , (  0, 80,100) ),
-    Label(  'motorcycle'           , 32 ,        17,        16 , 'vehicle'         , 7       , True         , False        , (  0,  0,230) ),
-    Label(  'bicycle'              , 33 ,        18,        17 , 'vehicle'         , 7       , True         , False        , (119, 11, 32) ),
-    Label(  'garage'               , 34 ,        12,         2 , 'construction'    , 2       , True         , False        , ( 64,128,128) ),
-    Label(  'gate'                 , 35 ,        6 ,         4 , 'construction'    , 2       , False        , False        , (190,153,153) ),
-    Label(  'stop'                 , 36 ,        29,    IGNORE , 'construction'    , 2       , True         , True         , (150,120, 90) ),
-    Label(  'smallpole'            , 37 ,        22,         5 , 'object'          , 3       , True         , False        , (153,153,153) ),
-    Label(  'lamp'                 , 38 ,        25,    IGNORE , 'object'          , 3       , True         , False        , (0,   64, 64) ),
-    Label(  'trash bin'            , 39 ,        26,    IGNORE , 'object'          , 3       , True         , False        , (0,  128,192) ),
-    Label(  'vending machine'      , 40 ,        27,    IGNORE , 'object'          , 3       , True         , False        , (128, 64,  0) ),
-    Label(  'box'                  , 41 ,        28,    IGNORE , 'object'          , 3       , True         , False        , (64,  64,128) ),
-    Label(  'unknown construction' , 42 ,        35,    IGNORE , 'void'            , 0       , False        , True         , (102,  0,  0) ),
-    Label(  'unknown vehicle'      , 43 ,        36,    IGNORE , 'void'            , 0       , False        , True         , ( 51,  0, 51) ),
-    Label(  'unknown object'       , 44 ,        37,    IGNORE , 'void'            , 0       , False        , True         , ( 32, 32, 32) ),
-    Label(  'license plate'        , -1 ,        -1,        -1 , 'vehicle'         , 7       , False        , True         , (  0,  0,142) ),
+    # name, id, kittiId, trainId, category, catId, hasInstances, ignoreInEval, color
+    Label('unlabeled', 0, -1, IGNORE, 'void', 0, False, True, (0, 0, 0)),
+    Label('ego vehicle', 1, -1, IGNORE, 'void', 0, False, True, (0, 0, 0)),
+    Label('rectification border', 2, -1, IGNORE, 'void', 0, False, True, (0, 0, 0)),
+    Label('out of roi', 3, -1, IGNORE, 'void', 0, False, True, (0, 0, 0)),
+    Label('static', 4, -1, IGNORE, 'void', 0, False, True, (0, 0, 0)),
+    Label('dynamic', 5, -1, IGNORE, 'void', 0, False, True, (111, 74, 0)),
+    Label('ground', 6, -1, IGNORE, 'void', 0, False, True, (81, 0, 81)),
+    Label('road', 7, 1, 0, 'flat', 1, False, False, (128, 64, 128)),
+    Label('sidewalk', 8, 3, 1, 'flat', 1, False, False, (244, 35, 232)),
+    Label('parking', 9, 2, IGNORE, 'flat', 1, False, True, (250, 170, 160)),
+    Label('rail track', 10, 10, IGNORE, 'flat', 1, False, True, (230, 150, 140)),
+    Label('building', 11, 11, 2, 'construction', 2, True, False, (70, 70, 70)),
+    Label('wall', 12, 7, 3, 'construction', 2, False, False, (102, 102, 156)),
+    Label('fence', 13, 8, 4, 'construction', 2, False, False, (190, 153, 153)),
+    Label('guard rail', 14, 30, IGNORE, 'construction', 2, False, True, (180, 165, 180)),
+    Label('bridge', 15, 31, IGNORE, 'construction', 2, False, True, (150, 100, 100)),
+    Label('tunnel', 16, 32, IGNORE, 'construction', 2, False, True, (150, 120, 90)),
+    Label('pole', 17, 21, 5, 'object', 3, True, False, (153, 153, 153)),
+    Label('polegroup', 18, -1, IGNORE, 'object', 3, False, True, (153, 153, 153)),
+    Label('traffic light', 19, 23, 6, 'object', 3, True, False, (250, 170, 30)),
+    Label('traffic sign', 20, 24, 7, 'object', 3, True, False, (220, 220, 0)),
+    Label('vegetation', 21, 5, 8, 'nature', 4, False, False, (107, 142, 35)),
+    Label('terrain', 22, 4, 9, 'nature', 4, False, False, (152, 251, 152)),
+    Label('sky', 23, 9, IGNORE, 'sky', 5, False, True, (70, 130, 180)),
+    Label('person', 24, 19, 10, 'human', 6, True, False, (220, 20, 60)),
+    Label('rider', 25, 20, 11, 'human', 6, True, False, (255, 0, 0)),
+    Label('car', 26, 13, 12, 'vehicle', 7, True, False, (0, 0, 142)),
+    Label('truck', 27, 14, 13, 'vehicle', 7, True, False, (0, 0, 70)),
+    Label('bus', 28, 34, 14, 'vehicle', 7, True, False, (0, 60, 100)),
+    Label('caravan', 29, 16, IGNORE, 'vehicle', 7, True, True, (0, 0, 90)),
+    Label('trailer', 30, 15, IGNORE, 'vehicle', 7, True, True, (0, 0, 110)),
+    Label('train', 31, 33, 15, 'vehicle', 7, True, False, (0, 80, 100)),
+    Label('motorcycle', 32, 17, 16, 'vehicle', 7, True, False, (0, 0, 230)),
+    Label('bicycle', 33, 18, 17, 'vehicle', 7, True, False, (119, 11, 32)),
+    Label('garage', 34, 12, 2, 'construction', 2, True, False, (64, 128, 128)),
+    Label('gate', 35, 6, 4, 'construction', 2, False, False, (190, 153, 153)),
+    Label('stop', 36, 29, IGNORE, 'construction', 2, True, True, (150, 120, 90)),
+    Label('smallpole', 37, 22, 5, 'object', 3, True, False, (153, 153, 153)),
+    Label('lamp', 38, 25, IGNORE, 'object', 3, True, False, (0, 64, 64)),
+    Label('trash bin', 39, 26, IGNORE, 'object', 3, True, False, (0, 128, 192)),
+    Label('vending machine', 40, 27, IGNORE, 'object', 3, True, False, (128, 64, 0)),
+    Label('box', 41, 28, IGNORE, 'object', 3, True, False, (64, 64, 128)),
+    Label('unknown construction', 42, 35, IGNORE, 'void', 0, False, True, (102, 0, 0)),
+    Label('unknown vehicle', 43, 36, IGNORE, 'void', 0, False, True, (51, 0, 51)),
+    Label('unknown object', 44, 37, IGNORE, 'void', 0, False, True, (32, 32, 32)),
+    Label('license plate', -1, -1, -1, 'vehicle', 7, False, True, (0, 0, 142)),
 ]
 
 # Dictionaries for a fast lookup
@@ -505,21 +504,15 @@ ID2TRAINID = torch.LongTensor([label.trainId for label in labels])
 def read_kitti360_window(filepath, instance=False, remap=False):
     with open(filepath, "rb") as f:
         window = PlyData.read(f)
+        attributes = [p.name for p in window['vertex'].properties]
         pos = torch.stack([torch.FloatTensor(window["vertex"][axis]) for axis in ["x", "y", "z"]], dim=-1)
         rgb = torch.stack([torch.FloatTensor(window["vertex"][axis]) for axis in ["red", "green", "blue"]], dim=-1) / 255
         data = Data(pos=pos, rgb=rgb)
-        try:
+        if 'semantic' in attributes:
             y = torch.LongTensor(window["vertex"]['semantic'])
-            if remap:
-                y = ID2TRAINID[y]
-            data.y = y
-        except:
-            pass
-        if instance:
-            try:
-                data.instance = torch.LongTensor(window["vertex"]['instance'])
-            except:
-                pass
+            data.y = ID2TRAINID[y] if remap else y
+        if instance and 'instance' in attributes:
+            data.instance = torch.LongTensor(window["vertex"]['instance'])
     return data
 
 
@@ -600,6 +593,7 @@ def load_calibration_camera_to_pose(filename):
 
 class Window:
     """Small placeholder for point cloud window data."""
+
     def __init__(self, window_path, sampling_path):
         # Recover useful information from the path
         self.path = window_path
@@ -1039,6 +1033,7 @@ class KITTI360Sampler(Sampler):
     organizes the samples so that same-window cylinders are queried
     consecutively.
     """
+
     def __init__(self, dataset):
         # This sampler only makes sense for KITTICylinder datasets
         # implementing random sampling (ie dataset.is_random=True)
@@ -1133,13 +1128,13 @@ class KITTI360Dataset(BaseDataset):
         # the dataset will have a `weight_classes` to be used when
         # computing the loss
         if dataset_opt.class_weight_method:
-            self.add_weights(class_weight_method=dataset_opt.class_weight_method)
+            # TODO: find an elegant way of returning class weights for train set
+            raise NotImplementedError('KITTI360Dataset does not support class weights yet.')
 
     @property
     def test_data(self):
         # TODO this needs to change for KITTI360, the raw data will be extracted directly from the files
         return self.test_dataset[0].raw_test_data
-
 
     def get_tracker(self, wandb_log: bool, tensorboard_log: bool):
         """Factory method for the tracker
@@ -1150,8 +1145,4 @@ class KITTI360Dataset(BaseDataset):
         Returns:
             [BaseTracker] -- tracker
         """
-        # TODO: create KITTI360Tracker
-        raise NotImplementedError()
-        # from torch_points3d.metrics.s3dis_tracker import S3DISTracker
-        #
-        # return S3DISTracker(self, wandb_log=wandb_log, use_tensorboard=tensorboard_log)
+        return KITTI360Tracker(self, wandb_log=wandb_log, use_tensorboard=tensorboard_log)
