@@ -49,10 +49,9 @@ class ImageTransform:
             images_out = ImageData([im for _, im in out])
             data_out = out[0][0] if len(out) > 0 else data
         else:
-            assert (isinstance(images, SameSettingImageData)
-                    and not self._PROCESS_IMAGE_DATA
-                    or isinstance(images, ImageData)
-                    and self._PROCESS_IMAGE_DATA)
+            if isinstance(images, SameSettingImageData) \
+                    and self._PROCESS_IMAGE_DATA:
+                images = ImageData([images])
             # data_out, images_out = self._process(data.clone(), images.clone())
             data_out, images_out = self._process(data, images)
         return data_out, images_out
