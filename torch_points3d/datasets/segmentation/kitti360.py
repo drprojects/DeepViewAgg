@@ -810,7 +810,7 @@ class KITTI360Cylinder(InMemoryDataset):
         # The directory where train/test raw scans are
         raw_3d_dir = self.raw_file_names[1] if self.split == 'test' else self.raw_file_names[0]
         return [
-            osp.join(self.raw_dir, raw_3d_dir, '/'.split(x)[0], 'static', '/'.split(x)[1] + '.ply')
+            osp.join(self.raw_dir, raw_3d_dir, x.split('/')[0], 'static', x.split('/')[1] + '.ply')
             for x in self.windows]
 
     @property
@@ -837,7 +837,7 @@ class KITTI360Cylinder(InMemoryDataset):
 
     def process(self):
         # TODO: for 2D, can't simply loop over those, need to treat 2D and 3D separately
-        for i_window, path in tq(enumerate(self.processed_3d_file_names)):
+        for path in tq(self.processed_3d_file_names):
 
             # Extract useful information from <path>
             split, modality, sequence_name, window_name = osp.splitext(path)[0].split('/')
@@ -862,9 +862,13 @@ class KITTI360Cylinder(InMemoryDataset):
                 os.makedirs(osp.dirname(window_path), exist_ok=True)
 
                 # Read the raw window data
+                raw_3d_dir = self.raw_file_names[1] if split == 'test' \
+                    else self.raw_file_names[0]
+                raw_window_path = osp.join(
+                    self.raw_dir, raw_3d_dir, sequence_name, 'static',
+                    window_name + '.ply')
                 data = read_kitti360_window(
-                    self.raw_3d_file_names[i_window],
-                    instance=self._keep_instance, remap=True)
+                    raw_window_path, instance=self._keep_instance, remap=True)
 
                 # Apply pre_transform
                 if self.pre_transform is not None:
