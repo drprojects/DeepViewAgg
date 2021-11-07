@@ -6,6 +6,7 @@ class: kitti360.KITTI360Dataset
 dataroot: data
 voxel: 0.05
 mapping_key: mapping_index  # hardcoded key used to sync 3D points and modality mappings
+sample_per_epoch: 15000  # This roughly means 50 cylinders per training window, to mitigate loading overhead
 
 pre_transform:
     - transform: SaveOriginalPosId    # Required so that one can recover the original point in the fused point cloud
