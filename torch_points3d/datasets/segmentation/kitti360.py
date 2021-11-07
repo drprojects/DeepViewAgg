@@ -2,19 +2,14 @@ import os
 import os.path as osp
 import numpy as np
 import torch
-import random
-import glob
-from plyfile import PlyData, PlyElement
-from torch_geometric.data import InMemoryDataset, Data, extract_zip, Dataset
+from plyfile import PlyData
+from torch_geometric.data import InMemoryDataset, Data
+from torch.utils.data import Sampler
 import logging
 from sklearn.neighbors import KDTree
 from tqdm.auto import tqdm as tq
-import pandas as pd
-import gdown
-import shutil
 from collections import namedtuple
 
-from torch_points3d.datasets.samplers import BalancedRandomSampler
 import torch_points3d.core.data_transform as cT
 from torch_points3d.datasets.base_dataset import BaseDataset
 from torch_points3d.datasets.segmentation import IGNORE_LABEL as IGNORE
@@ -525,7 +520,7 @@ def read_kitti360_window(filepath, instance=False, remap=False):
     return data
 
 
-def readVariable(fid, name, M, N):
+def read_variable(fid, name, M, N):
     """ Credit: https://github.com/autonomousvision/kitti360Scripts """
     # rewind
     fid.seek(0, 0)
@@ -582,7 +577,7 @@ def load_intrinsics(intrinsic_file, cam_id=0):
     return K, R_rect, width, height
 
 
-def loadCalibrationCameraToPose(filename):
+def load_calibration_camera_to_pose(filename):
     """ load KITTI360 camera-to-pose calibration
 
     Credit: https://github.com/autonomousvision/kitti360Scripts
@@ -592,7 +587,7 @@ def loadCalibrationCameraToPose(filename):
         cameras = ['image_00', 'image_01', 'image_02', 'image_03']
         lastrow = np.array([0, 0, 0, 1]).reshape(1, 4)
         for camera in cameras:
-            Tr[camera] = np.concatenate((readVariable(fid, camera, 3, 4), lastrow))
+            Tr[camera] = np.concatenate((read_variable(fid, camera, 3, 4), lastrow))
     return Tr
 
 
@@ -629,19 +624,23 @@ class Window:
         return self._sampling['data']
 
     @property
-    def labels(self):
-        return self._sampling['labels']
+    def sampling_labels(self):
+        return torch.from_numpy(self._sampling['labels'])
 
     @property
-    def label_counts(self):
-        return self._sampling['label_counts']
+    def sampling_label_counts(self):
+        return torch.from_numpy(self._sampling['label_counts'])
 
     @property
-    def label_weights(self):
-        return self._sampling['label_weights']
+    def sampling_grid_size(self):
+        return self._sampling['grid_size']
+
+    @property
+    def num_centers(self):
+        return self.centers.num_nodes
 
     def __repr__(self):
-        display_attr = ['split', 'sequence', 'window', 'num_points']
+        display_attr = ['split', 'sequence', 'window', 'num_points', 'num_centers']
         attr = ', '.join([f'{a}={getattr(self, a)}' for a in display_attr])
         return f'{self.__class__.__name__}({attr})'
 
@@ -651,15 +650,14 @@ class Window:
 ########################################################################
 
 class KITTI360Cylinder(InMemoryDataset):
-    """Child class of KITTI360 supporting sampling of 3D cylinders
+    """
+    Child class of KITTI360 supporting sampling of 3D cylinders
     within each window.
 
-    When `sample_per_window` is specified, indexing the dataset produces
-    random cylinders picked from densly-sampled cylinders. When
-    `sample_per_window=0`, the cylinders are regularly sampled and
+    When `sample_per_epoch` is specified, indexing the dataset produces
+    cylinders randomly picked so as to even-out class distributions.
+    When `sample_per_epoch=0`, the cylinders are regularly sampled and
     accessed normally by indexing the dataset.
-
-    # TODO: specify how radius and grid size are chosen
 
     http://www.cvlibs.net/datasets/kitti-360/
 
@@ -670,60 +668,148 @@ class KITTI360Cylinder(InMemoryDataset):
     num_classes = KITTI360_NUM_CLASSES
 
     def __init__(
-            self, root, split="train", sample_per_window=100, radius=5,
-            sample_freq=10, transform=None, pre_transform=None, pre_filter=None,
-            keep_instance=False):
+            self, root, split="train", sample_per_epoch=3000, radius=6,
+            sample_res=0.3, transform=None, pre_transform=None,
+            pre_filter=None, keep_instance=False):
 
         self._split = split
-        self._sample_per_window = sample_per_window
+        self._sample_per_epoch = sample_per_epoch
         self._radius = radius
-        self._sample_freq = sample_freq
+        self._sample_res = sample_res
         self._keep_instance = keep_instance
         self._window = None
         self._window_idx = None
 
         # Initialization with downloading and all preprocessing
-        super(KITTI360Cylinder, self).__init__(root, transform, pre_transform, pre_filter)
+        super(KITTI360Cylinder, self).__init__(
+            root, transform, pre_transform, pre_filter)
 
-        # Read all sampling files to prepare class-balanced cylindric
-        # sampling
+        # Read all sampling files to prepare for cylindrical sampling.
+        # If self.is_random (ie sample_per_eopch > 0), need to recover
+        # each window's sampling centers label counts for class-balanced
+        # sampling. Otherwise, need to recover the number of cylinders
+        # per window for deterministic sampling.
+        self._label_counts = torch.zeros(
+            len(self.windows), self.num_classes).long()
+        self._sampling_sizes = torch.zeros(len(self.windows)).long()
+        for i, path in enumerate(self.sampling_paths):
 
+            # Recover the label of cylindrical sampling centers and
+            # their count in each window
+            sampling = torch.load(path)
+            centers = sampling['data']
 
-        # TODO: do we load anything upon initialization ?
-        # TODO: what happens when test split ?
+            # Save the number of sampling cylinders in the window
+            self._sampling_sizes[i] = centers.num_nodes
+
+            # If class-balanced sampling is not necessary, skip the rest
+            if not self.is_random:
+                continue
+
+            # If the data has no labels, class-balanced sampling cannot
+            # be performed
+            if sampling['labels'] is None:
+                raise ValueError(
+                    f'Cannot do class-balanced random sampling if data has no '
+                    f'labels. Please set sample_per_epoch=0 for test data.')
+
+            # Save the label counts for each window sampling. Cylinders
+            # whose center label is IGNORE will not be sampled
+            labels = torch.LongTensor(sampling['labels'])
+            counts = torch.LongTensor(sampling['label_counts'])
+            valid_labels = labels != IGNORE
+            labels = labels[valid_labels]
+            counts = counts[valid_labels]
+            self._label_counts[i, labels] = counts
+
+        if self.is_random:
+            assert self._label_counts.sum() > 0, \
+                'The dataset has no sampling centers with relevant classes, ' \
+                'check that your data has labels, that they follow the ' \
+                'nomenclature defined for KITTI360, that your dataset uses ' \
+                'enough windows and has reasonable downsampling and cylinder ' \
+                'sampling resolutions.'
+
+    @property
+    def split(self):
+        return self._split
+
+    @property
+    def sample_per_epoch(self):
+        """Rules the sampling mechanism for the dataset.
+
+        When `self.sample_per_epoch > 0`, indexing the dataset produces
+        random cylindrical sampling, picked so as to even-out the class
+        distribution across the dataset.
+
+        When `self.sample_per_epoch <= 0`, indexing the dataset
+        addresses cylindrical samples in a deterministic fashion. The
+        cylinder indices are ordered with respect to their acquisition
+        window and the regular grid sampling of the centers in each
+        window.
+        """
+        return self._sample_per_epoch
+
+    @property
+    def is_random(self):
+        return self.sample_per_epoch > 0
 
     @property
     def windows(self):
-        return WINDOWS[self._split]
+        """Filenames of the dataset windows."""
+        return WINDOWS[self.split]
+
+    @property
+    def paths(self):
+        """Paths to the dataset windows data."""
+        return [osp.join(self.processed_dir, self.split, '3d', f'{p}.pt') for p in self.windows]
+
+    @property
+    def sampling_paths(self):
+        """Paths to the dataset windows sampling data."""
+        return [f'{osp.splitext(p)[0]}_{hash(self._sample_res)}.pt' for p in self.paths]
+
+    @property
+    def label_counts(self):
+        """Count of cylindrical sampling center of each class, for each
+        window. Used for class-balanced random sampling of cylinders in
+        the dataset, when self.is_random==True.
+        """
+        return self._label_counts
+
+    @property
+    def sampling_sizes(self):
+        """Number of cylindrical sampling, for each window. Used for
+        deterministic sampling of cylinders in the dataset, when
+        self.is_random==False.
+        """
+        return self._sampling_sizes
 
     @property
     def window(self):
+        """Currently loaded window."""
         return self._window
 
     @property
     def window_idx(self):
+        """Index of the currently loaded window in self.windows."""
         return self._window_idx
 
     @property
     def raw_file_names(self):
-        """The filepaths to find in order to skip the download
-        """
+        """The filepaths to find in order to skip the download."""
         # TODO: add folders for 2D
         # return ['calibration', 'data_2d_raw', 'data_2d_test', 'data_3d_semantics', 'data_3d_semantics_test', 'data_poses']
         return ['data_3d_semantics', 'data_3d_semantics_test']
 
     @property
     def processed_3d_file_names(self):
-        return [
-            osp.join(split, '3d', f'{p}.pt')
-            for split, w in WINDOWS.items() for p in w]
+        return [osp.join(split, '3d', f'{p}.pt') for split, w in WINDOWS.items() for p in w]
 
     @property
     def processed_3d_sampling_file_names(self):
-        r1 = hash(self._radius)
-        r2 = hash(self._radius / self._sample_freq)
         return [
-            osp.join(split, '3d', f'{p}_{r1}_{r2}.pt')
+            osp.join(split, '3d', f'{p}_{hash(self._sample_res)}.pt')
             for split, w in WINDOWS.items() for p in w]
 
     @property
@@ -745,9 +831,9 @@ class KITTI360Cylinder(InMemoryDataset):
             # Extract useful information from <path>
             split, modality, sequence_name, window_name = osp.splitext(path)[0].split('/')
             window_path = osp.join(self.processed_dir, path)
-            r1 = hash(self._radius)
-            r2 = hash(self._radius / self._sample_freq)
-            sampling_path = osp.join(self.processed_dir, split, modality, sequence_name, f'{window_name}_{r1}_{r2}.pt')
+            sampling_path = osp.join(
+                self.processed_dir, split, modality, sequence_name,
+                f'{window_name}_{hash(self._sample_res)}.pt')
 
             # If required files exist, skip processing
             if osp.exists(window_path) and osp.exists(sampling_path):
@@ -783,60 +869,35 @@ class KITTI360Cylinder(InMemoryDataset):
             else:
                 data = torch.load(window_path)
 
-            # Only keep 'pos' and 'y' (if any) attributes for the
-            # sampling centers.
+            # Prepare data to build cylinder centers. Only keep 'pos'
+            # and 'y' (if any) attributes and drop the z coordinate in
+            # 'pos'.
             # NB: we can modify 'data' inplace here to avoid cloning
             for key in data.keys:
                 if key not in ['pos', 'y']:
                     delattr(data, key)
+            data.pos[:, 2] = 0
 
-            # Compute the window sampling centers
-            sampler = cT.GridSampling3D(size=self._radius / self._sample_freq)
+            # Compute the sampling of cylinder centers for the window
+            sampler = cT.GridSampling3D(size=self._sample_res)
             centers = sampler(data)
+            centers.pos = centers.pos[:, :2]
             sampling = {
                 'data': centers,
                 'labels': None,
                 'label_counts': None,
-                'label_weights': None}
+                'grid_size': self._sample_res}
 
             # If data has labels (ie not test set), save which labels
-            # are present in the window and their respective normalized
-            # weights. These will be used at sampling time to pick
-            # cylinders so as to even out label distributions
+            # are present in the window and their count. These will be
+            # used at sampling time to pick cylinders so as to even-out
+            # class distributions
             if hasattr(centers, 'y'):
                 unique, counts = np.unique(np.asarray(centers.y), return_counts=True)
-                counts = np.sqrt(counts.mean() / counts)
-                weights = counts / np.sum(counts)
                 sampling['labels'] = unique
                 sampling['label_counts'] = counts
-                sampling['label_weights'] = weights
 
             torch.save(sampling, sampling_path)
-
-    def __len__(self):
-        # TODO
-        if self._sample_per_window > 0:
-            return len(self.windows * self._sample_per_window)
-        else:
-            return 100000
-            # TODO: find a way to estimate actual length of dataset
-            # return len(self._test_spheres)
-
-    def get(self, idx):
-        if self._sample_per_window > 0:
-            return self._get_random()
-        else:
-            return self._test_spheres[idx].clone()
-
-    def _get_random(self):
-        # Random spheres biased towards getting more low frequency classes
-        chosen_label = np.random.choice(self._labels, p=self._label_counts)
-        valid_centres = self._centres_for_sampling[self._centres_for_sampling[:, 4] == chosen_label]
-        centre_idx = int(random.random() * (valid_centres.shape[0] - 1))
-        centre = valid_centres[centre_idx]
-        area_data = self._datas[centre[3].int()]
-        cylinder_sampler = cT.CylinderSampling(self._radius, centre[:3], align_origin=False)
-        return cylinder_sampler(area_data)
 
     def _load_window(self, idx):
         """Load a window and its sampling data into memory based on its
@@ -847,12 +908,135 @@ class KITTI360Cylinder(InMemoryDataset):
             return
 
         # Load the window data and associated sampling data
-        window_path = osp.join(self.processed_dir, self.windows[idx])
-        r1 = hash(self._radius)
-        r2 = hash(self._radius / self._sample_freq)
-        sampling_path = f'{osp.splitext(window_path)[0]}_{r1}_{r2}.pt'
-        self._window = Window(window_path, sampling_path)
+        self._window = Window(self.paths[idx], self.sampling_paths[idx])
         self._window_idx = idx
+
+    def __len__(self):
+        return self.sample_per_epoch if self.is_random else self.sampling_sizes.sum()
+
+    def __getitem__(self, idx):
+        r"""Gets the cylindrical sample at index `idx` and transforms it
+        (in case a `self.transform` is given).
+
+        The expected indexing format depends on `self.is_random`. If
+        `self.is_random=True` (ie `self.sample_per_epoch > 0`), then
+        `idx` is a tuple carrying `(label, idx_window)` indicating
+        which label to pick from which window. If `self.is_random=False`
+        then `idx` is an integer in [0, len(self)-1] indicating which
+        cylinder to pick among the whole dataset.
+        """
+        if self.is_random:
+            data = self._get_from_label_and_window_idx(*idx)
+        else:
+            data = self._get_from_global_idx(idx)
+        data = data if self.transform is None else self.transform(data)
+        return data
+
+    def _get_from_label_and_window_idx(self, label, idx_window):
+        """Load a random cylindrical sample of label `ìdx_label` from
+        window `idx_window`.
+        """
+        # Load the associated window
+        self._load_window(idx_window)
+
+        # Pick a random center
+        valid_centers = torch.where(self.window.centers.y == label)[0]
+        idx_center = np.random.choice(valid_centers.numpy())
+
+        # Get the cylindrical sampling
+        center = self.window.centers.pos[idx_center]
+        sampler = cT.CylinderSampling(self._radius, center, align_origin=False)
+        return sampler(self.window.data)
+
+    def _get_from_global_idx(self, idx):
+        """Load the cylindrical sample of global index `idx`. The global
+        indices refer to sampling centers considered in `self.windows`
+        order.
+        """
+        # Split the global idx into idx_window and idx_center
+        cum_sizes = self.sampling_sizes.cumsum(0)
+        idx_window = torch.bucketize(idx, cum_sizes, right=True)
+        offsets = torch.cat((torch.zeros(1), cum_sizes)).long()
+        idx_center = idx - offsets[idx_window]
+
+        # Load the associated window
+        self._load_window(idx_window)
+
+        # Get the cylindrical sampling
+        center = self.window.centers.pos[idx_center]
+        sampler = cT.CylinderSampling(self._radius, center, align_origin=False)
+        return sampler(self.window.data)
+
+    def _pick_random_label_and_window(self):
+        """Generates an `(label, idx_window)` tuple as expected by
+        `self.__getitem` when `self.is_random=True`.
+
+        This function is typically intended be used by a PyTorch Sampler
+        to build a generator to iterate over random samples of the
+        dataset while minimizing window loading overheads.
+        """
+        if not self.is_random:
+            raise ValueError('Set sample_per_epoch > 0 for random sampling.')
+
+        # First, pick a class randomly. This guarantees all classes are
+        # equally represented. Note that classes are assumed to be all
+        # integers in [0, self.num_classes-1] here. Besides, if a class
+        # is absent from label_counts (ie no cylinder carries the
+        # label), it will not be picked.
+        seen_labels = torch.where(self.label_counts.sum(dim=0) > 0)[0]
+        label = np.random.choice(seen_labels.numpy())
+
+        # Then, pick a window that has a cylinder with such class, based
+        # on class counts.
+        counts = self.label_counts[:, label]
+        weights = (counts / counts.sum()).numpy()
+        idx_window = np.random.choice(range(len(self.windows)), p=weights)
+
+        return label, idx_window
+
+
+########################################################################
+#                              Data splits                             #
+########################################################################
+
+class KITTI360Sampler(Sampler):
+    """This sampler is responsible for creating KITTICylinder
+    `(label, idx_window)` indices for random sampling of cylinders
+    across all windows.
+
+    In order to minimize window loading overheads, the KITTI360Sampler
+    organizes the samples so that same-window cylinders are queried
+    consecutively.
+    """
+    def __init__(self, dataset):
+        # This sampler only makes sense for KITTICylinder datasets
+        # implementing random sampling (ie dataset.is_random=True)
+        assert dataset.is_random
+        self.dataset = dataset
+
+    def __iter__(self):
+        # Generate random (label, idx_window) tuple indices
+        labels = torch.empty(len(self), dtype=torch.long)
+        windows = torch.empty(len(self), dtype=torch.long)
+        for i in range(len(self)):
+            label, idx_window = self.dataset._pick_random_label_and_window()
+            labels[i] = label
+            windows[i] = idx_window
+
+        # Shuffle the order in which required windows will be loaded
+        unique_windows = windows.unique()
+        window_order = unique_windows[torch.randperm(unique_windows.shape[0])]
+
+        # Compute the order in which the cylinders will be loaded
+        order = window_order[windows].argsort()
+
+        return iter([(l, w) for l, w in zip(labels[order], windows[order])])
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __repr__(self):
+        return f'{self.__class__.__name__}(num_samples={len(self)})'
 
 
 ########################################################################
@@ -869,17 +1053,19 @@ class KITTI360Dataset(BaseDataset):
     def __init__(self, dataset_opt):
         super().__init__(dataset_opt)
 
-        radius = dataset_opt.get('radius', 5)
-        keep_instance = dataset_opt.get('keep_instance', 5)
-        sample_per_window = dataset_opt.get('sample_per_window', 3000)
+        radius = dataset_opt.get('radius', 6)
+        train_sample_res = dataset_opt.get('train_sample_res', 0.3)
+        eval_sample_res = dataset_opt.get('eval_sample_res', radius / 2)
+        keep_instance = dataset_opt.get('keep_instance', False)
+        sample_per_epoch = dataset_opt.get('sample_per_epoch', 3000)
         train_is_trainval = dataset_opt.get('train_is_trainval', False)
-        train_is_trainval = dataset_opt.get('instance', False)
 
         self.train_dataset = KITTI360Cylinder(
             self._data_path,
             radius=radius,
+            sample_res=train_sample_res,
             keep_instance=keep_instance,
-            sample_per_window=sample_per_window,
+            sample_per_epoch=sample_per_epoch,
             split='train' if not train_is_trainval else 'trainval',
             pre_transform=self.pre_transform,
             transform=self.train_transform)
@@ -887,8 +1073,9 @@ class KITTI360Dataset(BaseDataset):
         self.val_dataset = KITTI360Cylinder(
             self._data_path,
             radius=radius,
+            sample_res=eval_sample_res,
             keep_instance=keep_instance,
-            sample_per_window=-1,
+            sample_per_epoch=-1,
             split='val',
             pre_transform=self.pre_transform,
             transform=self.val_transform)
@@ -896,12 +1083,24 @@ class KITTI360Dataset(BaseDataset):
         self.test_dataset = KITTI360Cylinder(
             self._data_path,
             radius=radius,
+            sample_res=eval_sample_res,
             keep_instance=keep_instance,
-            sample_per_window=-1,
+            sample_per_epoch=-1,
             split='test',
             pre_transform=self.pre_transform,
             transform=self.test_transform)
 
+        # A dedicated sampler must be created for the train set. Indeed,
+        # self.train_dataset.sample_per_epoch > 0 means cylindrical
+        # samples will be picked randomly across all windows. In order
+        # to minimize window loading overheads, the train_sampler
+        # organizes the epoch batches so that same-window cylinders are
+        # queried consecutively.
+        self.train_sampler = KITTI360Sampler(self.train_dataset)
+
+        # If a `class_weight_method` is provided in the dataset config,
+        # the dataset will have a `weight_classes` to be used when
+        # computing the loss
         if dataset_opt.class_weight_method:
             self.add_weights(class_weight_method=dataset_opt.class_weight_method)
 

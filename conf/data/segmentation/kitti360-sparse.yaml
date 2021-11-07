@@ -4,7 +4,7 @@ defaults:
 
 class: kitti360.KITTI360Dataset
 dataroot: data
-voxel: 0.04
+voxel: 0.05
 mapping_key: mapping_index  # hardcoded key used to sync 3D points and modality mappings
 
 pre_transform:
@@ -20,7 +20,7 @@ pre_transform:
       params:
             num_neighbors: 50  # heuristic: at least 30
             # r: 0.1  # heuristic: 2 * voxel - using r will force CPU computation
-            # use_full_pos: True  # Possible if GridSampling3D.setattr_full_pos = True
+            use_full_pos: True  # Possible if GridSampling3D.setattr_full_pos = True
             use_faiss: True
     - transform: EigenFeatures
       params:
@@ -31,7 +31,6 @@ pre_transform:
     - transform: RemoveAttributes
       params:
             attr_names: [full_pos, eigenvalues, eigenvectors]
-#            attr_names: [eigenvalues, eigenvectors]
 
 train_transforms:
   - transform: RandomNoise
@@ -68,6 +67,7 @@ train_transforms:
       quantize_coords: True
       mode: "last"
   - transform: ShiftVoxels
+
 test_transform:
   - transform: XYZFeature
     params:
@@ -85,4 +85,5 @@ test_transform:
       size: ${data.voxel}
       quantize_coords: True
       mode: "last"
+
 val_transform: ${data.test_transform}
