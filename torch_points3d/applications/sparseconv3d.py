@@ -257,9 +257,6 @@ class SparseConv3dUnet(BaseSparseConv3d):
         for i in range(len(self.up_modules)):
             skip = stack_down.pop(-1) if stack_down else None
             data = self.up_modules[i](data, skip)
-        
-        # DIRTY trick necessary for multimodal models with late_conv
-        self.last_sparse_tensor = data
 
         out = Batch(x=data.F, pos=self.xyz).to(self.device)
         if self.has_mlp_head:
