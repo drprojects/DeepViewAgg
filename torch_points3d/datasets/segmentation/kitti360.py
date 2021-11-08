@@ -1055,7 +1055,6 @@ class KITTI360Sampler(Sampler):
         self.dataset = dataset
         self.max_consecutive = max_consecutive
 
-    @property
     def __iter__(self):
         # Generate random (label, idx_window) tuple indices
         labels = torch.empty(len(self), dtype=torch.long)
