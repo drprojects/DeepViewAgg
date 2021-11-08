@@ -1464,7 +1464,7 @@ class SplattingVisibility(VisibilityModel, ABC):
 class DepthBasedVisibility(VisibilityModel, ABC):
 
     def __init__(self, depth_threshold=0.05, **kwargs):
-        super(SplattingVisibility, self).__init__(**kwargs)
+        super(DepthBasedVisibility, self).__init__(**kwargs)
         self.depth_threshold = depth_threshold
 
     def _visibility(self, *args, **kwargs):
@@ -1474,7 +1474,7 @@ class DepthBasedVisibility(VisibilityModel, ABC):
 class BiasuttiVisibility(VisibilityModel, ABC):
 
     def __init__(self, k=75, margin=None, threshold=None, **kwargs):
-        super(SplattingVisibility, self).__init__(**kwargs)
+        super(BiasuttiVisibility, self).__init__(**kwargs)
         self.k = k
         self.margin = margin
         self.threshold = threshold
