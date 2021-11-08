@@ -9,6 +9,7 @@ import logging
 from sklearn.neighbors import KDTree
 from tqdm.auto import tqdm as tq
 from collections import namedtuple
+from random import shuffle
 
 import torch_points3d.core.data_transform as cT
 from torch_points3d.datasets.base_dataset import BaseDataset
@@ -322,8 +323,7 @@ WINDOWS = {
         '2013_05_28_drive_0010_sync/001109_001252',
         '2013_05_28_drive_0010_sync/001724_001879',
         '2013_05_28_drive_0010_sync/000984_001116',
-        '2013_05_28_drive_0010_sync/000353_000557'
-    ],
+        '2013_05_28_drive_0010_sync/000353_000557'],
 
     # These are 3 randomly-picked windows also in train for now. Need
     # to define a true validation set with all classes represented and
@@ -375,8 +375,7 @@ WINDOWS = {
         '2013_05_28_drive_0018_sync/0000003033_0000003229',
         '2013_05_28_drive_0018_sync/0000003215_0000003513',
         '2013_05_28_drive_0018_sync/0000001878_0000002099',
-        '2013_05_28_drive_0018_sync/0000002269_0000002496'
-    ]}
+        '2013_05_28_drive_0018_sync/0000002269_0000002496']}
 
 ########################################################################
 #                                Labels                                #
@@ -1043,15 +1042,20 @@ class KITTI360Sampler(Sampler):
 
     In order to minimize window loading overheads, the KITTI360Sampler
     organizes the samples so that same-window cylinders are queried
-    consecutively.
+    consecutively. An optional `max_consecutive` parameter lets you
+    specify the maximum tolerance on the number of consecutive samples
+    from the same window. This is too avoid spending too much time
+    learning from on the same 3D area.
     """
 
-    def __init__(self, dataset):
+    def __init__(self, dataset, max_consecutive=40):
         # This sampler only makes sense for KITTICylinder datasets
         # implementing random sampling (ie dataset.is_random=True)
         assert dataset.is_random
         self.dataset = dataset
+        self.max_consecutive = max_consecutive
 
+    @property
     def __iter__(self):
         # Generate random (label, idx_window) tuple indices
         labels = torch.empty(len(self), dtype=torch.long)
@@ -1065,10 +1069,44 @@ class KITTI360Sampler(Sampler):
         unique_windows = windows.unique()
         window_order = unique_windows[torch.randperm(unique_windows.shape[0])]
 
-        # Compute the order in which the cylinders will be loaded
+        # Compute the order in which the cylinders will be loaded. Note
+        # this disregards the max_consecutive for now
         order = window_order[windows].argsort()
 
-        return iter([(l, w) for l, w in zip(labels[order], windows[order])])
+        # Sort the windows and labels
+        labels = labels[order]
+        windows = windows[order]
+
+        # If the max_consecutive limit is respected, end here
+        if (torch.bincount(windows) <= self.max_consecutive).all():
+            return iter([
+                (l, w) for l, w in zip(labels.tolist(), windows.tolist())])
+
+        # Accumulate the samplings in same-window consecutive groups of
+        # the max_consecutive or less. Store the
+        indices = []
+        group_w = windows[0]
+        group_start = 0
+        for i, w in enumerate(windows):
+            if w != group_w or (i - group_start) >= self.max_consecutive:
+                indices.append(torch.arange(group_start, i))
+                group_w = w
+                group_start = i
+
+            # Make last group 'manually'
+            if i == windows.shape[0] - 1:
+                indices.append(torch.arange(group_start, i+1))
+
+        # Shuffle the groups of indices and concatenate them into the
+        # final sampling order
+        shuffle(indices)
+        order = torch.cat(indices)
+
+        # Sort the windows and labels to account for max_consecutive
+        labels = labels[order]
+        windows = windows[order]
+
+        return iter([(l, w) for l, w in zip(labels.tolist(), windows.tolist())])
 
     def __len__(self):
         return len(self.dataset)
