@@ -714,7 +714,7 @@ class ADE20KResNet18PPM(nn.Module, ABC):
     Adapted from https://github.com/CSAILVision/semantic-segmentation-pytorch
     """
 
-    def __init__(self, *args, frozen=False, **kwargs):
+    def __init__(self, *args, frozen=False, pretrained=True, **kwargs):
         super(ADE20KResNet18PPM, self).__init__()
 
         # Adapt the default config to use ResNet18 + PPM-Deepsup model
@@ -739,15 +739,16 @@ class ADE20KResNet18PPM(nn.Module, ABC):
         # Build encoder and decoder from pretrained weights
         old_stdout = sys.stdout  # backup current stdout
         sys.stdout = open(os.devnull, "w")
+        self.pretrained = pretrained
         self.encoder = MITModelBuilder.build_encoder(
             arch=MITCfg.MODEL.arch_encoder,
             fc_dim=MITCfg.MODEL.fc_dim,
-            weights=MITCfg.MODEL.weights_encoder)
+            weights=MITCfg.MODEL.weights_encoder if pretrained else '')
         self.decoder = MITModelBuilder.build_decoder(
             arch=MITCfg.MODEL.arch_decoder,
             fc_dim=MITCfg.MODEL.fc_dim,
             num_class=MITCfg.DATASET.num_class,
-            weights=MITCfg.MODEL.weights_decoder,
+            weights=MITCfg.MODEL.weights_decoder if pretrained else '',
             use_softmax=True)
         sys.stdout = old_stdout  # reset old stdout
 
