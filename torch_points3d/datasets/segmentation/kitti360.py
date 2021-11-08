@@ -939,8 +939,14 @@ class KITTI360Cylinder(InMemoryDataset):
         which label to pick from which window. If `self.is_random=False`
         then `idx` is an integer in [0, len(self)-1] indicating which
         cylinder to pick among the whole dataset.
+
+        NB: if, instead of a `(label, idx_window)` tuple, a single
+        integer `idx` is passed to a `self.is_random=True` dataset,
+        `__getitem__` will fallback to `self.is_random=False` behavior.
+        This mechanism is required for some PyTorch Dataset core
+        functionalities calling `self[0]`.
         """
-        if self.is_random:
+        if self.is_random and isinstance(idx, tuple):
             data = self._get_from_label_and_window_idx(*idx)
         else:
             data = self._get_from_global_idx(idx)
