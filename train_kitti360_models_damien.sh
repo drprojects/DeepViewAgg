@@ -37,13 +37,13 @@ TRAINING=kitti360_benchmark/sparseconv3d
 # EXP_NAME=________
 EXP_NAME=${MODEL_NAME}
 
-EPOCHS=20
+EPOCHS=60
 CYLINDERS_PER_EPOCH=12000  # Roughly speaking, 40 cylinders per window
 # BATCH_SIZE=4
 BATCH_SIZE=8
 WORKERS=4
 BASE_LR=0.1
-LR_SCHEDULER=multi_step_kitti360
+LR_SCHEDULER=multi_step_kitti360_${EPOCHS}
 EVAL_FREQUENCY=1
 export SPARSE_BACKEND=torchsparse
 # export SPARSE_BACKEND=minkowski

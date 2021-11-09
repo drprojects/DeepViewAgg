@@ -18,6 +18,8 @@ log = logging.getLogger(__name__)
 
 
 class KITTI360Tracker(SegmentationTracker):
+    # TODO: add support for tracking 'mciou' for KITTI360 Mean Category IoU
+
     def reset(self, *args, **kwargs):
 
         # SegmentationTracker handles _confusion_matrix, _acc, _macc,
@@ -58,6 +60,7 @@ class KITTI360Tracker(SegmentationTracker):
         # must be computed with respect to overlaps and voting schemes
 
         # TODO: compute vote for val and test by default, because other measures are wrong ?
+        # TODO: CAREFUL when recovering the window index from BATCH ! Do it on batch.to_data_list() !
         # if self._test_area is None:
         #     self._test_area = self._dataset.test_data.clone()
         #     if self._test_area.y is None:
