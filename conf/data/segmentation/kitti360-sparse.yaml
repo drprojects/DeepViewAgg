@@ -6,7 +6,7 @@ class: kitti360.KITTI360Dataset
 dataroot: data
 voxel: 0.05
 mapping_key: mapping_index  # hardcoded key used to sync 3D points and modality mappings
-sample_per_epoch: 15000  # This roughly means 50 cylinders per training window, to mitigate loading overhead
+sample_per_epoch: 12000  # Roughly speaking, this means 40 cylinders per training window, to mitigate loading overhead
 eval_sample_res: 6  # This limits the number of cylinders sampled in val and test set. Saves time when training. For voting INFERENCE, better choose radius / 2 or less.
 
 pre_transform:

@@ -24,3 +24,7 @@ modelnet40:
 shapenet:
     mciou: 85.1
     miou: 86.4
+
+kitti360:
+    mciou: 58.3
+    miou: 35.7
