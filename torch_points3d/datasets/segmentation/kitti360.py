@@ -974,6 +974,7 @@ class KITTI360Cylinder(InMemoryDataset):
         # be used in the KITTI360Tracker to accumulate per-window votes
         data.idx_window = int(idx_window)
         data.idx_center = int(idx_center)
+        data.y_center = int(label)
 
         return data
 
@@ -993,6 +994,7 @@ class KITTI360Cylinder(InMemoryDataset):
 
         # Get the cylindrical sampling
         center = self.window.centers.pos[idx_center]
+        y_center = self.window.centers.y[idx_center]
         sampler = cT.CylinderSampling(self._radius, center, align_origin=False)
         data = sampler(self.window.data)
 
@@ -1000,6 +1002,7 @@ class KITTI360Cylinder(InMemoryDataset):
         # be used in the KITTI360Tracker to accumulate per-window votes
         data.idx_window = int(idx_window)
         data.idx_center = int(idx_center)
+        data.y_center = int(y_center)
 
         return data
 
@@ -1132,7 +1135,7 @@ class KITTI360Dataset(BaseDataset):
         train_sample_res = dataset_opt.get('train_sample_res', 0.3)
         eval_sample_res = dataset_opt.get('eval_sample_res', radius / 2)
         keep_instance = dataset_opt.get('keep_instance', False)
-        sample_per_epoch = dataset_opt.get('sample_per_epoch', 15000)
+        sample_per_epoch = dataset_opt.get('sample_per_epoch', 12000)
         train_is_trainval = dataset_opt.get('train_is_trainval', False)
 
         self.train_dataset = KITTI360Cylinder(

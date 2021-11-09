@@ -58,6 +58,7 @@ class KITTI360Tracker(SegmentationTracker):
         # must be computed with respect to overlaps and voting schemes
 
         # TODO: compute vote for val and test by default, because other measures are wrong ?
+        # TODO: CAREFUL when recovering the window index from BATCH ! Do it on batch.to_data_list() !
         # if self._test_area is None:
         #     self._test_area = self._dataset.test_data.clone()
         #     if self._test_area.y is None:
