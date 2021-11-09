@@ -467,7 +467,7 @@ class S3DISOriginalFusedMM(InMemoryDataset):
                       f"{len(image_info_list)} images")
 
                 # Keep all images for the test area
-                image_data_list.append(img_info_to_img_data(image_info_list))
+                image_data_list.append(img_info_to_img_data(image_info_list, self.img_ref_size))
 
             # Save image data
             torch.save(image_data_list, self.image_data_path)
