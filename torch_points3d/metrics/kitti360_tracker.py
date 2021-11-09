@@ -18,6 +18,8 @@ log = logging.getLogger(__name__)
 
 
 class KITTI360Tracker(SegmentationTracker):
+    # TODO: add support for tracking 'mciou' for KITTI360 Mean Category IoU
+
     def reset(self, *args, **kwargs):
 
         # SegmentationTracker handles _confusion_matrix, _acc, _macc,
