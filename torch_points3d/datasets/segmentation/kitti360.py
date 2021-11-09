@@ -664,6 +664,7 @@ class KITTI360Cylinder(InMemoryDataset):
     # TODO: parameters
     """
     num_classes = KITTI360_NUM_CLASSES
+    _WINDOWS = WINDOWS
 
     def __init__(
             self, root, split="train", sample_per_epoch=15000, radius=6,
@@ -760,7 +761,7 @@ class KITTI360Cylinder(InMemoryDataset):
     @property
     def windows(self):
         """Filenames of the dataset windows."""
-        return WINDOWS[self.split]
+        return self._WINDOWS[self.split]
 
     @property
     def paths(self):
@@ -816,13 +817,13 @@ class KITTI360Cylinder(InMemoryDataset):
 
     @property
     def processed_3d_file_names(self):
-        return [osp.join(split, '3d', f'{p}.pt') for split, w in WINDOWS.items() for p in w]
+        return [osp.join(split, '3d', f'{p}.pt') for split, w in self._WINDOWS.items() for p in w]
 
     @property
     def processed_3d_sampling_file_names(self):
         return [
             osp.join(split, '3d', f'{p}_{hash(self._sample_res)}.pt')
-            for split, w in WINDOWS.items() for p in w]
+            for split, w in self._WINDOWS.items() for p in w]
 
     @property
     def processed_file_names(self):
@@ -830,7 +831,7 @@ class KITTI360Cylinder(InMemoryDataset):
         folder in order to skip the processing
         """
         # TODO: add 2D files for multimodal
-        # [osp.join(split, '2d', p + '.pt') for split, w in WINDOWS.items() for p in w]
+        # [osp.join(split, '2d', p + '.pt') for split, w in self._WINDOWS.items() for p in w]
         return self.processed_3d_file_names + self.processed_3d_sampling_file_names
 
     def download(self):
@@ -1035,6 +1036,17 @@ class KITTI360Cylinder(InMemoryDataset):
 
 
 ########################################################################
+#                           MiniKITTI360Cylinder                           #
+########################################################################
+
+class MiniKITTI360Cylinder(KITTI360Cylinder):
+    """A mini version of KITTI360Cylinder with only a few windows for
+    experimentation.
+    """
+    _WINDOWS = {k: v[:2] for k, v in WINDOWS.items()}
+
+
+########################################################################
 #                              Data splits                             #
 ########################################################################
 
@@ -1131,6 +1143,7 @@ class KITTI360Dataset(BaseDataset):
     def __init__(self, dataset_opt):
         super().__init__(dataset_opt)
 
+        cls = MiniKITTI360Cylinder if dataset_opt.get('mini', False) else KITTI360Cylinder
         radius = dataset_opt.get('radius', 6)
         train_sample_res = dataset_opt.get('train_sample_res', 0.3)
         eval_sample_res = dataset_opt.get('eval_sample_res', radius / 2)
@@ -1138,7 +1151,7 @@ class KITTI360Dataset(BaseDataset):
         sample_per_epoch = dataset_opt.get('sample_per_epoch', 12000)
         train_is_trainval = dataset_opt.get('train_is_trainval', False)
 
-        self.train_dataset = KITTI360Cylinder(
+        self.train_dataset = cls(
             self._data_path,
             radius=radius,
             sample_res=train_sample_res,
@@ -1148,7 +1161,7 @@ class KITTI360Dataset(BaseDataset):
             pre_transform=self.pre_transform,
             transform=self.train_transform)
 
-        self.val_dataset = KITTI360Cylinder(
+        self.val_dataset = cls(
             self._data_path,
             radius=radius,
             sample_res=eval_sample_res,
@@ -1158,7 +1171,7 @@ class KITTI360Dataset(BaseDataset):
             pre_transform=self.pre_transform,
             transform=self.val_transform)
 
-        self.test_dataset = KITTI360Cylinder(
+        self.test_dataset = cls(
             self._data_path,
             radius=radius,
             sample_res=eval_sample_res,
