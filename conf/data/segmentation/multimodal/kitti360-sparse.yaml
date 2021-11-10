@@ -7,7 +7,7 @@ resolution_2d: [1408, 376]      # Image resolution
 padding_2d: 8          # Padding for CropImageGroups
 min_size_2d: 64         # Minimum size for CropImageGroups
 exact_splatting_2d: True  # Whether only exact mappings are preserved after splatting
-proj_upscale: 2
+proj_upscale: 1
 r_max: 8
 r_min: 0.05
 train_pixel_credit: 4  # Choose based on GPU capacity, model ko/pixel cost and 3D batch_size
@@ -19,16 +19,12 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
     modality: image
 
     pre_transform:
-        - transform: LoadImages  # Read images from disk
-          params:
-                ref_size: ${data.resolution_2d}
-                show_progress: True
         - transform: NonStaticMask  # Compute acquisition mask
           params:
                 ref_size: ${data.resolution_2d}
                 proj_upscale: ${data.proj_upscale}
                 n_sample: 5
-        - transform: MapImages  # Compute the 3D-2D mapping
+        - transform: MapImages  # Compute the 3D-2D mapping between a Window and all images of the Sequence
           params:
                 method: SplattingVisibility
                 ref_size: ${data.resolution_2d}
@@ -38,7 +34,9 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
                 r_max: ${data.r_max}
                 r_min: ${data.r_min}
                 exact: ${data.exact_splatting_2d}
+                camera: kitti360_perspective
                 verbose: True  # True to print computation times
+        - transform: SelectMappingFromPointId  # Remove Sequence images not mapped to the Window
         - transform: NeighborhoodBasedMappingFeatures  # Compute local density and occlusion
           params:
                 k: 50  # empirically-chosen heuristic [30-100] is fine
@@ -47,6 +45,10 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
                 occlusion: True
                 use_faiss: True
                 verbose: True  # True to print computation times
+        - transform: LoadImages  # Read images from disk
+          params:
+                ref_size: ${data.resolution_2d}
+                show_progress: True
 
     train_transforms:
         - transform: SelectMappingFromPointId  # Select mappings after 3D points sampling
