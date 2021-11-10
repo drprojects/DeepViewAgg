@@ -480,3 +480,4 @@ INV_OBJECT_LABEL = {k: TRAINID2LABEL[k].name for k in range(KITTI360_NUM_CLASSES
 OBJECT_COLOR = np.asarray([TRAINID2LABEL[k].color for k in range(KITTI360_NUM_CLASSES)])
 OBJECT_LABEL = {name: i for i, name in INV_OBJECT_LABEL.items()}
 ID2TRAINID = np.array([label.trainId for label in labels])
+TRAINID2ID = np.asarray([TRAINID2LABEL[c].id for c in range(KITTI360_NUM_CLASSES)] + [0])
