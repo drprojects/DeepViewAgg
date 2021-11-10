@@ -366,9 +366,11 @@ class KITTI360Cylinder(InMemoryDataset):
         date and time of creation.
         """
         submissions_dir = osp.join(self.root, "submissions")
-        submission_name = '-'.join([
-            f'{getattr(datetime.now(), x)}'
-            for x in ['year', 'month', 'day', 'hour', 'minute', 'second']])
+        date = '-'.join([
+            f'{getattr(datetime.now(), x)}' for x in ['year', 'month', 'day']])
+        time = '-'.join([
+            f'{getattr(datetime.now(), x)}' for x in ['hour', 'minute', 'second']])
+        submission_name = f'{date}_{time}'
         path = osp.join(submissions_dir, submission_name)
         return path
 

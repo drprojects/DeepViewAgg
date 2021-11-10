@@ -47,6 +47,8 @@ LR_SCHEDULER=multi_step_kitti360_${EPOCHS}
 EVAL_FREQUENCY=1
 export SPARSE_BACKEND=torchsparse
 # export SPARSE_BACKEND=minkowski
+SUBMISSION=False
+#SUBMISSION=True
 
 # CHECKPOINT_DIR=""
 
@@ -69,5 +71,6 @@ training.batch_size=${BATCH_SIZE} \
 training.epochs=${EPOCHS} \
 training.num_workers=${WORKERS} \
 training.optim.base_lr=${BASE_LR} \
-training.wandb.log=True \
-training.wandb.name=${EXP_NAME}
+training.wandb.log=False \
+training.wandb.name=${EXP_NAME} \
+tracker_options.make_submission=${SUBMISSION}
