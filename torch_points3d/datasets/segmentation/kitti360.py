@@ -351,15 +351,13 @@ class KITTI360Cylinder(InMemoryDataset):
 
     @property
     def processed_3d_file_names(self):
-        return [
-            osp.join(split, '3d', f'{p}.pt')
-            for split, w in self._WINDOWS.items() for p in w]
+        return [osp.join(self.split, '3d', f'{w}.pt') for w in self.windows]
 
     @property
     def processed_3d_sampling_file_names(self):
         return [
-            osp.join(split, '3d', f'{p}_{hash(self._sample_res)}.pt')
-            for split, w in self._WINDOWS.items() for p in w]
+            osp.join(self.split, '3d', f'{w}_{hash(self._sample_res)}.pt')
+            for w in self.windows]
 
     @property
     def processed_file_names(self):
