@@ -20,7 +20,8 @@ log = logging.getLogger(__name__)
 
 
 class KITTI360Tracker(SegmentationTracker):
-    # TODO: add support for tracking 'mciou' for KITTI360 Mean Category IoU
+    # TODO: add support for tracking 'mciou' for KITTI360 Mean Category
+    #  IoU
 
     def reset(self, *args, **kwargs):
 
@@ -42,7 +43,7 @@ class KITTI360Tracker(SegmentationTracker):
         # Attributes to manage per-window metrics
         self.windows = self.stage_dataset.windows
         self.window_raw_files = self.stage_dataset.raw_3d_paths
-        self.temp_dir = None
+        self._temp_dir = None
         self._idx_window = None
         self._votes = None
         self._counts = None
@@ -56,7 +57,8 @@ class KITTI360Tracker(SegmentationTracker):
         self._submission_dir = self._dataset.submission_dir
 
     def track(
-            self, model: model_interface.TrackerInterface, data=None, **kwargs):
+            self, model: model_interface.TrackerInterface, data=None,
+            **kwargs):
         """Add current model predictions (usually the result of a batch)
         to the tracking.
         """
@@ -73,9 +75,9 @@ class KITTI360Tracker(SegmentationTracker):
         # (along with `raw` and `processed` directories. This is where
         # the tracker will create a file for each window, storing the
         # per-point votes
-        if self.temp_dir is None:
+        if self._temp_dir is None:
             data_dir = self.stage_dataset.root
-            self.temp_dir = tempfile.TemporaryDirectory(dir=data_dir)
+            self._temp_dir = tempfile.TemporaryDirectory(dir=data_dir)
 
         # Gather input data
         data = model.get_input() if data is None else data
@@ -90,9 +92,9 @@ class KITTI360Tracker(SegmentationTracker):
         # attribute which was not present in the Data list at Batch
         # creation time
         if callable(getattr(data, 'to_data_list', None)):
-            data.__slices__['pred'] = data.__slices__['y']
-            data.__cat_dims__['pred'] = data.__cat_dims__['y']
-            data.__cumsum__['pred'] = data.__cumsum__['y']
+            data.__slices__['pred'] = data.__slices__['pos']
+            data.__cat_dims__['pred'] = 0
+            data.__cumsum__['pred'] = data.__cumsum__['pos']
             data_list = data.to_data_list()
         else:
             data_list = [data]
@@ -114,11 +116,15 @@ class KITTI360Tracker(SegmentationTracker):
             # Recover the point indices in the original raw cloud
             origin_ids = data[SaveOriginalPosId.KEY]
             if origin_ids is None:
-                raise ValueError("The inputs given to the model do not have a %s attribute." % SaveOriginalPosId.KEY)
+                raise ValueError(
+                    f'The inputs given to the model do not have a '
+                    f'{SaveOriginalPosId.KEY } attribute."')
             if origin_ids.dim() == 2:
                 origin_ids = origin_ids.flatten()
             if origin_ids.max() >= self._votes.shape[0]:
-                raise ValueError("Origin ids are larger than the number of points in the original point cloud.")
+                raise ValueError(
+                    'Origin ids are larger than the number of points in the '
+                    'original point cloud.')
 
             # Save predictions
             # WARNING: if a point appears multiple times in origin_ids,
@@ -127,19 +133,31 @@ class KITTI360Tracker(SegmentationTracker):
             self._counts[origin_ids] += 1
 
     def finalise(self, full_res=False, make_submission=False, **kwargs):
-        # Compute basic metrics without taking into account voting
-        # schemes with multiple predictions on the same points
-        per_class_iou = self._confusion_matrix.get_intersection_union_per_class()[0]
-        self._iou_per_class = {
-            self._dataset.INV_OBJECT_LABEL[k]: v
-            for k, v in enumerate(per_class_iou)}
+        # Submission only for 'test' set and if submission is required,
+        # full_res is set to True
+        make_submission = make_submission and self._stage == 'test'
+        full_res = make_submission or full_res
 
-        # Check if dataset has labels
-        has_labels = self._dataset.has_labels(self._stage)
+        # Since saving tracked votes and prediction counts is only
+        # triggered when the window changes, we need to manually
+        # save the tracked data from the last batch. This is important,
+        # as this would entirely drop tracking for the entirety of the
+        # last window of val and test sets !
+        self._save_window_tracking()
+
+        # Compute basic metrics without taking into account voting
+        # schemes with multiple predictions on the same points. If the
+        # dataset has no labels, these metrics will not be computed
+        if self.has_labels:
+            per_class_iou = self._confusion_matrix.get_intersection_union_per_class()[0]
+            self._iou_per_class = {
+                self._dataset.INV_OBJECT_LABEL[k]: v
+                for k, v in enumerate(per_class_iou)}
 
         # We don't compute the voting nor full-resolution metrics on the
         # train set
-        if self._stage == 'train' or not has_labels and not make_submission:
+        if self._stage == 'train' or not self.has_labels \
+                and not make_submission:
             return
 
         # Compute voting and (optionally) full-resolution predictions
@@ -155,36 +173,37 @@ class KITTI360Tracker(SegmentationTracker):
 
             # Load ground truth and/or point positions from raw data. If
             # no labels are found in the PLY file, y will simply be None
-            if full_res or make_submission or has_labels:
+            if full_res or self.has_labels:
                 full_data = read_kitti360_window(
                     self.window_raw_files[idx_window], xyz=full_res, rgb=False,
-                    semantic=has_labels, instance=False, remap=True)
+                    semantic=self.has_labels, instance=False, remap=True)
 
             # If labels were found compute voting metrics for the window
             # low-res points. Note that points with ignored labels are
             # masked out
-            if has_labels and full_data.y is not None:
+            if self.has_labels and full_data.y is not None:
                 gt = full_data.y[has_pred].numpy()
                 mask = gt != self._ignore_label
                 self._vote_confusion_matrix.count_predicted_batch(
                     gt[mask], pred[mask])
 
             # Stop here if full-resolution metrics are not required
-            if not full_res and not make_submission:
+            if not full_res:
                 continue
 
             # If full-resolution metrics or benchmark submission are
             # required, compute full-resolution predictions by nearest
             # neighbor interpolation
             # TODO: NN search with faster CPU or GPU methods
-            full_pred = knn_interpolate(
+            full_pred = self._votes.argmax(1).numpy()
+            full_pred[~has_pred] = knn_interpolate(
                 self._votes[has_pred], full_data.pos[has_pred],
-                full_data.pos, k=1).argmax(1).numpy()
+                full_data.pos[~has_pred], k=1).argmax(1).numpy()
 
             # If labels were found compute voting metrics for the window
             # low-res points. Note that points with ignored labels are
             # masked out
-            if has_labels and full_data.y is not None:
+            if self.has_labels and full_data.y is not None:
                 gt = full_data.y.numpy()
                 mask = gt != self._ignore_label
                 self._full_confusion_matrix.count_predicted_batch(
@@ -242,11 +261,12 @@ class KITTI360Tracker(SegmentationTracker):
         np.save(osp.join(self._submission_dir, filename), pred_remapped)
 
     def get_metrics(self, verbose=False) -> Dict[str, Any]:
-        """ Returns a dictionnary of all metrics and losses being tracked
+        """ Returns a dictionary of all metrics and losses being
+        tracked.
         """
         # Low-resolution metrics without voting
         metrics = super().get_metrics(verbose)
-        if verbose:
+        if verbose and self.has_labels:
             metrics[f'{self._stage}_iou'] = self._iou_per_class
 
         # Low-resolution voting metrics
@@ -270,6 +290,17 @@ class KITTI360Tracker(SegmentationTracker):
         """Dataset for the Tracker's current stage"""
         return self._dataset.get_dataset(self._stage)
 
+    @property
+    def temp_dir(self):
+        """Name of the TemporaryDirectory created when tracking voting
+        metrics over all windows.
+        """
+        return None if self._temp_dir is None else self._temp_dir.name
+
+    @property
+    def has_labels(self):
+        return self._dataset.has_labels(self._stage)
+
     def _save_window_tracking(self):
         """Save a window's votes and prediction counts to the tracker's
         temporary directory.
@@ -279,8 +310,7 @@ class KITTI360Tracker(SegmentationTracker):
             return
         window = self.windows[self._idx_window]
         temp_window_path = osp.join(self.temp_dir, window + '.pt')
-        if not osp.exists(temp_window_path):
-            os.makedirs(temp_window_path)
+        os.makedirs(osp.dirname(temp_window_path), exist_ok=True)
         torch.save((self._votes, self._counts), temp_window_path)
 
     def _load_window_tracking(self, idx_window):
@@ -291,8 +321,8 @@ class KITTI360Tracker(SegmentationTracker):
         window = self.windows[idx_window]
         window_raw_size = self.stage_dataset.window_raw_sizes[idx_window]
         temp_window_path = osp.join(self.temp_dir, window + '.pt')
+        os.makedirs(osp.dirname(temp_window_path), exist_ok=True)
         if not osp.exists(temp_window_path):
-            os.makedirs(temp_window_path)
             votes = torch.zeros(window_raw_size, self._num_classes).float()
             counts = torch.zeros(window_raw_size).int()
         else:

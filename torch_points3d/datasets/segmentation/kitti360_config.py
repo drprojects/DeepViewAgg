@@ -309,11 +309,17 @@ WINDOWS = {
         '2013_05_28_drive_0010_sync/000984_001116',
         '2013_05_28_drive_0010_sync/000353_000557'],
 
-    # These are 3 randomly-picked windows also in train for now. Need
-    # to define a true validation set with all classes represented and
-    # with no overlap with train.
+    # These are randomly-picked windows, one from each sequence. These
+    # also present in train for now. Need to define a true validation
+    # set with all classes represented and with no overlap with train.
     'val': [
         '2013_05_28_drive_0000_sync/009886_010098',
+        '2013_05_28_drive_0002_sync/008311_008656',
+        '2013_05_28_drive_0003_sync/000394_000514',
+        '2013_05_28_drive_0004_sync/011105_011325',
+        '2013_05_28_drive_0005_sync/002807_003311',
+        '2013_05_28_drive_0006_sync/000002_000403',
+        '2013_05_28_drive_0007_sync/001659_001750',
         '2013_05_28_drive_0009_sync/001005_001244',
         '2013_05_28_drive_0010_sync/000549_000726'],
 

@@ -52,7 +52,7 @@ def read_kitti360_window(
 
 
 def read_variable(fid, name, M, N):
-    """ Credit: https://github.com/autonomousvision/kitti360Scripts """
+    """Credit: https://github.com/autonomousvision/kitti360Scripts"""
     # rewind
     fid.seek(0, 0)
 
@@ -90,7 +90,8 @@ class Window:
         # Recover useful information from the path
         self.path = window_path
         self.sampling_path = sampling_path
-        split, modality, sequence_name, window_name = osp.splitext(window_path)[0].split('/')[-4:]
+        split, modality, sequence_name, window_name = osp.splitext(
+            window_path)[0].split('/')[-4:]
         self.split = split
         self.modality = modality
         self.sequence = sequence_name
@@ -133,7 +134,8 @@ class Window:
         return self._sampling['num_raw_points']
 
     def __repr__(self):
-        display_attr = ['split', 'sequence', 'window', 'num_points', 'num_centers']
+        display_attr = [
+            'split', 'sequence', 'window', 'num_points', 'num_centers']
         attr = ', '.join([f'{a}={getattr(self, a)}' for a in display_attr])
         return f'{self.__class__.__name__}({attr})'
 
@@ -231,8 +233,8 @@ class KITTI360Cylinder(InMemoryDataset):
                 'The dataset has no sampling centers with relevant classes, ' \
                 'check that your data has labels, that they follow the ' \
                 'nomenclature defined for KITTI360, that your dataset uses ' \
-                'enough windows and has reasonable downsampling and cylinder ' \
-                'sampling resolutions.'
+                'enough windows and has reasonable downsampling and ' \
+                'cylinder sampling resolutions.'
 
     @property
     def split(self):
@@ -271,12 +273,16 @@ class KITTI360Cylinder(InMemoryDataset):
     @property
     def paths(self):
         """Paths to the dataset windows data."""
-        return [osp.join(self.processed_dir, self.split, '3d', f'{p}.pt') for p in self.windows]
+        return [
+            osp.join(self.processed_dir, self.split, '3d', f'{p}.pt')
+            for p in self.windows]
 
     @property
     def sampling_paths(self):
         """Paths to the dataset windows sampling data."""
-        return [f'{osp.splitext(p)[0]}_{hash(self._sample_res)}.pt' for p in self.paths]
+        return [
+            f'{osp.splitext(p)[0]}_{hash(self._sample_res)}.pt'
+            for p in self.paths]
 
     @property
     def label_counts(self):
@@ -335,14 +341,19 @@ class KITTI360Cylinder(InMemoryDataset):
         full-resolution metrics.
         """
         # The directory where train/test raw scans are
-        raw_3d_dir = self.raw_file_names[1] if self.split == 'test' else self.raw_file_names[0]
+        raw_3d_dir = self.raw_file_names[1] if self.split == 'test' \
+            else self.raw_file_names[0]
         return [
-            osp.join(self.raw_dir, raw_3d_dir, x.split('/')[0], 'static', x.split('/')[1] + '.ply')
+            osp.join(
+                self.raw_dir, raw_3d_dir, x.split('/')[0], 'static',
+                x.split('/')[1] + '.ply')
             for x in self.windows]
 
     @property
     def processed_3d_file_names(self):
-        return [osp.join(split, '3d', f'{p}.pt') for split, w in self._WINDOWS.items() for p in w]
+        return [
+            osp.join(split, '3d', f'{p}.pt')
+            for split, w in self._WINDOWS.items() for p in w]
 
     @property
     def processed_3d_sampling_file_names(self):
@@ -366,17 +377,23 @@ class KITTI360Cylinder(InMemoryDataset):
         date and time of creation.
         """
         submissions_dir = osp.join(self.root, "submissions")
-        submission_name = '-'.join([
+        date = '-'.join([
             f'{getattr(datetime.now(), x)}'
-            for x in ['year', 'month', 'day', 'hour', 'minute', 'second']])
+            for x in ['year', 'month', 'day']])
+        time = '-'.join([
+            f'{getattr(datetime.now(), x)}'
+            for x in ['hour', 'minute', 'second']])
+        submission_name = f'{date}_{time}'
         path = osp.join(submissions_dir, submission_name)
         return path
 
     def download(self):
-        raise NotImplementedError('KITTI360 automatic download not implemented yet')
+        raise NotImplementedError(
+            'KITTI360 automatic download not implemented yet')
 
     def process(self):
-        # TODO: for 2D, can't simply loop over those, need to treat 2D and 3D separately
+        # TODO: for 2D, can't simply loop over those, need to treat 2D
+        #  and 3D separately
         for path in tq(self.processed_3d_file_names):
 
             # Extract useful information from <path>
@@ -455,7 +472,8 @@ class KITTI360Cylinder(InMemoryDataset):
             # used at sampling time to pick cylinders so as to even-out
             # class distributions
             if hasattr(centers, 'y'):
-                unique, counts = np.unique(np.asarray(centers.y), return_counts=True)
+                unique, counts = np.unique(
+                    np.asarray(centers.y), return_counts=True)
                 sampling['labels'] = unique
                 sampling['label_counts'] = counts
 
@@ -474,7 +492,8 @@ class KITTI360Cylinder(InMemoryDataset):
         self._window_idx = idx
 
     def __len__(self):
-        return self.sample_per_epoch if self.is_random else self.sampling_sizes.sum()
+        return self.sample_per_epoch if self.is_random \
+            else self.sampling_sizes.sum()
 
     def __getitem__(self, idx):
         r"""Gets the cylindrical sample at index `idx` and transforms it
@@ -513,7 +532,8 @@ class KITTI360Cylinder(InMemoryDataset):
 
         # Get the cylindrical sampling
         center = self.window.centers.pos[idx_center]
-        sampler = cT.CylinderSampling(self._radius, center, align_origin=False)
+        sampler = cT.CylinderSampling(
+            self._radius, center, align_origin=False)
         data = sampler(self.window.data)
 
         # Save the window index and center index in the data. This will
@@ -578,7 +598,7 @@ class KITTI360Cylinder(InMemoryDataset):
 
 
 ########################################################################
-#                           MiniKITTI360Cylinder                           #
+#                           MiniKITTI360Cylinder                       #
 ########################################################################
 
 class MiniKITTI360Cylinder(KITTI360Cylinder):
@@ -695,7 +715,8 @@ class KITTI360Dataset(BaseDataset):
     def __init__(self, dataset_opt):
         super().__init__(dataset_opt)
 
-        cls = MiniKITTI360Cylinder if dataset_opt.get('mini', False) else KITTI360Cylinder
+        cls = MiniKITTI360Cylinder if dataset_opt.get('mini', False) \
+            else KITTI360Cylinder
         radius = dataset_opt.get('radius', 6)
         train_sample_res = dataset_opt.get('train_sample_res', 0.3)
         eval_sample_res = dataset_opt.get('eval_sample_res', radius / 2)
@@ -745,12 +766,15 @@ class KITTI360Dataset(BaseDataset):
         # the dataset will have a `weight_classes` to be used when
         # computing the loss
         if dataset_opt.class_weight_method:
-            # TODO: find an elegant way of returning class weights for train set
-            raise NotImplementedError('KITTI360Dataset does not support class weights yet.')
+            # TODO: find an elegant way of returning class weights for
+            #  train set
+            raise NotImplementedError(
+                'KITTI360Dataset does not support class weights yet.')
 
     @property
     def test_data(self):
-        # TODO this needs to change for KITTI360, the raw data will be extracted directly from the files
+        # TODO this needs to change for KITTI360, the raw data will be
+        #  extracted directly from the files
         return self.test_dataset[0].raw_test_data
 
     @property
