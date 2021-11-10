@@ -20,7 +20,8 @@ log = logging.getLogger(__name__)
 
 
 class KITTI360Tracker(SegmentationTracker):
-    # TODO: add support for tracking 'mciou' for KITTI360 Mean Category IoU
+    # TODO: add support for tracking 'mciou' for KITTI360 Mean Category
+    #  IoU
 
     def reset(self, *args, **kwargs):
 
@@ -56,7 +57,8 @@ class KITTI360Tracker(SegmentationTracker):
         self._submission_dir = self._dataset.submission_dir
 
     def track(
-            self, model: model_interface.TrackerInterface, data=None, **kwargs):
+            self, model: model_interface.TrackerInterface, data=None,
+            **kwargs):
         """Add current model predictions (usually the result of a batch)
         to the tracking.
         """
@@ -114,11 +116,15 @@ class KITTI360Tracker(SegmentationTracker):
             # Recover the point indices in the original raw cloud
             origin_ids = data[SaveOriginalPosId.KEY]
             if origin_ids is None:
-                raise ValueError("The inputs given to the model do not have a %s attribute." % SaveOriginalPosId.KEY)
+                raise ValueError(
+                    f'The inputs given to the model do not have a '
+                    f'{SaveOriginalPosId.KEY } attribute."')
             if origin_ids.dim() == 2:
                 origin_ids = origin_ids.flatten()
             if origin_ids.max() >= self._votes.shape[0]:
-                raise ValueError("Origin ids are larger than the number of points in the original point cloud.")
+                raise ValueError(
+                    'Origin ids are larger than the number of points in the '
+                    'original point cloud.')
 
             # Save predictions
             # WARNING: if a point appears multiple times in origin_ids,
@@ -150,7 +156,8 @@ class KITTI360Tracker(SegmentationTracker):
 
         # We don't compute the voting nor full-resolution metrics on the
         # train set
-        if self._stage == 'train' or not self.has_labels and not make_submission:
+        if self._stage == 'train' or not self.has_labels \
+                and not make_submission:
             return
 
         # Compute voting and (optionally) full-resolution predictions
@@ -254,7 +261,8 @@ class KITTI360Tracker(SegmentationTracker):
         np.save(osp.join(self._submission_dir, filename), pred_remapped)
 
     def get_metrics(self, verbose=False) -> Dict[str, Any]:
-        """ Returns a dictionnary of all metrics and losses being tracked
+        """ Returns a dictionary of all metrics and losses being
+        tracked.
         """
         # Low-resolution metrics without voting
         metrics = super().get_metrics(verbose)

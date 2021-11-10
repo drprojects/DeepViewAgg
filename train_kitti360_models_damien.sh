@@ -71,6 +71,6 @@ training.batch_size=${BATCH_SIZE} \
 training.epochs=${EPOCHS} \
 training.num_workers=${WORKERS} \
 training.optim.base_lr=${BASE_LR} \
-training.wandb.log=False \
+training.wandb.log=True \
 training.wandb.name=${EXP_NAME} \
 tracker_options.make_submission=${SUBMISSION}
