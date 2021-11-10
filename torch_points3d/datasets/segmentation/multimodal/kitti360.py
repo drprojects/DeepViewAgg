@@ -1,19 +1,4 @@
-import os
-import os.path as osp
-import numpy as np
-import torch
-from plyfile import PlyData
-from torch_geometric.data import InMemoryDataset, Data
-from torch.utils.data import Sampler
-import logging
-from sklearn.neighbors import KDTree
-from tqdm.auto import tqdm as tq
-from random import shuffle
-from datetime import datetime
-
-import torch_points3d.core.data_transform as cT
-from torch_points3d.datasets.base_dataset import BaseDataset
-from torch_points3d.datasets.segmentation.kitti360_config import *
+from torch_points3d.datasets.segmentation.kitti360 import *
 
 DIR = os.path.dirname(os.path.realpath(__file__))
 log = logging.getLogger(__name__)
@@ -23,129 +8,57 @@ log = logging.getLogger(__name__)
 #                                 Utils                                #
 ########################################################################
 
-def read_kitti360_window(
-        filepath, xyz=True, rgb=True, semantic=True, instance=False,
-        remap=False):
-    data = Data()
-    with open(filepath, "rb") as f:
-        window = PlyData.read(f)
-        attributes = [p.name for p in window['vertex'].properties]
+def load_intrinsics(intrinsic_file, cam_id=0):
+    """ Load KITTI360 perspective camera intrinsics
 
-        if xyz:
-            data.pos = torch.stack([
-                torch.FloatTensor(window["vertex"][axis])
-                for axis in ["x", "y", "z"]], dim=-1)
+    Credit: https://github.com/autonomousvision/kitti360Scripts
+    """
 
-        if rgb:
-            data.rgb = torch.stack([
-                torch.FloatTensor(window["vertex"][axis])
-                for axis in ["red", "green", "blue"]], dim=-1) / 255
+    intrinsic_loaded = False
+    width = -1
+    height = -1
+    with open(intrinsic_file) as f:
+        intrinsics = f.read().splitlines()
+    for line in intrinsics:
+        line = line.split(' ')
+        if line[0] == f'P_rect_0{cam_id}:':
+            K = [float(x) for x in line[1:]]
+            K = np.reshape(K, [3, 4])
+            intrinsic_loaded = True
+        elif line[0] == f'R_rect_0{cam_id}:':
+            R_rect = np.eye(4)
+            R_rect[:3, :3] = np.array([float(x) for x in line[1:]]).reshape(3, 3)
+        elif line[0] == f"S_rect_0{cam_id}:":
+            width = int(float(line[1]))
+            height = int(float(line[2]))
+    assert (intrinsic_loaded == True)
+    assert (width > 0 and height > 0)
 
-        if semantic and 'semantic' in attributes:
-            y = torch.LongTensor(window["vertex"]['semantic'])
-            data.y = torch.from_numpy(ID2TRAINID)[y] if remap else y
-
-        if instance and 'instance' in attributes:
-            data.instance = torch.LongTensor(window["vertex"]['instance'])
-
-    return data
-
-
-def read_variable(fid, name, M, N):
-    """ Credit: https://github.com/autonomousvision/kitti360Scripts """
-    # rewind
-    fid.seek(0, 0)
-
-    # search for variable identifier
-    line = 1
-    success = 0
-    while line:
-        line = fid.readline()
-        if line.startswith(name):
-            success = 1
-            break
-
-    # return if variable identifier not found
-    if success == 0:
-        return None
-
-    # fill matrix
-    line = line.replace('%s:' % name, '')
-    line = line.split()
-    assert (len(line) == M * N)
-    line = [float(x) for x in line]
-    mat = np.array(line).reshape(M, N)
-
-    return mat
+    return K, R_rect, width, height
 
 
-########################################################################
-#                                Window                                #
-########################################################################
+def load_calibration_camera_to_pose(filename):
+    """ load KITTI360 camera-to-pose calibration
 
-class Window:
-    """Small placeholder for point cloud window data."""
-
-    def __init__(self, window_path, sampling_path):
-        # Recover useful information from the path
-        self.path = window_path
-        self.sampling_path = sampling_path
-        split, modality, sequence_name, window_name = osp.splitext(window_path)[0].split('/')[-4:]
-        self.split = split
-        self.modality = modality
-        self.sequence = sequence_name
-        self.window = window_name
-
-        # Load window data and sampling data
-        self._data = torch.load(window_path)
-        self._sampling = torch.load(sampling_path)
-
-    @property
-    def data(self):
-        return self._data
-
-    @property
-    def num_points(self):
-        return self.data.num_nodes
-
-    @property
-    def centers(self):
-        return self._sampling['data']
-
-    @property
-    def sampling_labels(self):
-        return torch.from_numpy(self._sampling['labels'])
-
-    @property
-    def sampling_label_counts(self):
-        return torch.from_numpy(self._sampling['label_counts'])
-
-    @property
-    def sampling_grid_size(self):
-        return self._sampling['grid_size']
-
-    @property
-    def num_centers(self):
-        return self.centers.num_nodes
-
-    @property
-    def num_raw_points(self):
-        return self._sampling['num_raw_points']
-
-    def __repr__(self):
-        display_attr = ['split', 'sequence', 'window', 'num_points', 'num_centers']
-        attr = ', '.join([f'{a}={getattr(self, a)}' for a in display_attr])
-        return f'{self.__class__.__name__}({attr})'
+    Credit: https://github.com/autonomousvision/kitti360Scripts
+    """
+    Tr = {}
+    with open(filename, 'r') as fid:
+        cameras = ['image_00', 'image_01', 'image_02', 'image_03']
+        lastrow = np.array([0, 0, 0, 1]).reshape(1, 4)
+        for camera in cameras:
+            Tr[camera] = np.concatenate((read_variable(fid, camera, 3, 4), lastrow))
+    return Tr
 
 
 ########################################################################
 #                           KITTI360Cylinder                           #
 ########################################################################
 
-class KITTI360Cylinder(InMemoryDataset):
+class KITTI360CylinderMM(KITTI360Cylinder):
     """
-    Child class of KITTI360 supporting sampling of 3D cylinders
-    within each window.
+    Child class of KITTI360Cylinder supporting sampling of 3D cylinders
+    along with images and mappings for each window.
 
     When `sample_per_epoch` is specified, indexing the dataset produces
     cylinders randomly picked so as to even-out class distributions.
@@ -164,190 +77,38 @@ class KITTI360Cylinder(InMemoryDataset):
     def __init__(
             self, root, split="train", sample_per_epoch=15000, radius=6,
             sample_res=0.3, transform=None, pre_transform=None,
-            pre_filter=None, keep_instance=False):
-
-        self._split = split
-        self._sample_per_epoch = sample_per_epoch
-        self._radius = radius
-        self._sample_res = sample_res
-        self._keep_instance = keep_instance
-        self._window = None
-        self._window_idx = None
+            pre_filter=None, keep_instance=False,
+            pre_transform_image=None, transform_image=None, image_ratio=5,
+            img_size=(1408, 376)):
 
         # Initialization with downloading and all preprocessing
-        super(KITTI360Cylinder, self).__init__(
-            root, transform, pre_transform, pre_filter)
+        super(KITTI360CylinderMM, self).__init__(
+            root, split=split, sample_per_epoch=sample_per_epoch,
+            radius=radius, sample_res=sample_res, transform=transform,
+            pre_transform=pre_transform, pre_filter=pre_filter,
+            keep_instance=keep_instance)
 
-        # Read all sampling files to prepare for cylindrical sampling.
-        # If self.is_random (ie sample_per_eopch > 0), need to recover
-        # each window's sampling centers label counts for class-balanced
-        # sampling. Otherwise, need to recover the number of cylinders
-        # per window for deterministic sampling.
-        self._label_counts = torch.zeros(
-            len(self.windows), self.num_classes).long()
-        self._sampling_sizes = torch.zeros(len(self.windows)).long()
-        self._window_sizes = torch.zeros(len(self.windows)).long()
-        self._window_raw_sizes = torch.zeros(len(self.windows)).long()
-
-        for i, path in enumerate(self.sampling_paths):
-
-            # Recover the label of cylindrical sampling centers and
-            # their count in each window
-            sampling = torch.load(path)
-            centers = sampling['data']
-
-            # Save the number of sampling cylinders in the window
-            self._sampling_sizes[i] = centers.num_nodes
-
-            # Save the number of points in the window, this will be
-            # passed in the Data objects generated by the dataset for
-            # the KITTI360Tracker to use when computing votes on
-            # overlapping cylinders
-            self._window_sizes[i] = sampling['num_points']
-            self._window_raw_sizes[i] = sampling['num_raw_points']
-
-            # If class-balanced sampling is not necessary, skip the rest
-            if not self.is_random:
-                continue
-
-            # If the data has no labels, class-balanced sampling cannot
-            # be performed
-            if sampling['labels'] is None:
-                raise ValueError(
-                    f'Cannot do class-balanced random sampling if data has no '
-                    f'labels. Please set sample_per_epoch=0 for test data.')
-
-            # Save the label counts for each window sampling. Cylinders
-            # whose center label is IGNORE will not be sampled
-            labels = torch.LongTensor(sampling['labels'])
-            counts = torch.LongTensor(sampling['label_counts'])
-            valid_labels = labels != IGNORE
-            labels = labels[valid_labels]
-            counts = counts[valid_labels]
-            self._label_counts[i, labels] = counts
-
-        if self.is_random:
-            assert self._label_counts.sum() > 0, \
-                'The dataset has no sampling centers with relevant classes, ' \
-                'check that your data has labels, that they follow the ' \
-                'nomenclature defined for KITTI360, that your dataset uses ' \
-                'enough windows and has reasonable downsampling and cylinder ' \
-                'sampling resolutions.'
-
-    @property
-    def split(self):
-        return self._split
-
-    @property
-    def has_labels(self):
-        """Self-explanatory attribute needed for BaseDataset."""
-        return self.split != 'test'
-
-    @property
-    def sample_per_epoch(self):
-        """Rules the sampling mechanism for the dataset.
-
-        When `self.sample_per_epoch > 0`, indexing the dataset produces
-        random cylindrical sampling, picked so as to even-out the class
-        distribution across the dataset.
-
-        When `self.sample_per_epoch <= 0`, indexing the dataset
-        addresses cylindrical samples in a deterministic fashion. The
-        cylinder indices are ordered with respect to their acquisition
-        window and the regular grid sampling of the centers in each
-        window.
-        """
-        return self._sample_per_epoch
-
-    @property
-    def is_random(self):
-        return self.sample_per_epoch > 0
-
-    @property
-    def windows(self):
-        """Filenames of the dataset windows."""
-        return self._WINDOWS[self.split]
-
-    @property
-    def paths(self):
-        """Paths to the dataset windows data."""
-        return [osp.join(self.processed_dir, self.split, '3d', f'{p}.pt') for p in self.windows]
-
-    @property
-    def sampling_paths(self):
-        """Paths to the dataset windows sampling data."""
-        return [f'{osp.splitext(p)[0]}_{hash(self._sample_res)}.pt' for p in self.paths]
-
-    @property
-    def label_counts(self):
-        """Count of cylindrical sampling center of each class, for each
-        window. Used for class-balanced random sampling of cylinders in
-        the dataset, when self.is_random==True.
-        """
-        return self._label_counts
-
-    @property
-    def sampling_sizes(self):
-        """Number of cylindrical sampling, for each window. Used for
-        deterministic sampling of cylinders in the dataset, when
-        self.is_random==False.
-        """
-        return self._sampling_sizes
-
-    @property
-    def window_sizes(self):
-        """Number of points for each pre_transformed window. This
-        information will be passed in the Data objects generated by the
-        dataset for the KITTI360Tracker to use when accumulating
-        predictions on overlapping cylinders and any other voting
-        schemes.
-        """
-        return self._window_sizes
-
-    @property
-    def window_raw_sizes(self):
-        """Number of points for each raw window. This information will
-        be passed in the Data objects generated by the dataset for the
-        KITTI360Tracker to use when accumulating predictions on
-        overlapping cylinders and any other voting schemes.
-        """
-        return self._window_raw_sizes
-
-    @property
-    def window(self):
-        """Currently loaded window."""
-        return self._window
-
-    @property
-    def window_idx(self):
-        """Index of the currently loaded window in self.windows."""
-        return self._window_idx
+        # 2D-related attributes
+        self.pre_transform_image = pre_transform_image
+        self.transform_image = transform_image
+        self.image_ratio = image_ratio
+        self.img_size = img_size
 
     @property
     def raw_file_names(self):
-        """The file paths to find in order to skip the download."""
-        return ['data_3d_semantics', 'data_3d_semantics_test']
-
-    @property
-    def raw_3d_paths(self):
-        """These are the absolute paths to the raw window files for the
-        dataset. This is used by the KITTI360Tracker to compute
-        full-resolution metrics.
-        """
-        # The directory where train/test raw scans are
-        raw_3d_dir = self.raw_file_names[1] if self.split == 'test' else self.raw_file_names[0]
+        """The filepaths to find in order to skip the download."""
         return [
-            osp.join(self.raw_dir, raw_3d_dir, x.split('/')[0], 'static', x.split('/')[1] + '.ply')
-            for x in self.windows]
+            'data_3d_semantics', 'data_3d_semantics_test', 'data_2d_raw',
+            'data_2d_test', 'data_poses', 'calibration']
 
     @property
-    def processed_3d_file_names(self):
-        return [osp.join(split, '3d', f'{p}.pt') for split, w in self._WINDOWS.items() for p in w]
-
-    @property
-    def processed_3d_sampling_file_names(self):
+    def processed_2d_file_names(self):
+        # TODO: ideally, would be good to indicate the mapping Rmax and
+        #  visibility model in the suffix. But they are carried by the
+        #  transform.
+        suffix = f'{self.image_ratio}_{self.img_size[0]}x{self.img_size[1]}'
         return [
-            osp.join(split, '3d', f'{p}_{hash(self._sample_res)}.pt')
+            osp.join(split, '2d', f'{p}_{suffix}.pt')
             for split, w in self._WINDOWS.items() for p in w]
 
     @property
@@ -356,26 +117,21 @@ class KITTI360Cylinder(InMemoryDataset):
         folder in order to skip the processing
         """
         return self.processed_3d_file_names \
-               + self.processed_3d_sampling_file_names
-
-    @property
-    def submission_dir(self):
-        """Submissions are saved in the `submissions` folder, in the
-        same hierarchy as `raw` and `processed` directories. Each
-        submission has a sub-directory of its own, named based on the
-        date and time of creation.
-        """
-        submissions_dir = osp.join(self.root, "submissions")
-        submission_name = '-'.join([
-            f'{getattr(datetime.now(), x)}'
-            for x in ['year', 'month', 'day', 'hour', 'minute', 'second']])
-        path = osp.join(submissions_dir, submission_name)
-        return path
-
-    def download(self):
-        raise NotImplementedError('KITTI360 automatic download not implemented yet')
+               + self.processed_3d_sampling_file_names \
+               + self.processed_2d_file_names
 
     def process(self):
+
+        # TODO
+        #   For each sequence, prepare SSIDs with poses and all
+        
+        # TODO
+        #   For each window in processed_3d_file_names, we want to take
+        #   the opportunity that the window is loaded to compute the pre_transforms
+        
+        # TODO
+        #   Careful with inplace Data modifications !!!
+
         # TODO: for 2D, can't simply loop over those, need to treat 2D and 3D separately
         for path in tq(self.processed_3d_file_names):
 
@@ -409,7 +165,6 @@ class KITTI360Cylinder(InMemoryDataset):
                     window_name + '.ply')
                 data = read_kitti360_window(
                     raw_window_path, instance=self._keep_instance, remap=True)
-                num_raw_points = data.num_nodes
 
                 # Apply pre_transform
                 if self.pre_transform is not None:
@@ -419,9 +174,6 @@ class KITTI360Cylinder(InMemoryDataset):
                 tree = KDTree(np.asarray(data.pos[:, :-1]), leaf_size=10)
                 data[cT.CylinderSampling.KDTREE_KEY] = tree
 
-                # Save the number of points in raw window
-                data.num_raw_points = num_raw_points
-
                 # Save pre_transformed data to the processed dir/<path>
                 torch.save(data, window_path)
 
@@ -430,25 +182,22 @@ class KITTI360Cylinder(InMemoryDataset):
 
             # Prepare data to build cylinder centers. Only keep 'pos'
             # and 'y' (if any) attributes and drop the z coordinate in
-            # 'pos'. NB: we initialize centers as a clone of data and
-            # modify centers inplace subsequently.
-            centers = data.clone()
-            for key in centers.keys:
+            # 'pos'.
+            # NB: we can modify 'data' inplace here to avoid cloning
+            for key in data.keys:
                 if key not in ['pos', 'y']:
-                    delattr(centers, key)
-            centers.pos[:, 2] = 0
+                    delattr(data, key)
+            data.pos[:, 2] = 0
 
             # Compute the sampling of cylinder centers for the window
             sampler = cT.GridSampling3D(size=self._sample_res)
-            centers = sampler(centers)
+            centers = sampler(data)
             centers.pos = centers.pos[:, :2]
             sampling = {
                 'data': centers,
                 'labels': None,
                 'label_counts': None,
-                'grid_size': self._sample_res,
-                'num_points': data.num_nodes,
-                'num_raw_points': data.num_raw_points}
+                'grid_size': self._sample_res}
 
             # If data has labels (ie not test set), save which labels
             # are present in the window and their count. These will be
@@ -520,6 +269,7 @@ class KITTI360Cylinder(InMemoryDataset):
         # be used in the KITTI360Tracker to accumulate per-window votes
         data.idx_window = int(idx_window)
         data.idx_center = int(idx_center)
+        data.y_center = int(label)
 
         return data
 
@@ -539,6 +289,7 @@ class KITTI360Cylinder(InMemoryDataset):
 
         # Get the cylindrical sampling
         center = self.window.centers.pos[idx_center]
+        y_center = self.window.centers.y[idx_center]
         sampler = cT.CylinderSampling(self._radius, center, align_origin=False)
         data = sampler(self.window.data)
 
@@ -546,6 +297,7 @@ class KITTI360Cylinder(InMemoryDataset):
         # be used in the KITTI360Tracker to accumulate per-window votes
         data.idx_window = int(idx_window)
         data.idx_center = int(idx_center)
+        data.y_center = int(y_center)
 
         return data
 
@@ -586,16 +338,6 @@ class MiniKITTI360Cylinder(KITTI360Cylinder):
     experimentation.
     """
     _WINDOWS = {k: v[:2] for k, v in WINDOWS.items()}
-
-    # We have to include this method, otherwise the parent class skips
-    # processing
-    def process(self):
-        super().process()
-
-    # We have to include this method, otherwise the parent class skips
-    # processing
-    def download(self):
-        super().download()
 
 
 ########################################################################
@@ -753,10 +495,6 @@ class KITTI360Dataset(BaseDataset):
         # TODO this needs to change for KITTI360, the raw data will be extracted directly from the files
         return self.test_dataset[0].raw_test_data
 
-    @property
-    def submission_dir(self):
-        return self.train_dataset.submission_dir
-
     def get_tracker(self, wandb_log: bool, tensorboard_log: bool):
         """Factory method for the tracker
 
@@ -766,10 +504,4 @@ class KITTI360Dataset(BaseDataset):
         Returns:
             [BaseTracker] -- tracker
         """
-        # NB: this import is here because of an import loop between the
-        # `dataset.segmentation.kitti360` and `metrics.kitti360_tracker`
-        # modules
-        from torch_points3d.metrics.kitti360_tracker import KITTI360Tracker
-        return KITTI360Tracker(
-            self, wandb_log=wandb_log, use_tensorboard=tensorboard_log,
-            ignore_label=IGNORE)
+        return KITTI360Tracker(self, wandb_log=wandb_log, use_tensorboard=tensorboard_log)
