@@ -71,13 +71,16 @@ class KITTI360Tracker(SegmentationTracker):
         if self._stage == "train":
             return
 
-        # Create a temporary directory in the dataset root directory
-        # (along with `raw` and `processed` directories. This is where
-        # the tracker will create a file for each window, storing the
-        # per-point votes
+        # Create a temporary directory in the `/tmp` directory. If no
+        # such directory is found on the machine, the dataset root
+        # directory (where `raw` and `processed` folders are) will be
+        # used. This is where the tracker will create a file for each
+        # window, storing the per-point votes. The directory will be
+        # automatically deleted when the tracker is deleted or
+        # `self.reset` is called
         if self._temp_dir is None:
-            data_dir = self.stage_dataset.root
-            self._temp_dir = tempfile.TemporaryDirectory(dir=data_dir)
+            tmp_dir = '/tmp' if osp.exists('/tmp') else self.stage_dataset.root
+            self._temp_dir = tempfile.TemporaryDirectory(dir=tmp_dir)
 
         # Gather input data
         data = model.get_input() if data is None else data
