@@ -1045,7 +1045,7 @@ class CropImageGroups(ImageTransform):
             # outsizes img_size
             size = (
                 min(size[0] * 2 ** ((i_crop + 1) % 2), images.img_size[0]),
-                min(size[1] * 2 ** (i_crop % 2)), images.img_size[1])
+                min(size[1] * 2 ** (i_crop % 2), images.img_size[1]))
             i_crop += 1
 
         # Make sure the last crop size is the full image
