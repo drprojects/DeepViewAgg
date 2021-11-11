@@ -257,7 +257,7 @@ class KITTI360Tracker(SegmentationTracker):
                 f'received {type(pred)} of shape {pred.shape} instead.')
 
         # Map TrainId labels to expected Ids
-        pred_remapped = TRAINID2ID[pred]
+        pred_remapped = TRAINID2ID[pred].astype(np.uint8)
 
         # Recover sequence and window information from stage dataset's
         # windows and format those to match the expected file name:
