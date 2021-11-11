@@ -4,21 +4,24 @@ import torch
 import os
 import os.path as osp
 import tempfile
+import numpy as np
+from tqdm.auto import tqdm as tq
 
 from torch_geometric.nn.unpool import knn_interpolate
 
 from torch_points3d.metrics.confusion_matrix import ConfusionMatrix
 from torch_points3d.metrics.segmentation_tracker import SegmentationTracker
-from torch_points3d.metrics.base_tracker import BaseTracker, meter_value
-from torch_points3d.datasets.segmentation import IGNORE_LABEL
 from torch_points3d.core.data_transform import SaveOriginalPosId
 from torch_points3d.models import model_interface
+from torch_points3d.datasets.segmentation.kitti360 import read_kitti360_window
+from torch_points3d.datasets.segmentation.kitti360_config import TRAINID2ID
 
 log = logging.getLogger(__name__)
 
 
 class KITTI360Tracker(SegmentationTracker):
-    # TODO: add support for tracking 'mciou' for KITTI360 Mean Category IoU
+    # TODO: add support for tracking 'mciou' for KITTI360 Mean Category
+    #  IoU
 
     def reset(self, *args, **kwargs):
 
@@ -29,6 +32,7 @@ class KITTI360Tracker(SegmentationTracker):
         # KITTI360Tracker additionally handles the following metrics, to
         # track performance with voting (each 3D point may be predicted
         # from various cylindrical sampled) and at full resolution.
+        self._vote_confusion_matrix = ConfusionMatrix(self._num_classes)
         self._full_confusion_matrix = ConfusionMatrix(self._num_classes)
         self._vote_miou = None
         self._full_vote_miou = None
@@ -36,127 +40,293 @@ class KITTI360Tracker(SegmentationTracker):
         self._vote_iou_per_class = {}
         self._full_vote_iou_per_class = {}
 
-        # Recover the stage-dataset's windows
-        stage_dataset = self._dataset.get_dataset(self._stage)
-        self.windows = stage_dataset.windows
-        self.window_raw_files = stage_dataset.raw_3d_file_names
-        self.temp_dir = tempfile.TemporaryDirectory()
+        # Attributes to manage per-window metrics
+        self.windows = self.stage_dataset.windows
+        self.window_raw_files = self.stage_dataset.raw_3d_paths
+        self._temp_dir = None
+        self._idx_window = None
+        self._votes = None
+        self._counts = None
 
+        # Initialize a submission folder path based the date and time of
+        # creation of the tracker. This way, in case a submission is
+        # required when calling `self.finalise`, the name of the
+        # submission folder will be unique. The submission directory
+        # will only be created if `self.finalise(make_submission=True)`
+        # is called
+        self._submission_dir = self._dataset.submission_dir
 
     def track(
-            self, model: model_interface.TrackerInterface, full_res=False,
-            data=None, **kwargs):
+            self, model: model_interface.TrackerInterface, data=None,
+            **kwargs):
         """Add current model predictions (usually the result of a batch)
         to the tracking.
         """
         super().track(model)
 
-        # For train set, nothing to do
-        if self._stage == "train" or not full_res:
+        # For train set, nothing to do. For val and test sets, we want
+        # to be careful with KITTI360 overlapping cylinders and
+        # multi-run voting. The real metrics must be computed with
+        # respect to overlaps and voting schemes
+        if self._stage == "train":
             return
 
-        # For val and test sets, we want to be careful with KITTI360
-        # overlapping cylinders and multi-run voting. The real metrics
-        # must be computed with respect to overlaps and voting schemes
+        # Create a temporary directory in the dataset root directory
+        # (along with `raw` and `processed` directories. This is where
+        # the tracker will create a file for each window, storing the
+        # per-point votes
+        if self._temp_dir is None:
+            data_dir = self.stage_dataset.root
+            self._temp_dir = tempfile.TemporaryDirectory(dir=data_dir)
 
-        # TODO: compute vote for val and test by default, because other measures are wrong ?
-        # TODO: CAREFUL when recovering the window index from BATCH ! Do it on batch.to_data_list() !
-        # if self._test_area is None:
-        #     self._test_area = self._dataset.test_data.clone()
-        #     if self._test_area.y is None:
-        #         raise ValueError("It seems that the test area data does not have labels (attribute y).")
-        #     self._test_area.prediction_count = torch.zeros(self._test_area.y.shape[0], dtype=torch.int)
-        #     self._test_area.votes = torch.zeros((self._test_area.y.shape[0], self._num_classes), dtype=torch.float)
-        #     self._test_area.to(model.device)
-        #
-        # # Gather origin ids and check that it fits with the test set
-        # inputs = data if data is not None else model.get_input()
-        # originids = inputs[SaveOriginalPosId.KEY] if not model.is_multimodal else inputs.data[SaveOriginalPosId.KEY]
-        # if originids is None:
-        #     raise ValueError("The inputs given to the model do not have a %s attribute." % SaveOriginalPosId.KEY)
-        # if originids.dim() == 2:
-        #     originids = originids.flatten()
-        # if originids.max() >= self._test_area.pos.shape[0]:
-        #     raise ValueError("Origin ids are larger than the number of points in the original point cloud.")
-        #
-        # # Set predictions
-        # # WARNING. If a point appears multiple times in originids, only
-        # # one of its 'outputs' and one 'prediction_count' will be counted
-        # outputs = model.get_output()
-        # self._test_area.votes[originids] += outputs
-        # self._test_area.prediction_count[originids] += 1
+        # Gather input data
+        data = model.get_input() if data is None else data
+        data = data.data if model.is_multimodal else data
 
-    def finalise(self, full_res=False, vote_miou=True, **kwargs):
-        per_class_iou = self._confusion_matrix.get_intersection_union_per_class()[0]
-        self._iou_per_class = {self._dataset.INV_OBJECT_LABEL[k]: v for k, v in enumerate(per_class_iou)}
+        # Recover predictions from the model and add them to data
+        # attributes
+        data.pred = model.get_output()
 
-        # TODO: compute vote for val and test by default, because other measures are wrong ?
-        # if not self._test_area:
-        #     return
-        #
-        # if vote_miou:
-        #     # Complete for points that have a prediction
-        #     self._test_area = self._test_area.to("cpu")
-        #     has_prediction = self._test_area.prediction_count > 0
-        #     gt = self._test_area.y[has_prediction].numpy()
-        #     c = ConfusionMatrix(self._num_classes)
-        #     pred = torch.argmax(self._test_area.votes[has_prediction], 1).numpy()
-        #     c.count_predicted_batch(gt, pred)
-        #     self._vote_miou = c.get_average_intersection_union() * 100
-        #     per_class_iou = c.get_intersection_union_per_class()[0]
-        #     self._vote_iou_per_class = {
-        #         self._dataset.INV_OBJECT_LABEL[k]: 100 * v
-        #         for k, v in enumerate(per_class_iou)}
-        #
-        # if full_res:
-        #     self._compute_full_miou()
+        # If the data is batched, split into its original elements.
+        # Special attention must be given to the newly-added 'pred'
+        # attribute which was not present in the Data list at Batch
+        # creation time
+        if callable(getattr(data, 'to_data_list', None)):
+            data.__slices__['pred'] = data.__slices__['pos']
+            data.__cat_dims__['pred'] = 0
+            data.__cumsum__['pred'] = data.__cumsum__['pos']
+            data_list = data.to_data_list()
+        else:
+            data_list = [data]
 
+        # Loop over items of the batch, because some may come from
+        # different windows
+        for data in data_list:
 
-    # def _compute_full_miou(self):
-    #     if self._full_vote_miou is not None:
-    #         return
-    #
-    #     has_prediction = self._test_area.prediction_count > 0
-    #     log.info(
-    #         "Computing full res mIoU, we have predictions for %.2f%% of the points."
-    #         % (torch.sum(has_prediction) / (1.0 * has_prediction.shape[0]) * 100)
-    #     )
-    #
-    #     self._test_area = self._test_area.to("cpu")
-    #
-    #     # Full res interpolation
-    #     full_pred = knn_interpolate(
-    #         self._test_area.votes[has_prediction],
-    #         self._test_area.pos[has_prediction], self._test_area.pos, k=1,)
-    #
-    #     # Full res pred
-    #     self._full_confusion = ConfusionMatrix(self._num_classes)
-    #     self._full_confusion.count_predicted_batch(self._test_area.y.numpy(), torch.argmax(full_pred, 1).numpy())
-    #     self._full_vote_miou = self._full_confusion.get_average_intersection_union() * 100
-    #     per_class_iou = self._full_confusion.get_intersection_union_per_class()[0]
-    #     self._full_vote_iou_per_class = {
-    #         self._dataset.INV_OBJECT_LABEL[k]: 100 * v
-    #         for k, v in enumerate(per_class_iou)}
+            # Get window information
+            idx_window = data.idx_window
 
-    # @property
-    # def full_confusion_matrix(self):
-    #     return self._full_confusion
+            # If the tracker's currently-loaded window traking data must
+            # change, save votes and counts for the previous window and
+            # load those for the new one
+            if idx_window != self._idx_window:
+                self._save_window_tracking()
+                self._load_window_tracking(idx_window)
+
+            # Recover the point indices in the original raw cloud
+            origin_ids = data[SaveOriginalPosId.KEY]
+            if origin_ids is None:
+                raise ValueError(
+                    f'The inputs given to the model do not have a '
+                    f'{SaveOriginalPosId.KEY } attribute."')
+            if origin_ids.dim() == 2:
+                origin_ids = origin_ids.flatten()
+            if origin_ids.max() >= self._votes.shape[0]:
+                raise ValueError(
+                    'Origin ids are larger than the number of points in the '
+                    'original point cloud.')
+
+            # Save predictions
+            # WARNING: if a point appears multiple times in origin_ids,
+            # only one of its 'outputs' will be counted
+            self._votes[origin_ids] += data.pred.cpu()
+            self._counts[origin_ids] += 1
+
+    def finalise(self, full_res=False, make_submission=False, **kwargs):
+        # Submission only for 'test' set and if submission is required,
+        # full_res is set to True
+        make_submission = make_submission and self._stage == 'test'
+        full_res = make_submission or full_res
+
+        # Since saving tracked votes and prediction counts is only
+        # triggered when the window changes, we need to manually
+        # save the tracked data from the last batch. This is important,
+        # as this would entirely drop tracking for the entirety of the
+        # last window of val and test sets !
+        self._save_window_tracking()
+
+        # Compute basic metrics without taking into account voting
+        # schemes with multiple predictions on the same points. If the
+        # dataset has no labels, these metrics will not be computed
+        if self.has_labels:
+            per_class_iou = self._confusion_matrix.get_intersection_union_per_class()[0]
+            self._iou_per_class = {
+                self._dataset.INV_OBJECT_LABEL[k]: v
+                for k, v in enumerate(per_class_iou)}
+
+        # We don't compute the voting nor full-resolution metrics on the
+        # train set
+        if self._stage == 'train' or not self.has_labels \
+                and not make_submission:
+            return
+
+        # Compute voting and (optionally) full-resolution predictions
+        # for each window
+        for idx_window in tq(range(len(self.windows))):
+
+            # Load the votes and prediction counts
+            self._load_window_tracking(idx_window)
+
+            # Select the window points that received a prediction
+            has_pred = self._counts > 0
+            pred = torch.argmax(self._votes[has_pred], 1).numpy()
+
+            # Load ground truth and/or point positions from raw data. If
+            # no labels are found in the PLY file, y will simply be None
+            if full_res or self.has_labels:
+                full_data = read_kitti360_window(
+                    self.window_raw_files[idx_window], xyz=full_res, rgb=False,
+                    semantic=self.has_labels, instance=False, remap=True)
+
+            # If labels were found compute voting metrics for the window
+            # low-res points. Note that points with ignored labels are
+            # masked out
+            if self.has_labels and full_data.y is not None:
+                gt = full_data.y[has_pred].numpy()
+                mask = gt != self._ignore_label
+                self._vote_confusion_matrix.count_predicted_batch(
+                    gt[mask], pred[mask])
+
+            # Stop here if full-resolution metrics are not required
+            if not full_res:
+                continue
+
+            # If full-resolution metrics or benchmark submission are
+            # required, compute full-resolution predictions by nearest
+            # neighbor interpolation
+            # TODO: NN search with faster CPU or GPU methods
+            full_pred = self._votes.argmax(1).numpy()
+            full_pred[~has_pred] = knn_interpolate(
+                self._votes[has_pred], full_data.pos[has_pred],
+                full_data.pos[~has_pred], k=1).argmax(1).numpy()
+
+            # If labels were found compute voting metrics for the window
+            # low-res points. Note that points with ignored labels are
+            # masked out
+            if self.has_labels and full_data.y is not None:
+                gt = full_data.y.numpy()
+                mask = gt != self._ignore_label
+                self._full_confusion_matrix.count_predicted_batch(
+                    gt[mask], full_pred[mask])
+
+            if make_submission:
+                self._make_submission(idx_window, full_pred)
+
+        # Compute the global voting metrics for low-resolution points
+        cm = self._vote_confusion_matrix
+        if cm.confusion_matrix is not None and cm.confusion_matrix.sum() > 0:
+            self._vote_miou = cm.get_average_intersection_union() * 100
+            per_class_iou = cm.get_intersection_union_per_class()[0]
+            self._vote_iou_per_class = {
+                self._dataset.INV_OBJECT_LABEL[k]: 100 * v
+                for k, v in enumerate(per_class_iou)}
+
+        # Compute the global voting metrics for full-resolution points
+        cm = self._full_confusion_matrix
+        if cm.confusion_matrix is not None and cm.confusion_matrix.sum() > 0:
+            self._full_vote_miou = cm.get_average_intersection_union() * 100
+            per_class_iou = cm.get_intersection_union_per_class()[0]
+            self._full_vote_iou_per_class = {
+                self._dataset.INV_OBJECT_LABEL[k]: 100 * v
+                for k, v in enumerate(per_class_iou)}
+
+    def _make_submission(self, idx_window, pred):
+        """Prepare data for a sumbission to KITTI360 for 3D semantic
+        Segmentation on the test set.
+
+        Expected submission format is detailed here:
+        https://github.com/autonomousvision/kitti360Scripts/tree/master/kitti360scripts/evaluation/semantic_3d
+        """
+        if not osp.exists(self._submission_dir):
+            os.makedirs(self._submission_dir)
+
+        # Make sure the prediction is a 1D Numpy array
+        if len(pred.shape) != 1:
+            raise ValueError(
+                f'The submission predictions must be 1D Numpy vectors, '
+                f'received {type(pred)} of shape {pred.shape} instead.')
+
+        # Map TrainId labels to expected Ids
+        pred_remapped = TRAINID2ID[pred]
+
+        # Recover sequence and window information from stage dataset's
+        # windows and format those to match the expected file name:
+        # {seq:0>4}_{start_frame:0>10}_{end_frame:0>10}.npy
+        sequence_name, window_name = self.windows[idx_window].split('/')
+        seq = sequence_name.split('_')[-2]
+        start_frame, end_frame = window_name.split('_')
+        filename = f'{seq:0>4}_{start_frame:0>10}_{end_frame:0>10}.npy'
+
+        # Save the window submission
+        np.save(osp.join(self._submission_dir, filename), pred_remapped)
 
     def get_metrics(self, verbose=False) -> Dict[str, Any]:
-        """ Returns a dictionnary of all metrics and losses being tracked
+        """ Returns a dictionary of all metrics and losses being
+        tracked.
         """
+        # Low-resolution metrics without voting
         metrics = super().get_metrics(verbose)
-
-        if verbose:
+        if verbose and self.has_labels:
             metrics[f'{self._stage}_iou'] = self._iou_per_class
 
-            # TODO
-            # if self._full_vote_miou:
-            #     metrics[f'{self._stage}_full_vote_miou'] = self._full_vote_miou
-            #     metrics[f'{self._stage}_full_vote_iou'] = self._full_vote_iou_per_class
-            #
-            # if self._vote_miou:
-            #     metrics[f'{self._stage}_vote_miou'] = self._vote_miou
-            #     metrics[f'{self._stage}_vote_iou'] = self._vote_iou_per_class
+        # Low-resolution voting metrics
+        if self._vote_miou:
+            metrics[f'{self._stage}_vote_miou'] = self._vote_miou
+
+            if verbose:
+                metrics[f'{self._stage}_vote_iou'] = self._vote_iou_per_class
+
+        # Full-resolution voting metrics
+        if self._full_vote_miou:
+            metrics[f'{self._stage}_full_miou'] = self._full_vote_miou
+
+            if verbose:
+                metrics[f'{self._stage}_full_iou'] = self._full_vote_iou_per_class
 
         return metrics
+
+    @property
+    def stage_dataset(self):
+        """Dataset for the Tracker's current stage"""
+        return self._dataset.get_dataset(self._stage)
+
+    @property
+    def temp_dir(self):
+        """Name of the TemporaryDirectory created when tracking voting
+        metrics over all windows.
+        """
+        return None if self._temp_dir is None else self._temp_dir.name
+
+    @property
+    def has_labels(self):
+        return self._dataset.has_labels(self._stage)
+
+    def _save_window_tracking(self):
+        """Save a window's votes and prediction counts to the tracker's
+        temporary directory.
+        """
+        # Don't save anything for the tracker's initialization state
+        if self._idx_window is None or self._idx_window < 0:
+            return
+        window = self.windows[self._idx_window]
+        temp_window_path = osp.join(self.temp_dir, window + '.pt')
+        os.makedirs(osp.dirname(temp_window_path), exist_ok=True)
+        torch.save((self._votes, self._counts), temp_window_path)
+
+    def _load_window_tracking(self, idx_window):
+        """Load a window's votes and prediction counts from the
+        tracker's temporary directory. If the window has no votes and
+        counts yet, they will be initialized here.
+        """
+        window = self.windows[idx_window]
+        window_raw_size = self.stage_dataset.window_raw_sizes[idx_window]
+        temp_window_path = osp.join(self.temp_dir, window + '.pt')
+        os.makedirs(osp.dirname(temp_window_path), exist_ok=True)
+        if not osp.exists(temp_window_path):
+            votes = torch.zeros(window_raw_size, self._num_classes).float()
+            counts = torch.zeros(window_raw_size).int()
+        else:
+            votes, counts = torch.load(temp_window_path)
+        self._idx_window = idx_window
+        self._votes = votes
+        self._counts = counts
