@@ -558,7 +558,7 @@ class KITTI360Cylinder(InMemoryDataset):
         # Get the cylindrical sampling
         center = self.window.centers.pos[idx_center]
         sampler = cT.CylinderSampling(self._radius, center, align_origin=False)
-        data = sampler(self.window.data)
+        data = sampler(self.window.data).clone()
 
         # Save the window index and center index in the data. This will
         # be used in the KITTI360Tracker to accumulate per-window votes

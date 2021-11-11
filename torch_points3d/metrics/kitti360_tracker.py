@@ -3,9 +3,11 @@ import logging
 import torch
 import os
 import os.path as osp
+import glob
 import tempfile
 import numpy as np
 from tqdm.auto import tqdm as tq
+from zipfile import ZipFile
 
 from torch_geometric.nn.unpool import knn_interpolate
 
@@ -71,13 +73,16 @@ class KITTI360Tracker(SegmentationTracker):
         if self._stage == "train":
             return
 
-        # Create a temporary directory in the dataset root directory
-        # (along with `raw` and `processed` directories. This is where
-        # the tracker will create a file for each window, storing the
-        # per-point votes
+        # Create a temporary directory in the `/tmp` directory. If no
+        # such directory is found on the machine, the dataset root
+        # directory (where `raw` and `processed` folders are) will be
+        # used. This is where the tracker will create a file for each
+        # window, storing the per-point votes. The directory will be
+        # automatically deleted when the tracker is deleted or
+        # `self.reset` is called
         if self._temp_dir is None:
-            data_dir = self.stage_dataset.root
-            self._temp_dir = tempfile.TemporaryDirectory(dir=data_dir)
+            tmp_dir = '/tmp' if osp.exists('/tmp') else self.stage_dataset.root
+            self._temp_dir = tempfile.TemporaryDirectory(dir=tmp_dir)
 
         # Gather input data
         data = model.get_input() if data is None else data
@@ -212,6 +217,11 @@ class KITTI360Tracker(SegmentationTracker):
             if make_submission:
                 self._make_submission(idx_window, full_pred)
 
+        # Compress submission files into a final .zip archive as
+        # expected by the KITTI360 submission server
+        if make_submission:
+            self._zip_submission()
+
         # Compute the global voting metrics for low-resolution points
         cm = self._vote_confusion_matrix
         if cm.confusion_matrix is not None and cm.confusion_matrix.sum() > 0:
@@ -247,7 +257,7 @@ class KITTI360Tracker(SegmentationTracker):
                 f'received {type(pred)} of shape {pred.shape} instead.')
 
         # Map TrainId labels to expected Ids
-        pred_remapped = TRAINID2ID[pred]
+        pred_remapped = TRAINID2ID[pred].astype(np.uint8)
 
         # Recover sequence and window information from stage dataset's
         # windows and format those to match the expected file name:
@@ -259,6 +269,16 @@ class KITTI360Tracker(SegmentationTracker):
 
         # Save the window submission
         np.save(osp.join(self._submission_dir, filename), pred_remapped)
+
+    def _zip_submission(self):
+        """This should be called once all window submission files have
+        been saved using `self._make_submission`. This will zip them
+        together as expected by the KITTI360 submission server.
+        """
+        zipObj = ZipFile(f'{self._submission_dir}.zip', 'w')
+        for p in glob.glob(osp.join(self._submission_dir, '*.npy')):
+            zipObj.write(p)
+        zipObj.close()
 
     def get_metrics(self, verbose=False) -> Dict[str, Any]:
         """ Returns a dictionary of all metrics and losses being

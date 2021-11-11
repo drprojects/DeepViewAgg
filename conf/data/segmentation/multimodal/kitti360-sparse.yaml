@@ -30,7 +30,7 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
                 ref_size: ${data.resolution_2d}
                 proj_upscale: ${data.proj_upscale}
                 use_cuda: True
-                voxel: ${data.voxel}
+                voxel: ${data.resolution_3d}
                 r_max: ${data.r_max}
                 r_min: ${data.r_min}
                 exact: ${data.exact_splatting_2d}
@@ -40,7 +40,7 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
         - transform: NeighborhoodBasedMappingFeatures  # Compute local density and occlusion
           params:
                 k: 50  # empirically-chosen heuristic [30-100] is fine
-                voxel: ${data.voxel}
+                voxel: ${data.resolution_3d}
                 density: True
                 occlusion: True
                 use_faiss: True
