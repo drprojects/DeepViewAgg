@@ -71,8 +71,6 @@ class KITTI360CylinderMM(KITTI360Cylinder):
     ----------
     # TODO: parameters
     """
-    num_classes = KITTI360_NUM_CLASSES
-    _WINDOWS = WINDOWS
 
     def __init__(
             self, root, split="train", sample_per_epoch=15000, radius=6,
