@@ -145,9 +145,7 @@ class Window:
 ########################################################################
 
 class KITTI360Cylinder(InMemoryDataset):
-    """
-    Child class of KITTI360 supporting sampling of 3D cylinders
-    within each window.
+    """Dataset supporting sampling of 3D cylinders within each window.
 
     When `sample_per_epoch` is specified, indexing the dataset produces
     cylinders randomly picked so as to even-out class distributions.
@@ -395,7 +393,8 @@ class KITTI360Cylinder(InMemoryDataset):
         for path in tq(self.processed_3d_file_names):
 
             # Extract useful information from <path>
-            split, modality, sequence_name, window_name = osp.splitext(path)[0].split('/')
+            split, modality, sequence_name, window_name = \
+                osp.splitext(path)[0].split('/')
             window_path = osp.join(self.processed_dir, path)
             sampling_path = osp.join(
                 self.processed_dir, split, modality, sequence_name,
@@ -568,7 +567,7 @@ class KITTI360Cylinder(InMemoryDataset):
         return data
 
     def _pick_random_label_and_window(self):
-        """Generates an `(label, idx_window)` tuple as expected by
+        """Generate a `(label, idx_window)` tuple as expected by
         `self.__getitem` when `self.is_random=True`.
 
         This function is typically intended be used by a PyTorch Sampler
@@ -788,9 +787,9 @@ class KITTI360Dataset(BaseDataset):
         Returns:
             [BaseTracker] -- tracker
         """
-        # NB: this import is here because of an import loop between the
+        # NB: this import needs to be here because of a loop between the
         # `dataset.segmentation.kitti360` and `metrics.kitti360_tracker`
-        # modules
+        # modules imports
         from torch_points3d.metrics.kitti360_tracker import KITTI360Tracker
         return KITTI360Tracker(
             self, wandb_log=wandb_log, use_tensorboard=tensorboard_log,
