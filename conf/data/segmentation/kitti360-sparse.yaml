@@ -4,7 +4,7 @@ defaults:
 
 class: kitti360.KITTI360Dataset
 dataroot: data
-voxel: 0.05
+resolution_3d: 0.05
 mapping_key: mapping_index  # hardcoded key used to sync 3D points and modality mappings
 sample_per_epoch: 12000  # Roughly speaking, this means 40 cylinders per training window, to mitigate loading overhead
 eval_sample_res: 6  # This limits the number of cylinders sampled in val and test set. Saves time when training. For voting INFERENCE, better choose radius / 2 or less.
@@ -13,7 +13,7 @@ pre_transform:
     - transform: SaveOriginalPosId    # Required so that one can recover the original point in the fused point cloud
     - transform: GridSampling3D    # Samples on a grid
       params:
-            size: ${data.voxel}
+            size: ${data.resolution_3d}
             setattr_full_pos: True  # Required to keep the full-resolution points for later local features computation
     - transform: SaveOriginalPosId    # Required so that one can recover the multimodal mappings after the transforms
       params:
@@ -21,7 +21,7 @@ pre_transform:
     - transform: PCAComputePointwise
       params:
             num_neighbors: 50  # heuristic: at least 30
-            # r: 0.1  # heuristic: 2 * voxel - using r will force CPU computation
+            # r: 0.1  # heuristic: 2 * resolution_3d - using r will force CPU computation
             use_full_pos: True  # Possible if GridSampling3D.setattr_full_pos = True
             use_faiss: True
     - transform: EigenFeatures
@@ -65,7 +65,7 @@ train_transforms:
   - transform: Center
   - transform: GridSampling3D
     params:
-      size: ${data.voxel}
+      size: ${data.resolution_3d}
       quantize_coords: True
       mode: "last"
   - transform: ShiftVoxels
@@ -84,7 +84,7 @@ test_transform:
   - transform: Center
   - transform: GridSampling3D
     params:
-      size: ${data.voxel}
+      size: ${data.resolution_3d}
       quantize_coords: True
       mode: "last"
 
