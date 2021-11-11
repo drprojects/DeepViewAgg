@@ -1024,8 +1024,8 @@ class CropImageGroups(ImageTransform):
                 break
 
             # Safety measure to make sure all images are used
-            if size == images.img_size:
-                crop_families[size] = image_ids
+            if size == tuple(images.img_size):
+                crop_families[tuple(size)] = image_ids
                 break
 
             # Search among the remaining images those that would fit in
@@ -1036,14 +1036,14 @@ class CropImageGroups(ImageTransform):
 
             # Add the image ids to the crop_family of current size
             if image_ids[valid_ids].shape[0] > 0:
-                crop_families[size] = image_ids[valid_ids]
+                crop_families[tuple(size)] = image_ids[valid_ids]
 
             # Discard selected image ids from the remaining image_ids
             image_ids = image_ids[~valid_ids]
 
             # Compute the next the size. Ensure none of the size sides
             # outsizes img_size
-            size = [size[0] * 2 ** ((i_crop + 1) % 2), size[1] * 2 ** (i_crop % 2)]
+            size = (size[0] * 2 ** ((i_crop + 1) % 2), size[1] * 2 ** (i_crop % 2))
             size[0] = min(size[0], images.img_size[0])
             size[1] = min(size[1], images.img_size[1])
             i_crop += 1
@@ -1051,7 +1051,7 @@ class CropImageGroups(ImageTransform):
         # Make sure the last crop size is the full image
         if images.img_size not in crop_families.keys() \
                 and image_ids.shape[0] > 0:
-            crop_families[images.img_size] = image_ids
+            crop_families[tuple(images.img_size)] = image_ids
 
         # Index and crop the images and mappings
         for size, idx in crop_families.items():
