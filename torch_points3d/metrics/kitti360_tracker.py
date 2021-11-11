@@ -3,9 +3,11 @@ import logging
 import torch
 import os
 import os.path as osp
+import glob
 import tempfile
 import numpy as np
 from tqdm.auto import tqdm as tq
+from zipfile import ZipFile
 
 from torch_geometric.nn.unpool import knn_interpolate
 
@@ -215,6 +217,11 @@ class KITTI360Tracker(SegmentationTracker):
             if make_submission:
                 self._make_submission(idx_window, full_pred)
 
+        # Compress submission files into a final .zip archive as
+        # expected by the KITTI360 submission server
+        if make_submission:
+            self._zip_submission()
+
         # Compute the global voting metrics for low-resolution points
         cm = self._vote_confusion_matrix
         if cm.confusion_matrix is not None and cm.confusion_matrix.sum() > 0:
@@ -262,6 +269,16 @@ class KITTI360Tracker(SegmentationTracker):
 
         # Save the window submission
         np.save(osp.join(self._submission_dir, filename), pred_remapped)
+
+    def _zip_submission(self):
+        """This should be called once all window submission files have
+        been saved using `self._make_submission`. This will zip them
+        together as expected by the KITTI360 submission server.
+        """
+        zipObj = ZipFile(f'{self._submission_dir}.zip', 'w')
+        for p in glob.glob(osp.join(self._submission_dir, '*.npy')):
+            zipObj.write(p)
+        zipObj.close()
 
     def get_metrics(self, verbose=False) -> Dict[str, Any]:
         """ Returns a dictionary of all metrics and losses being
