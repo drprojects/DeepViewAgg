@@ -12,7 +12,7 @@ from torch_geometric.nn.pool.consecutive import consecutive_cluster
 from torch_geometric.nn import voxel_grid
 from torch_geometric.data import Data
 from torch_cluster import grid_cluster
-from torch_points3d.core.multimodal.data import MAPPING_KEY
+from torch_points3d.utils.multimodal import MAPPING_KEY
 
 log = logging.getLogger(__name__)
 

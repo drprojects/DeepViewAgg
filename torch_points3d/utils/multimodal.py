@@ -3,6 +3,13 @@ import numpy as np
 import copy
 
 
+# Key expected to be used for multimodal mappings. Note it is IMPORTANT
+# that the key should contain '*index*' to be treated as such by
+# torch_geometric's Batch.from_data_list(). This way the point
+# indices will be properly updated when stacking multimodal data.
+MAPPING_KEY = 'mapping_index'
+
+
 def tensor_idx(idx):
     """Convert an int, slice, list or numpy index to a torch.LongTensor."""
     if idx is None:
