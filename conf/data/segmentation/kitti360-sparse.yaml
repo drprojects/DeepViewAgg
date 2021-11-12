@@ -1,6 +1,6 @@
 # @package data
 defaults:
-    - segmentation/default
+    - /data/segmentation/default
 
 class: kitti360.KITTI360Dataset
 dataroot: data
@@ -9,6 +9,7 @@ mapping_key: mapping_index  # hardcoded key used to sync 3D points and modality 
 sample_per_epoch: 12000  # Roughly speaking, this means 40 cylinders per training window, to mitigate loading overhead
 eval_sample_res: 6  # This limits the number of cylinders sampled in val and test set. Saves time when training. For voting INFERENCE, better choose radius / 2 or less.
 train_is_trainval: false  # Change this if you want to train on the whole trainval dataset
+mini: False  # Change this if you want to use a reduced version of the dataset for experimentation
 
 pre_transform:
     - transform: SaveOriginalPosId    # Required so that one can recover the original point in the fused point cloud

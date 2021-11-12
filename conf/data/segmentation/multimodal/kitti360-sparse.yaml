@@ -1,6 +1,6 @@
 # @package data
 defaults:
-    - /data/segmentation/multimodal/kitti360-sparse
+    - /data/segmentation/kitti360-sparse
 
 # These parameters are intended to be specified in dedicated configs
 # Note that changing 'resolution_2d', 'image_ratio' or 'image_r_max'
@@ -27,6 +27,7 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
                 margin: 10
                 ignore_z: True
         - transform: PickKImages  # Pick one-every-k image
+          params:
                 k: ${data.image_ratio}
                 random: False
         - transform: NonStaticMask  # Compute acquisition mask
