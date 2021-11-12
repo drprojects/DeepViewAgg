@@ -178,7 +178,7 @@ class MapImages(ImageTransform):
             **kwargs):
         self.key = MAPPING_KEY
         self.verbose = verbose
-        self.sampler_cls = CylinderSampling if cylinder else SphereSampling
+        self.cylinder = cylinder
 
         # Image internal state parameters
         self.ref_size = ref_size
@@ -239,8 +239,20 @@ class MapImages(ImageTransform):
             # Subsample the surrounding point cloud
             torch.cuda.synchronize()
             start = time()
-            sampler = self.sampler_cls(
-                visi_model.r_max, image.pos, align_origin=False)
+            if self.cylinder:
+                sampler = CylinderSampling(
+                    visi_model.r_max, image.pos.squeeze()[:2],
+                    align_origin=False)
+                data.pos_3d = data.pos
+                data.pos = data.pos[:, :2]
+                data_sample = sampler(data)
+                data.pos = data.pos_3d
+                data_sample.pos = data_sample.pos_3d
+                delattr(data, 'pos_3d')
+                delattr(data_sample, 'pos_3d')
+            else:
+                sampler = SphereSampling(
+                    visi_model.r_max, image.pos, align_origin=False)
             data_sample = sampler(data)
             torch.cuda.synchronize()
             t_sphere_sampling += time() - start
