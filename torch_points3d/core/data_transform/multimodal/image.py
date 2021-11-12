@@ -3,7 +3,8 @@ import torch
 import numpy as np
 import torch_scatter
 from torch_geometric.data import Data
-from torch_points3d.core.data_transform import SphereSampling
+from torch_points3d.core.data_transform import SphereSampling, \
+    GridSampling3D, SaveOriginalPosId
 from torch_points3d.core.spatial_ops.neighbour_finder import \
     FAISSGPUKNNNeighbourFinder
 from torch_points3d.core.multimodal.data import MAPPING_KEY
@@ -635,6 +636,72 @@ class SelectMappingFromPointId(ImageTransform):
         # important to preserve the mappings and for multimodal data
         # batching mechanisms.
         data[self.key] = torch.arange(data.num_nodes, device=images.device)
+
+        return data, images
+
+
+class DropImagesOutsideDataBoundingBox(ImageTransform):
+    """Drop images that are not within the bounding box of data."""
+    def __init__(self, margin=0, ignore_z=False):
+        self.margin = margin
+        self.ignore_z = ignore_z
+
+    def _process(self, data: Data, images: SameSettingImageData):
+        # Find the images that are withing the bounding box, with margin
+        b_min = data.pos.min(dim=0).values - self.margin / 2
+        b_max = data.pos.max(dim=0).values + self.margin / 2
+        mask = b_min < images.pos and images.pos < b_max
+        if self.ignore_z:
+            mask = mask[:, 0] * mask[:, 1]
+        else:
+            mask = mask[:, 0] * mask[:, 1] * mask[:, 2]
+
+        # Select images
+        images = images[mask]
+
+        return data, images
+
+
+class GridSampleImages(ImageTransform):
+    """Grid-sample a set of images based on their 3D positions. This
+    can be used to reduce an image set where close-by images are
+    redundant.
+    """
+    def __init__(self, size=0):
+        self.size = size
+
+    def _process(self, data: Data, images: SameSettingImageData):
+        # Create a Data object holding the image positions
+        im_data = Data(pos=images.pos.clone())
+        im_data = SaveOriginalPosId(key='image_id')(im_data)
+        im_data = GridSampling3D(self.size, mode='last')(im_data)
+
+        # Select the grid-sampled images
+        images = images[im_data.image_id]
+
+        return data, images
+
+
+class PickKImages(ImageTransform):
+    """Simply select K images. This can be performed as a random
+    sampling or by simply picking one-every-K images following the
+    order in which they come in.
+    """
+    def __init__(self, k, random=False, replace=False):
+        self.k = k
+        self.random = random
+        self.replace = replace
+
+    def _process(self, data: Data, images: SameSettingImageData):
+        # Generate the image indices to select
+        if self.random:
+            idx = torch.from_numpy(np.random.choice(
+                range(images.num_views), size=self.k, replace=self.replace))
+        else:
+            idx = slice(0, images.num_views, self.k)
+
+        # Select images
+        images = images[idx]
 
         return data, images
 

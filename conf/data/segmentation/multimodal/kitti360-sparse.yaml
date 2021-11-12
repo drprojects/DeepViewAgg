@@ -3,14 +3,14 @@ defaults:
     - /data/segmentation/multimodal/kitti360-sparse
 
 # These parameters are intended to be specified in dedicated configs
-resolution_2d: [1408, 376]      # Image resolution
-padding_2d: 8          # Padding for CropImageGroups
-min_size_2d: 64         # Minimum size for CropImageGroups
-exact_splatting_2d: True  # Whether only exact mappings are preserved after splatting
+resolution_2d: [1408, 376]  # Image resolution
+padding_2d: 8               # Padding for CropImageGroups
+min_size_2d: 64             # Minimum size for CropImageGroups
+exact_splatting_2d: True    # Whether only exact mappings are preserved after splatting
 proj_upscale: 1
-r_max: 8
-r_min: 0.05
-train_pixel_credit: 4  # Choose based on GPU capacity, model ko/pixel cost and 3D batch_size
+image_ratio: 5              # One out of ratio images will be used
+image_r_max: 20             # Maximum radius for mapping construction
+train_pixel_credit: 4       # Choose based on GPU capacity, model ko/pixel cost and 3D batch_size
 test_pixel_credit: 4
 k_coverage: 2
 
@@ -19,6 +19,13 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
     modality: image
 
     pre_transform:
+        - transform: DropImagesOutsideDataBoundingBox  # Remove Sequence images that are too far from the window
+          params:
+                margin: 10
+                ignore_z: True
+        - transform: PickKImages  # Pick one-every-k image
+                k: ${data.image_ratio}
+                random: False
         - transform: NonStaticMask  # Compute acquisition mask
           params:
                 ref_size: ${data.resolution_2d}
@@ -31,8 +38,8 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
                 proj_upscale: ${data.proj_upscale}
                 use_cuda: True
                 voxel: ${data.resolution_3d}
-                r_max: ${data.r_max}
-                r_min: ${data.r_min}
+                r_max: ${data.image_r_max}
+                r_min: 0
                 exact: ${data.exact_splatting_2d}
                 camera: kitti360_perspective
                 verbose: True  # True to print computation times
