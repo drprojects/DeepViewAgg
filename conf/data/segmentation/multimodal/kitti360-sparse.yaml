@@ -41,7 +41,7 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
                 method: SplattingVisibility
                 ref_size: ${data.resolution_2d}
                 proj_upscale: ${data.proj_upscale}
-                use_cuda: True
+                use_cuda: False
                 voxel: ${data.resolution_3d}
                 r_max: ${data.image_r_max}
                 r_min: 0
@@ -56,7 +56,7 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
                 voxel: ${data.resolution_3d}
                 density: True
                 occlusion: True
-                use_faiss: True
+                use_faiss: False
                 verbose: True  # True to print computation times
         - transform: LoadImages  # Read images from disk
           params:

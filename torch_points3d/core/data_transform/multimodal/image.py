@@ -3,6 +3,8 @@ import torch
 import numpy as np
 import torch_scatter
 from torch_geometric.data import Data
+from torch_points3d.core.data_transform import SphereSampling, \
+    CylinderSampling, GridSampling3D, SaveOriginalPosId
 from torch_points3d.core.spatial_ops.neighbour_finder import \
     FAISSGPUKNNNeighbourFinder
 from torch_points3d.utils.multimodal import MAPPING_KEY
@@ -226,10 +228,6 @@ class MapImages(ImageTransform):
         t_stack_pixels = 0
         t_append = 0
 
-        # Import here to avoid cirular imports
-        from torch_points3d.core.data_transform import SphereSampling, \
-            CylinderSampling
-
         # Project each image and gather the point-pixel mappings (on
         # CPU or GPU)
         if self.verbose:
@@ -241,22 +239,9 @@ class MapImages(ImageTransform):
             # Subsample the surrounding point cloud
             torch.cuda.synchronize()
             start = time()
-            print('this is cylinder', self.cylinder)
-            if self.cylinder:
-                print('yup thaz cylinder sampling yooo')
-                sampler = CylinderSampling(
-                    visi_model.r_max, image.pos.squeeze()[:2],
-                    align_origin=False)
-                # data.pos_3d = data.pos
-                # data.pos = data.pos[:, :2]
-                # data_sample = sampler(data)
-                # data.pos = data.pos_3d
-                # data_sample.pos = data_sample.pos_3d
-                # delattr(data, 'pos_3d')
-                # delattr(data_sample, 'pos_3d')
-            else:
-                sampler = SphereSampling(
-                    visi_model.r_max, image.pos, align_origin=False)
+            cls = CylinderSampling if self.cylinder else SphereSampling
+            center = image.pos.squeeze()[:2] if self.cylinder else image.pos
+            sampler = cls(visi_model.r_max, center, align_origin=False)
             data_sample = sampler(data)
             torch.cuda.synchronize()
             t_sphere_sampling += time() - start
@@ -689,9 +674,6 @@ class GridSampleImages(ImageTransform):
         self.size = size
 
     def _process(self, data: Data, images: SameSettingImageData):
-        # Import here to avoid cirular imports
-        from torch_points3d.core.data_transform import GridSampling3D, \
-            SaveOriginalPosId
         # Create a Data object holding the image positions
         im_data = Data(pos=images.pos.clone())
         im_data = SaveOriginalPosId(key='image_id')(im_data)
