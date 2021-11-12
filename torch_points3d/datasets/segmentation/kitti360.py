@@ -753,9 +753,9 @@ class KITTI360Dataset(BaseDataset):
 
         cls = MiniKITTI360Cylinder if dataset_opt.get('mini', False) \
             else KITTI360Cylinder
-        radius = dataset_opt.get('radius', 6)
-        train_sample_res = dataset_opt.get('train_sample_res', 0.3)
-        eval_sample_res = dataset_opt.get('eval_sample_res', radius / 2)
+        radius = dataset_opt.get('radius')
+        train_sample_res = dataset_opt.get('train_sample_res')
+        eval_sample_res = dataset_opt.get('eval_sample_res')
         keep_instance = dataset_opt.get('keep_instance', False)
         sample_per_epoch = dataset_opt.get('sample_per_epoch', 12000)
         train_is_trainval = dataset_opt.get('train_is_trainval', False)
