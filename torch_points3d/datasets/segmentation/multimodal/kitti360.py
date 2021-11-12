@@ -176,9 +176,9 @@ class KITTI360CylinderMM(KITTI360Cylinder):
     def __init__(
             self, root, split="train", sample_per_epoch=15000, radius=6,
             sample_res=0.3, transform=None, pre_transform=None,
-            pre_filter=None, keep_instance=False,
-            pre_transform_image=None, transform_image=None, image_r_max=20,
-            image_ratio=5, image_size=(1408, 376)):
+            pre_filter=None, keep_instance=False, pre_transform_image=None,
+            transform_image=None, image_r_max=20, image_ratio=5,
+            image_size=(1408, 376), voxel=0.05):
 
         # Initialization with downloading and all preprocessing
         super().__init__(
@@ -193,6 +193,7 @@ class KITTI360CylinderMM(KITTI360Cylinder):
         self._image_r_max = image_r_max
         self._image_ratio = image_ratio
         self._image_size = image_size
+        self._voxel = voxel
 
     @property
     def image_r_max(self):
@@ -208,8 +209,13 @@ class KITTI360CylinderMM(KITTI360Cylinder):
 
     @property
     def image_size(self):
-        """The size of images."""
+        """The size of images used in mappings."""
         return self._image_size
+
+    @property
+    def voxel(self):
+        """The voxel resolution of the point clouds used in mappings."""
+        return self._voxel
 
     @property
     def sequences(self):
@@ -232,9 +238,10 @@ class KITTI360CylinderMM(KITTI360Cylinder):
     @property
     def processed_2d_file_names(self):
         suffix = '_'.join([
+            f'voxel-{int(self.voxel*100)}',
             f'size-{self.image_size[0]}x{self.image_size[1]}',
-            f'_ratio-{self.image_ratio}',
-            f'_rmax-{self.image_r_max}'])
+            f'ratio-{self.image_ratio}',
+            f'rmax-{self.image_r_max}'])
 
         # For 'trainval', we use files from 'train' and 'val' to save
         # memory
@@ -364,7 +371,7 @@ class MiniKITTI360CylinderMM(KITTI360CylinderMM):
 #                            KITTI360Dataset                           #
 ########################################################################
 
-class KITTI360Dataset(BaseDataset):
+class KITTI360DatasetMM(BaseDataset):
     """
     # TODO: comments
     """
@@ -375,13 +382,14 @@ class KITTI360Dataset(BaseDataset):
 
         cls = MiniKITTI360CylinderMM if dataset_opt.get('mini', False) \
             else KITTI360CylinderMM
-        radius = dataset_opt.get('radius')
+        radius = dataset_opt.get('radius', 6)
         train_sample_res = dataset_opt.get('train_sample_res', 0.3)
         eval_sample_res = dataset_opt.get('eval_sample_res', radius / 2)
         keep_instance = dataset_opt.get('keep_instance', False)
         image_r_max = dataset_opt.get('image_r_max')
         image_ratio = dataset_opt.get('image_ratio')
         image_size = tuple(dataset_opt.get('resolution_2d'))
+        voxel = tuple(dataset_opt.get('resolution_3d'))
         sample_per_epoch = dataset_opt.get('sample_per_epoch', 12000)
         train_is_trainval = dataset_opt.get('train_is_trainval', False)
 
@@ -393,6 +401,7 @@ class KITTI360Dataset(BaseDataset):
             image_r_max=image_r_max,
             image_ratio=image_ratio,
             image_size=image_size,
+            voxel=voxel,
             sample_per_epoch=sample_per_epoch,
             split='train' if not train_is_trainval else 'trainval',
             pre_transform=self.pre_transform,
@@ -406,6 +415,7 @@ class KITTI360Dataset(BaseDataset):
             image_r_max=image_r_max,
             image_ratio=image_ratio,
             image_size=image_size,
+            voxel=voxel,
             sample_per_epoch=-1,
             split='val',
             pre_transform=self.pre_transform,
@@ -419,6 +429,7 @@ class KITTI360Dataset(BaseDataset):
             image_r_max=image_r_max,
             image_ratio=image_ratio,
             image_size=image_size,
+            voxel=voxel,
             sample_per_epoch=-1,
             split='test',
             pre_transform=self.pre_transform,
