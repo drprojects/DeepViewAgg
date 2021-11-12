@@ -47,6 +47,7 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
                 r_min: 0
                 exact: ${data.exact_splatting_2d}
                 camera: kitti360_perspective
+                cylinder: True  # Important for outdoor datasets where cylindrical samples are drawn
                 verbose: True  # True to print computation times
         - transform: SelectMappingFromPointId  # Remove Sequence images not mapped to the Window
         - transform: NeighborhoodBasedMappingFeatures  # Compute local density and occlusion

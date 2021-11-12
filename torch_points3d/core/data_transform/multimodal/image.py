@@ -4,7 +4,7 @@ import numpy as np
 import torch_scatter
 from torch_geometric.data import Data
 from torch_points3d.core.data_transform import SphereSampling, \
-    GridSampling3D, SaveOriginalPosId
+    CylinderSampling, GridSampling3D, SaveOriginalPosId
 from torch_points3d.core.spatial_ops.neighbour_finder import \
     FAISSGPUKNNNeighbourFinder
 from torch_points3d.core.multimodal.data import MAPPING_KEY
@@ -174,9 +174,11 @@ class MapImages(ImageTransform):
 
     def __init__(
             self, method='SplattingVisibility', proj_upscale=None,
-            ref_size=None, use_cuda=False, verbose=False, **kwargs):
+            ref_size=None, use_cuda=False, verbose=False, cylinder=False,
+            **kwargs):
         self.key = MAPPING_KEY
         self.verbose = verbose
+        self.cylinder = cylinder
 
         # Image internal state parameters
         self.ref_size = ref_size
@@ -237,8 +239,20 @@ class MapImages(ImageTransform):
             # Subsample the surrounding point cloud
             torch.cuda.synchronize()
             start = time()
-            sampler = SphereSampling(
-                visi_model.r_max, image.pos, align_origin=False)
+            if self.cylinder:
+                sampler = CylinderSampling(
+                    visi_model.r_max, image.pos.squeeze()[:2],
+                    align_origin=False)
+                data.pos_3d = data.pos
+                data.pos = data.pos[:, :2]
+                data_sample = sampler(data)
+                data.pos = data.pos_3d
+                data_sample.pos = data_sample.pos_3d
+                delattr(data, 'pos_3d')
+                delattr(data_sample, 'pos_3d')
+            else:
+                sampler = SphereSampling(
+                    visi_model.r_max, image.pos, align_origin=False)
             data_sample = sampler(data)
             torch.cuda.synchronize()
             t_sphere_sampling += time() - start
@@ -650,7 +664,7 @@ class DropImagesOutsideDataBoundingBox(ImageTransform):
         # Find the images that are withing the bounding box, with margin
         b_min = data.pos.min(dim=0).values - self.margin / 2
         b_max = data.pos.max(dim=0).values + self.margin / 2
-        mask = b_min < images.pos and images.pos < b_max
+        mask = torch.logical_and(b_min < images.pos, images.pos < b_max)
         if self.ignore_z:
             mask = mask[:, 0] * mask[:, 1]
         else:
