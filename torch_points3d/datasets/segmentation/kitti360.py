@@ -175,8 +175,7 @@ class KITTI360Cylinder(InMemoryDataset):
         self._window_idx = None
 
         # Initialization with downloading and all preprocessing
-        super(KITTI360Cylinder, self).__init__(
-            root, transform, pre_transform, pre_filter)
+        super().__init__(root, transform, pre_transform, pre_filter)
 
         # Read all sampling files to prepare for cylindrical sampling.
         # If self.is_random (ie sample_per_eopch > 0), need to recover
@@ -264,6 +263,19 @@ class KITTI360Cylinder(InMemoryDataset):
         return self.sample_per_epoch > 0
 
     @property
+    def radius(self):
+        """The radius of cylindrical samples."""
+        return self._radius
+
+    @property
+    def sample_res(self):
+        """The resolution of the grid on which cylindrical samples are
+        generated. The higher the sample_res, the less cylinders in the
+        dataset.
+        """
+        return self._sample_res
+
+    @property
     def windows(self):
         """Filenames of the dataset windows."""
         return self._WINDOWS[self.split]
@@ -272,15 +284,15 @@ class KITTI360Cylinder(InMemoryDataset):
     def paths(self):
         """Paths to the dataset windows data."""
         return [
-            osp.join(self.processed_dir, self.split, '3d', f'{p}.pt')
-            for p in self.windows]
+            osp.join(self.processed_dir, p)
+            for p in self.processed_3d_file_names]
 
     @property
     def sampling_paths(self):
         """Paths to the dataset windows sampling data."""
         return [
-            f'{osp.splitext(p)[0]}_{hash(self._sample_res)}.pt'
-            for p in self.paths]
+            osp.join(self.processed_dir, p)
+            for p in self.processed_3d_sampling_file_names]
 
     @property
     def label_counts(self):
@@ -349,12 +361,28 @@ class KITTI360Cylinder(InMemoryDataset):
 
     @property
     def processed_3d_file_names(self):
+        # For 'trainval', we use files from 'train' and 'val' to save
+        # memory
+        if self.split == 'trainval':
+            return [
+                osp.join(s, '3d', f'{w}.pt')
+                for w in self.windows
+                for s in ('train', 'val')]
+
         return [osp.join(self.split, '3d', f'{w}.pt') for w in self.windows]
 
     @property
     def processed_3d_sampling_file_names(self):
+        # For 'trainval', we use files from 'train' and 'val' to save
+        # memory
+        if self.split == 'trainval':
+            return [
+                osp.join(s, '3d', f'{w}_{hash(self.sample_res)}.pt')
+                for w in self.windows
+                for s in ('train', 'val')]
+
         return [
-            osp.join(self.split, '3d', f'{w}_{hash(self._sample_res)}.pt')
+            osp.join(self.split, '3d', f'{w}_{hash(self.sample_res)}.pt')
             for w in self.windows]
 
     @property
@@ -388,97 +416,104 @@ class KITTI360Cylinder(InMemoryDataset):
             'KITTI360 automatic download not implemented yet')
 
     def process(self):
-        # TODO: for 2D, can't simply loop over those, need to treat 2D
-        #  and 3D separately
-        for path in tq(self.processed_3d_file_names):
+        for path_tuple in tq(zip(self.paths, self.sampling_paths)):
+            self._process_3d(*path_tuple)
 
-            # Extract useful information from <path>
-            split, modality, sequence_name, window_name = \
-                osp.splitext(path)[0].split('/')
-            window_path = osp.join(self.processed_dir, path)
-            sampling_path = osp.join(
-                self.processed_dir, split, modality, sequence_name,
-                f'{window_name}_{hash(self._sample_res)}.pt')
-
-            # If required files exist, skip processing
-            if osp.exists(window_path) and osp.exists(sampling_path):
-                continue
-
-            # Process the window
-            if not osp.exists(window_path):
-
-                # If windows sampling data already exists, remove it,
-                # because it may be out-of-date
-                if osp.exists(sampling_path):
-                    os.remove(sampling_path)
-
-                # Create necessary parent folders if need be
-                os.makedirs(osp.dirname(window_path), exist_ok=True)
-
-                # Read the raw window data
-                raw_3d_dir = self.raw_file_names[1] if split == 'test' \
-                    else self.raw_file_names[0]
-                raw_window_path = osp.join(
-                    self.raw_dir, raw_3d_dir, sequence_name, 'static',
-                    window_name + '.ply')
-                data = read_kitti360_window(
-                    raw_window_path, instance=self._keep_instance, remap=True)
-                num_raw_points = data.num_nodes
-
-                # Apply pre_transform
-                if self.pre_transform is not None:
-                    data = self.pre_transform(data)
-
-                # Pre-compute KD-Tree to save time when sampling later
-                tree = KDTree(np.asarray(data.pos[:, :-1]), leaf_size=10)
-                data[cT.CylinderSampling.KDTREE_KEY] = tree
-
-                # Save the number of points in raw window
-                data.num_raw_points = num_raw_points
-
-                # Save pre_transformed data to the processed dir/<path>
-                torch.save(data, window_path)
-
+    def _process_3d(self, window_path, sampling_path, return_loaded=False):
+        """Internal method called by `self.process` to preprocess 3D
+        points. This function is not directly written in `self.process`
+        so as to help `KITTI360CylinderMM.process` benefit from this
+        method to avoid re-loading the same window multiple times.
+        """
+        # If required files exist, skip processing
+        if osp.exists(window_path) and osp.exists(sampling_path):
+            if return_loaded:
+                return torch.load(window_path), torch.load(sampling_path)
             else:
-                data = torch.load(window_path)
+                return
 
-            # Prepare data to build cylinder centers. Only keep 'pos'
-            # and 'y' (if any) attributes and drop the z coordinate in
-            # 'pos'. NB: we initialize centers as a clone of data and
-            # modify centers inplace subsequently.
-            centers = data.clone()
-            for key in centers.keys:
-                if key not in ['pos', 'y']:
-                    delattr(centers, key)
-            centers.pos[:, 2] = 0
+        # Extract useful information from <path>
+        split, modality, sequence_name, window_name = \
+            osp.splitext(window_path)[0].split('/')[:-4]
 
-            # Compute the sampling of cylinder centers for the window
-            sampler = cT.GridSampling3D(size=self._sample_res)
-            centers = sampler(centers)
-            centers.pos = centers.pos[:, :2]
-            sampling = {
-                'data': centers,
-                'labels': None,
-                'label_counts': None,
-                'grid_size': self._sample_res,
-                'num_points': data.num_nodes,
-                'num_raw_points': data.num_raw_points}
+        # Process the window
+        if not osp.exists(window_path):
 
-            # If data has labels (ie not test set), save which labels
-            # are present in the window and their count. These will be
-            # used at sampling time to pick cylinders so as to even-out
-            # class distributions
-            if hasattr(centers, 'y'):
-                unique, counts = np.unique(
-                    np.asarray(centers.y), return_counts=True)
-                sampling['labels'] = unique
-                sampling['label_counts'] = counts
+            # If windows sampling data already exists, remove it,
+            # because it may be out-of-date
+            if osp.exists(sampling_path):
+                os.remove(sampling_path)
 
-            torch.save(sampling, sampling_path)
+            # Create necessary parent folders if need be
+            os.makedirs(osp.dirname(window_path), exist_ok=True)
+
+            # Read the raw window data
+            raw_3d_dir = self.raw_file_names[1] if split == 'test' \
+                else self.raw_file_names[0]
+            raw_window_path = osp.join(
+                self.raw_dir, raw_3d_dir, sequence_name, 'static',
+                window_name + '.ply')
+            data = read_kitti360_window(
+                raw_window_path, instance=self._keep_instance, remap=True)
+            num_raw_points = data.num_nodes
+
+            # Apply pre_transform
+            if self.pre_transform is not None:
+                data = self.pre_transform(data)
+
+            # Pre-compute KD-Tree to save time when sampling later
+            tree = KDTree(np.asarray(data.pos[:, :-1]), leaf_size=10)
+            data[cT.CylinderSampling.KDTREE_KEY] = tree
+
+            # Save the number of points in raw window
+            data.num_raw_points = num_raw_points
+
+            # Save pre_transformed data to the processed dir/<path>
+            torch.save(data, window_path)
+
+        else:
+            data = torch.load(window_path)
+
+        # Prepare data to build cylinder centers. Only keep 'pos'
+        # and 'y' (if any) attributes and drop the z coordinate in
+        # 'pos'. NB: we initialize centers as a clone of data and
+        # modify centers inplace subsequently.
+        centers = data.clone()
+        for key in centers.keys:
+            if key not in ['pos', 'y']:
+                delattr(centers, key)
+        centers.pos[:, 2] = 0
+
+        # Compute the sampling of cylinder centers for the window
+        sampler = cT.GridSampling3D(size=self.sample_res)
+        centers = sampler(centers)
+        centers.pos = centers.pos[:, :2]
+        sampling = {
+            'data': centers,
+            'labels': None,
+            'label_counts': None,
+            'grid_size': self.sample_res,
+            'num_points': data.num_nodes,
+            'num_raw_points': data.num_raw_points}
+
+        # If data has labels (ie not test set), save which labels
+        # are present in the window and their count. These will be
+        # used at sampling time to pick cylinders so as to even-out
+        # class distributions
+        if hasattr(centers, 'y'):
+            unique, counts = np.unique(
+                np.asarray(centers.y), return_counts=True)
+            sampling['labels'] = unique
+            sampling['label_counts'] = counts
+
+        torch.save(sampling, sampling_path)
+
+        if return_loaded:
+            return data, sampling
 
     def _load_window(self, idx):
         """Load a window and its sampling data into memory based on its
-        index in the self.windows list.
+        index in `self.windows`.
         """
         # Check if the window is not already loaded
         if self.window_idx == idx:
@@ -509,11 +544,16 @@ class KITTI360Cylinder(InMemoryDataset):
         This mechanism is required for some PyTorch Dataset core
         functionalities calling `self[0]`.
         """
+        # Pick a 3D cylindrical sample. This will take care of 'smart'
+        # window loading for us
         if self.is_random and isinstance(idx, tuple):
             data = self._get_from_label_and_window_idx(*idx)
         else:
             data = self._get_from_global_idx(idx)
+
+        # Apply 3D transforms
         data = data if self.transform is None else self.transform(data)
+
         return data
 
     def _get_from_label_and_window_idx(self, label, idx_window):
@@ -530,7 +570,7 @@ class KITTI360Cylinder(InMemoryDataset):
         # Get the cylindrical sampling
         center = self.window.centers.pos[idx_center]
         sampler = cT.CylinderSampling(
-            self._radius, center, align_origin=False)
+            self.radius, center, align_origin=False)
         data = sampler(self.window.data)
 
         # Save the window index and center index in the data. This will
@@ -556,7 +596,7 @@ class KITTI360Cylinder(InMemoryDataset):
 
         # Get the cylindrical sampling
         center = self.window.centers.pos[idx_center]
-        sampler = cT.CylinderSampling(self._radius, center, align_origin=False)
+        sampler = cT.CylinderSampling(self.radius, center, align_origin=False)
         data = sampler(self.window.data).clone()
 
         # Save the window index and center index in the data. This will
@@ -595,7 +635,7 @@ class KITTI360Cylinder(InMemoryDataset):
 
 
 ########################################################################
-#                           MiniKITTI360Cylinder                       #
+#                         MiniKITTI360Cylinder                         #
 ########################################################################
 
 class MiniKITTI360Cylinder(KITTI360Cylinder):
@@ -678,7 +718,7 @@ class KITTI360Sampler(Sampler):
 
             # Make last group 'manually'
             if i == windows.shape[0] - 1:
-                indices.append(torch.arange(group_start, i+1))
+                indices.append(torch.arange(group_start, i + 1))
 
         # Shuffle the groups of indices and concatenate them into the
         # final sampling order
@@ -706,7 +746,6 @@ class KITTI360Dataset(BaseDataset):
     """
     # TODO: comments
     """
-
     INV_OBJECT_LABEL = INV_OBJECT_LABEL
 
     def __init__(self, dataset_opt):
@@ -767,12 +806,6 @@ class KITTI360Dataset(BaseDataset):
             #  train set
             raise NotImplementedError(
                 'KITTI360Dataset does not support class weights yet.')
-
-    @property
-    def test_data(self):
-        # TODO this needs to change for KITTI360, the raw data will be
-        #  extracted directly from the files
-        return self.test_dataset[0].raw_test_data
 
     @property
     def submission_dir(self):
