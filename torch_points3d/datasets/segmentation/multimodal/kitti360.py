@@ -1,4 +1,5 @@
 from torch_points3d.datasets.segmentation.kitti360 import *
+from torch_points3d.datasets.base_dataset_multimodal import BaseDatasetMM
 from torch_points3d.core.multimodal.image import SameSettingImageData
 from torch_points3d.core.multimodal.data import MMData
 
@@ -36,17 +37,20 @@ def read_kitti360_image_sequence(root, sequence, cam_id=0, size=None):
     poses = np.loadtxt(pose_file)
     frames = sorted([f'{x:010d}.png' for x in poses[:, 0].astype(np.int64)])
     poses = torch.from_numpy(poses[:, 1:]).view(-1, 3, 4)
-    n_images = poses.shape[0]
 
     # Recover the absolute path to each frame
     paths = np.asarray([
         osp.join(raw_2d_dir, sequence, camera_names[cam_id], 'data_rect', x)
         for x in frames])
 
-    # Sanity check just to make sure all images exist
-    missing = [x for x in paths if not osp.exists(x)]
-    if len(missing) > 0:
-        raise ValueError(f'The following images are missing:\n{missing}')
+    # The poses may describe images that are not provided, so remove
+    # missing images for paths and poses
+    idx = np.asarray([i for i, p in enumerate(paths) if osp.exists(p)])
+    poses = poses[idx]
+    paths = paths[idx]
+    n_images = poses.shape[0]
+    if n_images == 0:
+        raise ValueError(f'Could not fin any image')
 
     # Intrinsic parameters
     K, R_rect, width, height = load_intrinsics(intrinsic_file, cam_id=cam_id)
@@ -286,6 +290,9 @@ class KITTI360CylinderMM(KITTI360Cylinder):
                     not osp.exists(p) for p in [window_path, sampling_path]]):
                 os.remove(image_path)
 
+            # Create necessary parent folders if need be
+            os.makedirs(osp.dirname(image_path), exist_ok=True)
+
             # Extract useful information from <path>
             split, modality, sequence_name, window_name = \
                 osp.splitext(window_path)[0].split('/')[-4:]
@@ -381,7 +388,7 @@ class MiniKITTI360CylinderMM(KITTI360CylinderMM):
 #                            KITTI360Dataset                           #
 ########################################################################
 
-class KITTI360DatasetMM(BaseDataset):
+class KITTI360DatasetMM(BaseDatasetMM):
     """
     # TODO: comments
     """
@@ -415,7 +422,9 @@ class KITTI360DatasetMM(BaseDataset):
             sample_per_epoch=sample_per_epoch,
             split='train' if not train_is_trainval else 'trainval',
             pre_transform=self.pre_transform,
-            transform=self.train_transform)
+            transform=self.train_transform,
+            pre_transform_image=self.pre_transform_image,
+            transform_image=self.train_transform_image)
 
         self.val_dataset = cls(
             self._data_path,
@@ -429,21 +438,25 @@ class KITTI360DatasetMM(BaseDataset):
             sample_per_epoch=-1,
             split='val',
             pre_transform=self.pre_transform,
-            transform=self.val_transform)
+            transform=self.val_transform,
+            pre_transform_image=self.pre_transform_image,
+            transform_image=self.val_transform_image)
 
-        self.test_dataset = cls(
-            self._data_path,
-            radius=radius,
-            sample_res=eval_sample_res,
-            keep_instance=keep_instance,
-            image_r_max=image_r_max,
-            image_ratio=image_ratio,
-            image_size=image_size,
-            voxel=voxel,
-            sample_per_epoch=-1,
-            split='test',
-            pre_transform=self.pre_transform,
-            transform=self.test_transform)
+        # self.test_dataset = cls(
+        #     self._data_path,
+        #     radius=radius,
+        #     sample_res=eval_sample_res,
+        #     keep_instance=keep_instance,
+        #     image_r_max=image_r_max,
+        #     image_ratio=image_ratio,
+        #     image_size=image_size,
+        #     voxel=voxel,
+        #     sample_per_epoch=-1,
+        #     split='test',
+        #     pre_transform=self.pre_transform,
+        #     transform=self.test_transform,
+        #     pre_transform_image=self.pre_transform_image,
+        #     transform_image=self.test_transform_image)
 
         # A dedicated sampler must be created for the train set. Indeed,
         # self.train_dataset.sample_per_epoch > 0 means cylindrical
