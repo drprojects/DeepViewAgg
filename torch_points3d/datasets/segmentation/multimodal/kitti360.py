@@ -45,8 +45,8 @@ def read_kitti360_image_sequence(root, sequence, cam_id=0, size=None):
 
     # Sanity check just to make sure all images exist
     missing = [x for x in paths if not osp.exists(x)]
-    assert len(missing) > 0, \
-        f'The following images could not be found:\n{missing}'
+    if len(missing) > 0:
+        raise ValueError(f'The following images are missing:\n{missing}')
 
     # Intrinsic parameters
     K, R_rect, width, height = load_intrinsics(intrinsic_file, cam_id=cam_id)
@@ -180,13 +180,6 @@ class KITTI360CylinderMM(KITTI360Cylinder):
             transform_image=None, image_r_max=20, image_ratio=5,
             image_size=(1408, 376), voxel=0.05):
 
-        # Initialization with downloading and all preprocessing
-        super().__init__(
-            root, split=split, sample_per_epoch=sample_per_epoch,
-            radius=radius, sample_res=sample_res, transform=transform,
-            pre_transform=pre_transform, pre_filter=pre_filter,
-            keep_instance=keep_instance)
-
         # 2D-related attributes
         self.pre_transform_image = pre_transform_image
         self.transform_image = transform_image
@@ -194,6 +187,13 @@ class KITTI360CylinderMM(KITTI360Cylinder):
         self._image_ratio = image_ratio
         self._image_size = image_size
         self._voxel = voxel
+
+        # Initialization with downloading and all preprocessing
+        super().__init__(
+            root, split=split, sample_per_epoch=sample_per_epoch,
+            radius=radius, sample_res=sample_res, transform=transform,
+            pre_transform=pre_transform, pre_filter=pre_filter,
+            keep_instance=keep_instance)
 
     @property
     def image_r_max(self):
@@ -238,7 +238,7 @@ class KITTI360CylinderMM(KITTI360Cylinder):
     @property
     def processed_2d_file_names(self):
         suffix = '_'.join([
-            f'voxel-{int(self.voxel*100)}',
+            f'voxel-{int(self.voxel * 100)}',
             f'size-{self.image_size[0]}x{self.image_size[1]}',
             f'ratio-{self.image_ratio}',
             f'rmax-{self.image_r_max}'])
@@ -288,7 +288,7 @@ class KITTI360CylinderMM(KITTI360Cylinder):
 
             # Extract useful information from <path>
             split, modality, sequence_name, window_name = \
-                osp.splitext(window_path)[0].split('/')[:-4]
+                osp.splitext(window_path)[0].split('/')[-4:]
 
             # 3D preprocessing of window point cloud. We take the
             # opportunity that this step loads the window in memory to
@@ -366,6 +366,16 @@ class MiniKITTI360CylinderMM(KITTI360CylinderMM):
     """
     _WINDOWS = {k: v[:2] for k, v in WINDOWS.items()}
 
+    # We have to include this method, otherwise the parent class skips
+    # processing
+    def process(self):
+        super().process()
+
+    # We have to include this method, otherwise the parent class skips
+    # processing
+    def download(self):
+        super().download()
+
 
 ########################################################################
 #                            KITTI360Dataset                           #
@@ -382,14 +392,14 @@ class KITTI360DatasetMM(BaseDataset):
 
         cls = MiniKITTI360CylinderMM if dataset_opt.get('mini', False) \
             else KITTI360CylinderMM
-        radius = dataset_opt.get('radius', 6)
-        train_sample_res = dataset_opt.get('train_sample_res', 0.3)
-        eval_sample_res = dataset_opt.get('eval_sample_res', radius / 2)
-        keep_instance = dataset_opt.get('keep_instance', False)
+        radius = dataset_opt.get('radius')
+        train_sample_res = dataset_opt.get('train_sample_res')
+        eval_sample_res = dataset_opt.get('eval_sample_res')
         image_r_max = dataset_opt.get('image_r_max')
         image_ratio = dataset_opt.get('image_ratio')
         image_size = tuple(dataset_opt.get('resolution_2d'))
-        voxel = tuple(dataset_opt.get('resolution_3d'))
+        voxel = dataset_opt.get('resolution_3d')
+        keep_instance = dataset_opt.get('keep_instance', False)
         sample_per_epoch = dataset_opt.get('sample_per_epoch', 12000)
         train_is_trainval = dataset_opt.get('train_is_trainval', False)
 

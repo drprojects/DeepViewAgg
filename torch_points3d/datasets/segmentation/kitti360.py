@@ -342,7 +342,7 @@ class KITTI360Cylinder(InMemoryDataset):
     @property
     def raw_file_names(self):
         """The file paths to find in order to skip the download."""
-        return ['data_3d_semantics', 'data_3d_semantics_test']
+        return ['data_3d_semantics/train', 'data_3d_semantics/test']
 
     @property
     def raw_3d_paths(self):
@@ -434,7 +434,7 @@ class KITTI360Cylinder(InMemoryDataset):
 
         # Extract useful information from <path>
         split, modality, sequence_name, window_name = \
-            osp.splitext(window_path)[0].split('/')[:-4]
+            osp.splitext(window_path)[0].split('/')[-4:]
 
         # Process the window
         if not osp.exists(window_path):
