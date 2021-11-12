@@ -235,6 +235,15 @@ class KITTI360CylinderMM(KITTI360Cylinder):
             f'size-{self.image_size[0]}x{self.image_size[1]}',
             f'_ratio-{self.image_ratio}',
             f'_rmax-{self.image_r_max}'])
+
+        # For 'trainval', we use files from 'train' and 'val' to save
+        # memory
+        if self.split == 'trainval':
+            return [
+                osp.join(s, '2d', f'{w}_{suffix}.pt')
+                for w in self.windows
+                for s in ('train', 'val')]
+
         return [
             osp.join(self.split, '2d', f'{w}_{suffix}.pt')
             for w in self.windows]

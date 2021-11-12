@@ -361,10 +361,26 @@ class KITTI360Cylinder(InMemoryDataset):
 
     @property
     def processed_3d_file_names(self):
+        # For 'trainval', we use files from 'train' and 'val' to save
+        # memory
+        if self.split == 'trainval':
+            return [
+                osp.join(s, '3d', f'{w}.pt')
+                for w in self.windows
+                for s in ('train', 'val')]
+
         return [osp.join(self.split, '3d', f'{w}.pt') for w in self.windows]
 
     @property
     def processed_3d_sampling_file_names(self):
+        # For 'trainval', we use files from 'train' and 'val' to save
+        # memory
+        if self.split == 'trainval':
+            return [
+                osp.join(s, '3d', f'{w}_{hash(self.sample_res)}.pt')
+                for w in self.windows
+                for s in ('train', 'val')]
+
         return [
             osp.join(self.split, '3d', f'{w}_{hash(self.sample_res)}.pt')
             for w in self.windows]

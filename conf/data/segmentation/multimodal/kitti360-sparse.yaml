@@ -3,6 +3,9 @@ defaults:
     - /data/segmentation/multimodal/kitti360-sparse
 
 # These parameters are intended to be specified in dedicated configs
+# Note that changing 'resolution_2d', 'image_ratio' or 'image_r_max'
+# will change the nature of image mappings and will hence trigger the
+# processing of new image mappings (if not already existing)
 resolution_2d: [1408, 376]  # Image resolution
 padding_2d: 8               # Padding for CropImageGroups
 min_size_2d: 64             # Minimum size for CropImageGroups
