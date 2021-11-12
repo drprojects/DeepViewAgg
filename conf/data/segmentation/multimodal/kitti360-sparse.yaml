@@ -65,7 +65,6 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
 
     train_transforms:
         - transform: SelectMappingFromPointId  # Select mappings after 3D points sampling
-        - transform: CenterRoll  # Roll images to center mappings
         - transform: PickImagesFromMappingArea  # Remove images with not enough mappings
           params:
                 use_bbox: ${data.exact_splatting_2d}
@@ -80,20 +79,19 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
                 k_coverage: ${data.k_coverage}
         - transform: JitterMappingFeatures  # Mapping features augmentation
           params:
-                sigma: 0.02
-                clip: 0.03
+                sigma: 0.003
+                clip: 0.01
         - transform: ColorJitter  # Radiometric augmentation
           params:
-                  brightness: 0.6
-                  contrast: 0.6
-                  saturation: 0.7
+                  brightness: 0.2
+                  contrast: 0.2
+                  saturation: 0.2
         - transform: RandomHorizontalFlip
         - transform: ToFloatImage  # Convert uint8 image to float
         - transform: Normalize  # Normalize colors
 
     test_transforms:
         - transform: SelectMappingFromPointId  # Select mappings after 3D points sampling
-        - transform: CenterRoll  # Roll images to center mappings
         - transform: PickImagesFromMappingArea  # Remove images with not enough mappings
           params:
                 use_bbox: ${data.exact_splatting_2d}
