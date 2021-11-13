@@ -276,6 +276,11 @@ class UnimodalBranch(nn.Module, ABC):
         x_3d = mm_data_dict['x_3d'].F if sparse_3d else mm_data_dict['x_3d']
         mod_data = mm_data_dict['modalities'][modality]
 
+        # If the modality has no data mapped to the current 3D points,
+        # skip the branch forward
+        if len(mod_data.x) == 0:
+            return mm_data_dict
+
         # Check whether the modality carries multi-setting data
         has_multi_setting = isinstance(mod_data.x, list)
 
