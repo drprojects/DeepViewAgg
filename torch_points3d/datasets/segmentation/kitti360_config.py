@@ -7,8 +7,6 @@ from torch_points3d.datasets.segmentation import IGNORE_LABEL as IGNORE
 #                              Data splits                             #
 ########################################################################
 
-# TODO: train/val split from official data. Download again to get it
-
 # TODO: 3D semseg actually ignores ['train', 'bus', 'rider', 'sky'],
 #  change labels accordingly
 
@@ -363,8 +361,6 @@ WINDOWS = {
         '2013_05_28_drive_0018_sync/0000003215_0000003513',
         '2013_05_28_drive_0018_sync/0000001878_0000002099',
         '2013_05_28_drive_0018_sync/0000002269_0000002496']}
-
-WINDOWS['trainval'] = WINDOWS['train'] + WINDOWS['val']
 
 
 ########################################################################

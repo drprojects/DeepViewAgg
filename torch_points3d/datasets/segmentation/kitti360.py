@@ -278,6 +278,8 @@ class KITTI360Cylinder(InMemoryDataset):
     @property
     def windows(self):
         """Filenames of the dataset windows."""
+        if self.split == 'trainval':
+            return self._WINDOWS['train'] + self._WINDOWS['val']
         return self._WINDOWS[self.split]
 
     @property
@@ -366,8 +368,8 @@ class KITTI360Cylinder(InMemoryDataset):
         if self.split == 'trainval':
             return [
                 osp.join(s, '3d', f'{w}.pt')
-                for w in self.windows
-                for s in ('train', 'val')]
+                for s in ('train', 'val')
+                for w in self._WINDOWS[s]]
 
         return [osp.join(self.split, '3d', f'{w}.pt') for w in self.windows]
 
@@ -378,8 +380,8 @@ class KITTI360Cylinder(InMemoryDataset):
         if self.split == 'trainval':
             return [
                 osp.join(s, '3d', f'{w}_{hash(self.sample_res)}.pt')
-                for w in self.windows
-                for s in ('train', 'val')]
+                for s in ('train', 'val')
+                for w in self._WINDOWS[s]]
 
         return [
             osp.join(self.split, '3d', f'{w}_{hash(self.sample_res)}.pt')

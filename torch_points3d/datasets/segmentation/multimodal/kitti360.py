@@ -257,8 +257,8 @@ class KITTI360CylinderMM(KITTI360Cylinder):
         if self.split == 'trainval':
             return [
                 osp.join(s, '2d', f'{w}_{suffix}.pt')
-                for w in self.windows
-                for s in ('train', 'val')]
+                for s in ('train', 'val')
+                for w in self._WINDOWS[s]]
 
         return [
             osp.join(self.split, '2d', f'{w}_{suffix}.pt')
