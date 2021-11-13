@@ -241,6 +241,11 @@ class KITTI360CylinderMM(KITTI360Cylinder):
 
     @property
     def processed_2d_file_names(self):
+        # TODO: in theory, to make sure we track whenever the parameters
+        #  affect the mapping, we should also track 'exact_splatting_2d',
+        #  'k_swell', 'd_swell' or, even better, the whole visibility
+        #  model. Not sure how hashing all this together would produce
+        #  consistent hashes.
         suffix = '_'.join([
             f'voxel-{int(self.voxel * 100)}',
             f'size-{self.image_size[0]}x{self.image_size[1]}',

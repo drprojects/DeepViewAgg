@@ -14,6 +14,8 @@ exact_splatting_2d: True    # Whether only exact mappings are preserved after sp
 proj_upscale: 1
 image_ratio: 5              # One out of ratio images will be used
 image_r_max: 20             # Maximum radius for mapping construction
+image_k_swell: 1.5          # Affects voxel size when computing mappings
+image_d_swell: 1000000      # Affects voxel size when computing mappings
 train_pixel_credit: 4       # Choose based on GPU capacity, model ko/pixel cost and 3D batch_size
 test_pixel_credit: 4
 k_coverage: 2
@@ -45,6 +47,8 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
                 voxel: ${data.resolution_3d}
                 r_max: ${data.image_r_max}
                 r_min: 0
+                k_swell: ${data.image_k_swell}
+                d_swell: ${data.image_d_swell}
                 exact: ${data.exact_splatting_2d}
                 camera: kitti360_perspective
                 cylinder: True  # Important for outdoor datasets where cylindrical samples are drawn
