@@ -16,6 +16,8 @@ from mit_semseg.config import cfg as MITCfg
 from mit_semseg.models import ModelBuilder as MITModelBuilder
 from mit_semseg.lib.nn import SynchronizedBatchNorm2d as MITSynchronizedBatchNorm2d
 
+PRETRAINED_DIR = osp.join(osp.dirname(osp.abspath(__file__)), 'pretrained')
+
 
 class ModalityIdentity(Identity):
     """Identiy module for modalities.
@@ -719,8 +721,7 @@ class ADE20KResNet18PPM(nn.Module, ABC):
 
         # Adapt the default config to use ResNet18 + PPM-Deepsup model
         ARCH = 'resnet18dilated-ppm_deepsup'
-        DIR = osp.join(
-            osp.dirname(osp.abspath(__file__)), 'pretrained/ade20k', ARCH)
+        DIR = osp.join(PRETRAINED_DIR, 'ade20k', ARCH)
         MITCfg.merge_from_file(osp.join(DIR, f'{ARCH}.yaml'))
         MITCfg.MODEL.arch_encoder = MITCfg.MODEL.arch_encoder.lower()
         MITCfg.MODEL.arch_decoder = MITCfg.MODEL.arch_decoder.lower()
@@ -796,8 +797,7 @@ class ADE20KResNet18TruncatedLayer4(nn.Module):
 
         # Adapt the default config to use ResNet18 + PPM-Deepsup model
         ARCH = 'resnet18dilated-ppm_deepsup'
-        DIR = osp.join(
-            osp.dirname(osp.abspath(__file__)), 'pretrained/ade20k', ARCH)
+        DIR = osp.join(PRETRAINED_DIR, 'ade20k', ARCH)
         MITCfg.merge_from_file(osp.join(DIR, f'{ARCH}.yaml'))
         MITCfg.MODEL.arch_encoder = MITCfg.MODEL.arch_encoder.lower()
         MITCfg.DIR = DIR
@@ -961,8 +961,7 @@ def _instantiate_torchvision_resnet(
 
     if pretrained:
 
-        model_dir = osp.join(
-            osp.dirname(osp.abspath(__file__)), f'pretrained/imagenet/{arch}')
+        model_dir = osp.join(PRETRAINED_DIR, f'imagenet/{arch}')
         file_name = f'{arch}.pth'
         file_path = osp.join(model_dir, file_name)
 
@@ -1117,3 +1116,107 @@ class ResNet18Pyramid(ResNet18TruncatedLayer4):
             feature_pyramid.append(x_up)
 
         return torch.cat(feature_pyramid, dim=1)
+
+
+class CityscapesBasicBlock(nn.Module):
+    """BasicBlock for Cityscapes-pretrained ResNet18.
+    Credit: https://github.com/fregu856/deeplabv3
+    """
+    expansion = 1
+
+    def __init__(self, in_channels, channels, stride=1, dilation=1):
+        super().__init__()
+
+        out_channels = self.expansion * channels
+
+        self.conv1 = nn.Conv2d(
+            in_channels, channels, kernel_size=3, stride=stride,
+            padding=dilation, dilation=dilation, bias=False)
+        self.bn1 = nn.BatchNorm2d(channels)
+
+        self.conv2 = nn.Conv2d(
+            channels, channels, kernel_size=3, stride=1, padding=dilation,
+            dilation=dilation, bias=False)
+        self.bn2 = nn.BatchNorm2d(channels)
+
+        if (stride != 1) or (in_channels != out_channels):
+            conv = nn.Conv2d(
+                in_channels, out_channels, kernel_size=1, stride=stride,
+                bias=False)
+            bn = nn.BatchNorm2d(out_channels)
+            self.downsample = nn.Sequential(conv, bn)
+        else:
+            self.downsample = nn.Sequential()
+
+    def forward(self, x):
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.bn2(self.conv2(out))
+        out = out + self.downsample(x)
+        out = F.relu(out)
+        return out
+
+
+class CityscapesResNet18(nn.Module):
+    """ResNet18-based encoder pretrained on Cityscapes. The output
+    feature map size is 1/8 of the input image size.
+
+    Credit: https://github.com/fregu856/deeplabv3
+    """
+    RELATIVE_PATH = 'cityscapes/CityscapesResNet18/resnet18.pth'
+    PRETRAINED_PATH = osp.join(PRETRAINED_DIR, RELATIVE_PATH)
+
+    def __init__(self, *args, frozen=False, pretrained=True, **kwargs):
+        super().__init__()
+
+        resnet = torchvision.models.resnet.resnet18()
+        # remove fc, avg pool, layer4 and layer5
+        self.resnet = nn.Sequential(*list(resnet.children())[:-4])
+        self.layer4 = self.make_layer(
+            CityscapesBasicBlock, in_channels=128, channels=256, num_blocks=2,
+            stride=1, dilation=2)
+        self.layer5 = self.make_layer(
+            CityscapesBasicBlock, in_channels=256, channels=512, num_blocks=2,
+            stride=1, dilation=4)
+
+        # Load pretrained weights
+        self.pretrained = pretrained
+        if pretrained:
+            self.load_state_dict(torch.load(self.PRETRAINED_PATH))
+
+        # If the model is frozen, it will always remain in eval mode
+        # and the parameters will have requires_grad=False
+        self.frozen = frozen
+        if self.frozen:
+            self.training = False
+
+    def forward(self, x):
+        x = self.resnet(x)  # (N, 128, h/8, w/8)
+        x = self.layer4(x)  # (N, 256, h/8, w/8)
+        x = self.layer5(x)  # (N, 512, h/8, w/8)
+        return x
+
+    @staticmethod
+    def make_layer(
+            block, in_channels, channels, num_blocks, stride=1, dilation=1):
+        strides = [stride] + [1] * (num_blocks - 1)
+        blocks = []
+        for stride in strides:
+            blocks.append(block(
+                in_channels=in_channels, channels=channels, stride=stride,
+                dilation=dilation))
+            in_channels = block.expansion * channels
+        return nn.Sequential(*blocks)
+
+    @property
+    def frozen(self):
+        return self._frozen
+
+    @frozen.setter
+    def frozen(self, frozen):
+        if isinstance(frozen, bool):
+            self._frozen = frozen
+        for p in self.parameters():
+            p.requires_grad = not self.frozen
+
+    def train(self, mode=True):
+        return super(ADE20KResNet18PPM, self).train(mode and not self.frozen)
