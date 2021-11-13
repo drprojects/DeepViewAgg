@@ -4,6 +4,7 @@ defaults:
 
 class: kitti360.KITTI360Dataset
 dataroot: data
+use_category: False
 
 # Note that changing 'train_sample_res' or 'eval_sample_res' will change
 # the nature of 3D cylindrical samplings and will hence trigger the
