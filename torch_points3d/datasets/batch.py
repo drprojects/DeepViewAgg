@@ -40,12 +40,10 @@ class SimpleBatch(Data):
 
         for key in batch.keys:
             item = batch[key][0]
-            if (
-                torch.is_tensor(item)
-                or isinstance(item, int)
-                or isinstance(item, float)
-            ):
+            if torch.is_tensor(item):
                 batch[key] = torch.stack(batch[key])
+            elif isinstance(item, int) or isinstance(item, float):
+                batch[key] = torch.as_tensor(batch[key])
             else:
                 raise ValueError("Unsupported attribute type")
 
