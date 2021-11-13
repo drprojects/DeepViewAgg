@@ -1,12 +1,9 @@
+import torch
+import numpy as np
 from torch_geometric.data import Data, Batch
-from torch_points3d.core.multimodal.image import *
-from torch_points3d.utils.multimodal import tensor_idx
+from torch_points3d.core.multimodal.image import ImageData
+from torch_points3d.utils.multimodal import tensor_idx, MAPPING_KEY
 
-# Key expected to be used for multimodal mappings. Note it is IMPORTANT
-# that the key should contain '*index*' to be treated as such by
-# torch_geometric's Batch.from_data_list(). This way the point
-# indices will be properly updated when stacking multimodal data.
-MAPPING_KEY = 'mapping_index'
 
 # Supported modalities
 MODALITY_FORMATS = {"image": ImageData}

@@ -3,10 +3,11 @@ import torch
 import numpy as np
 import torch_scatter
 from torch_geometric.data import Data
-from torch_points3d.core.data_transform import SphereSampling
+from torch_points3d.core.data_transform import SphereSampling, \
+    CylinderSampling, GridSampling3D, SaveOriginalPosId
 from torch_points3d.core.spatial_ops.neighbour_finder import \
     FAISSGPUKNNNeighbourFinder
-from torch_points3d.core.multimodal.data import MAPPING_KEY
+from torch_points3d.utils.multimodal import MAPPING_KEY
 from torch_points3d.core.multimodal.image import SameSettingImageData, \
     ImageMapping, ImageData
 from torch_points3d.utils.multimodal import lexunique, lexargunique
@@ -26,9 +27,8 @@ __call(Data, ImageData)__
 
 
 class ImageTransform:
-    """
-    Transforms on Data, ImageData / SameSettingImageData and associated
-    ImageMapping.
+    """Transforms on `Data`, `ImageData` / `SameSettingImageData` and 
+    associated `ImageMapping`.
     """
 
     _PROCESS_IMAGE_DATA = False
@@ -62,20 +62,18 @@ class ImageTransform:
 
 
 class ToImageData(ImageTransform):
-    """
-    Transform to transform SameSettingImageData into ToImageData.
+    """Transform to convert `SameSettingImageData` into `ToImageData`.
     """
     def _process(self, data: Data, images: SameSettingImageData):
         return data, ImageData([images])
 
 
 class LoadImages(ImageTransform):
-    """
-    Transform to load images from disk to the SameSettingImageData.
+    """Transform to load images from disk to the `SameSettingImageData`.
 
-    SameSettingImageData internal state is updated if resizing and cropping parameters are
-    passed. Images are loaded with respect to the SameSettingImageData resizing and
-    cropping internal state.
+    `SameSettingImageData` internal state is updated if resizing and
+    cropping parameters are passed. Images are loaded with respect to
+    the `SameSettingImageData` resizing and cropping internal state.
     """
 
     def __init__(self, ref_size=None, crop_size=None, crop_offsets=None,
@@ -87,7 +85,7 @@ class LoadImages(ImageTransform):
         self.show_progress = show_progress
 
     def _process(self, data: Data, images: SameSettingImageData):
-        # Edit SameSettingImageData internal state attributes.
+        # Edit `SameSettingImageData` internal state attributes.
         if self.ref_size is not None:
             images.ref_size = self.ref_size
         if self.crop_size is not None:
@@ -97,7 +95,7 @@ class LoadImages(ImageTransform):
         if self.downscale is not None:
             images.downscale = self.downscale
 
-        # Load images wrt SameSettingImageData internal state
+        # Load images wrt `SameSettingImageData` internal state
         if self.show_progress:
             print("    LoadImages...")
         images.load(show_progress=self.show_progress)
@@ -106,15 +104,15 @@ class LoadImages(ImageTransform):
 
 
 class NonStaticMask(ImageTransform):
-    """
-    Transform-like structure. Find the mask of non-identical pixels across
-    a list of images.
+    """Transform-like structure. Find the mask of non-identical pixels
+    across a list of images.
 
-    Compute the projection of data points into images and return the input data
-    augmented with attributes mapping points to pixels in provided images.
+    Compute the projection of data points into images and return the
+    input data augmented with attributes mapping points to pixels in
+    provided images.
 
-    Returns the same input. The mask is saved in SameSettingImageData attributes, to be
-    used for any subsequent image processing.
+    Returns the same input. The mask is saved in `SameSettingImageData`
+    attributes, to be used for any subsequent image processing.
     """
 
     def __init__(self, ref_size=None, proj_upscale=None, n_sample=5):
@@ -123,7 +121,7 @@ class NonStaticMask(ImageTransform):
         self.n_sample = n_sample
 
     def _process(self, data: Data, images: SameSettingImageData):
-        # Edit SameSettingImageData internal state attributes
+        # Edit `SameSettingImageData` internal state attributes
         if self.ref_size is not None:
             images.ref_size = self.ref_size
         if self.proj_upscale is not None:
@@ -155,30 +153,32 @@ class NonStaticMask(ImageTransform):
                 idx_diff_new = torch.where(torch.logical_and(mask_diff, ~mask))
                 mask[idx_diff_new] = 1
 
-        # Save the mask in the SameSettingImageData 'mask' attribute
+        # Save the mask in the `SameSettingImageData` 'mask' attribute
         images.mask = mask
 
         return data, images
 
 
 class MapImages(ImageTransform):
-    """
-    Transform-like structure. Computes the mappings between individual 3D
-    points and image pixels. Point mappings are identified based on the
-    self.key point identifiers.
+    """Transform-like structure. Computes the mappings between
+    individual 3D points and image pixels. Point mappings are identified
+    based on the `self.key` point identifiers.
 
-    Compute the projection of data points into images and return the input data
-    augmented with attributes mapping points to pixels in provided images.
+    Compute the projection of data points into images and return the
+    input data augmented with attributes mapping points to pixels in
+    provided images.
 
-    Returns the input data and SameSettingImageData augmented with the
-    point-image-pixel ImageMapping.
+    Returns the input data and `SameSettingImageData` augmented with the
+    point-image-pixel `ImageMapping`.
     """
 
     def __init__(
             self, method='SplattingVisibility', proj_upscale=None,
-            ref_size=None, use_cuda=False, verbose=False, **kwargs):
+            ref_size=None, use_cuda=False, verbose=False, cylinder=False,
+            **kwargs):
         self.key = MAPPING_KEY
         self.verbose = verbose
+        self.cylinder = cylinder
 
         # Image internal state parameters
         self.ref_size = ref_size
@@ -200,7 +200,7 @@ class MapImages(ImageTransform):
         in_device = images.device
         device = 'cuda' if self.use_cuda else in_device
 
-        # Edit SameSettingImageData internal state attributes
+        # Edit `SameSettingImageData` internal state attributes
         if self.ref_size is not None:
             images.ref_size = self.ref_size
         if self.proj_upscale is not None:
@@ -239,7 +239,9 @@ class MapImages(ImageTransform):
             # Subsample the surrounding point cloud
             torch.cuda.synchronize()
             start = time()
-            sampler = SphereSampling(visi_model.r_max, image.pos, align_origin=False)
+            cls = CylinderSampling if self.cylinder else SphereSampling
+            center = image.pos.squeeze()[:2] if self.cylinder else image.pos
+            sampler = cls(visi_model.r_max, center, align_origin=False)
             data_sample = sampler(data)
             torch.cuda.synchronize()
             t_sphere_sampling += time() - start
@@ -296,7 +298,7 @@ class MapImages(ImageTransform):
             torch.cuda.synchronize()
             t_visibility += time() - start
 
-            # Convert to SameSettingImageData coordinate system with
+            # Convert to `SameSettingImageData` coordinate system with
             # corresponding cropping and resizing
             # (on CPU or GPU)
             # TODO: add circular padding here if need be
@@ -379,7 +381,7 @@ class MapImages(ImageTransform):
 
         # Reindex seen images
         # We want all images present in the mappings and in
-        # SameSettingImageData to have been seen. If an image has not
+        # `SameSettingImageData` to have been seen. If an image has not
         # been seen, we remove it here.
         # NB: The reindexing here relies on the fact that `unique`
         #  values are expected to be returned sorted.
@@ -405,7 +407,7 @@ class MapImages(ImageTransform):
         if self.verbose:
             print(f"        t_concat_dense_mappings_data: {time() - start:0.3f}")
 
-        # Compute the global ImageMapping
+        # Compute the global `ImageMapping`
         # (on CPU or GPU)
         torch.cuda.synchronize()
         start = time()
@@ -426,8 +428,7 @@ class MapImages(ImageTransform):
 
 
 class NeighborhoodBasedMappingFeatures(ImageTransform):
-    """
-    Transform-like structure. Intended to be called on data and
+    """Transform-like structure. Intended to be called on data and
     images_data.
 
     Populate the mappings with neighborhood-based mapping features:
@@ -534,10 +535,10 @@ class NeighborhoodBasedMappingFeatures(ImageTransform):
                 v_sphere = 3.1416 * d2_max
                 voxel_density = 1 / self.voxel**2
                 density = ((k + 1) / v_sphere) / voxel_density
-                
+
                 # Set potential Nan densities to 1
                 density[torch.where(density.isnan())] = 1
-                
+
                 # Accumulate on CPU to save GPU memory
                 densities.append(density.cpu().view(-1, 1))
 
@@ -592,11 +593,11 @@ class NeighborhoodBasedMappingFeatures(ImageTransform):
                 # Recover the occlusion ratio for each view while
                 # accounting for the contribution of the point itself
                 occlusion = views_neigh_seen / (k + 1)
-                
+
                 # Accumulate on CPU to save GPU memory
                 occlusions.append(occlusion.cpu().view(-1, 1))
 
-            # Concatenate k-based occlusions column-wise on CPU before 
+            # Concatenate k-based occlusions column-wise on CPU before
             # moving to in_device
             occlusions = torch.cat(occlusions, dim=1).to(in_device)
 
@@ -611,15 +612,14 @@ class NeighborhoodBasedMappingFeatures(ImageTransform):
 
 
 class SelectMappingFromPointId(ImageTransform):
-    """
-    Transform-like structure. Intended to be called on data and
+    """Transform-like structure. Intended to be called on data and
     images_data.
 
-    Populate the passed Data sample with attributes extracted from the
-    input CSRData mappings, based on the self.key point identifiers.
+    Populate the passed `Data` sample with attributes extracted from the
+    input `CSRData` mappings, based on the self.key point identifiers.
 
     The indices in data are expected to be included in those in
-    mappings. The CSRData format implicitly holds values for all
+    mappings. The `CSRData` format implicitly holds values for all
     self.key in [0, ..., len(mappings)].
     """
 
@@ -643,9 +643,74 @@ class SelectMappingFromPointId(ImageTransform):
         return data, images
 
 
-class PickImagesFromMappingArea(ImageTransform):
+class DropImagesOutsideDataBoundingBox(ImageTransform):
+    """Drop images that are not within the bounding box of data."""
+    def __init__(self, margin=0, ignore_z=False):
+        self.margin = margin
+        self.ignore_z = ignore_z
+
+    def _process(self, data: Data, images: SameSettingImageData):
+        # Find the images that are withing the bounding box, with margin
+        b_min = data.pos.min(dim=0).values - self.margin / 2
+        b_max = data.pos.max(dim=0).values + self.margin / 2
+        mask = torch.logical_and(b_min < images.pos, images.pos < b_max)
+        if self.ignore_z:
+            mask = mask[:, 0] * mask[:, 1]
+        else:
+            mask = mask[:, 0] * mask[:, 1] * mask[:, 2]
+
+        # Select images
+        images = images[mask]
+
+        return data, images
+
+
+class GridSampleImages(ImageTransform):
+    """Grid-sample a set of images based on their 3D positions. This
+    can be used to reduce an image set where close-by images are
+    redundant.
     """
-    Transform to drop images and corresponding mappings based on a
+    def __init__(self, size=0):
+        self.size = size
+
+    def _process(self, data: Data, images: SameSettingImageData):
+        # Create a Data object holding the image positions
+        im_data = Data(pos=images.pos.clone())
+        im_data = SaveOriginalPosId(key='image_id')(im_data)
+        im_data = GridSampling3D(self.size, mode='last')(im_data)
+
+        # Select the grid-sampled images
+        images = images[im_data.image_id]
+
+        return data, images
+
+
+class PickKImages(ImageTransform):
+    """Simply select K images. This can be performed as a random
+    sampling or by simply picking one-every-K images following the
+    order in which they come in.
+    """
+    def __init__(self, k, random=False, replace=False):
+        self.k = k
+        self.random = random
+        self.replace = replace
+
+    def _process(self, data: Data, images: SameSettingImageData):
+        # Generate the image indices to select
+        if self.random:
+            idx = torch.from_numpy(np.random.choice(
+                range(images.num_views), size=self.k, replace=self.replace))
+        else:
+            idx = slice(0, images.num_views, self.k)
+
+        # Select images
+        images = images[idx]
+
+        return data, images
+
+
+class PickImagesFromMappingArea(ImageTransform):
+    """Transform to drop images and corresponding mappings based on a
     minimum area ratio mappings should account for and a maximum number
     of images to keep.
     """
@@ -696,9 +761,8 @@ class PickImagesFromMappingArea(ImageTransform):
 
 
 class PickImagesFromMemoryCredit(ImageTransform):
-    """
-    Transform to cherry-pick SameSettingImageData from an ImageData
-    object based on an allocated memory credit.
+    """Transform to cherry-pick `SameSettingImageData` from an
+    `ImageData` object based on an allocated memory credit.
     """
 
     _PROCESS_IMAGE_DATA = True
@@ -809,8 +873,7 @@ class PickImagesFromMemoryCredit(ImageTransform):
 
 
 class PickMappingsFromMappingFeatures(ImageTransform):
-    """
-    Transform to drop mappings based on mapping features upper or
+    """Transform to drop mappings based on mapping features upper or
     lower thresholds.
 
     Takes as input a list of int (or int) of mapping feature indices,
@@ -867,8 +930,7 @@ class PickMappingsFromMappingFeatures(ImageTransform):
 
 
 class JitterMappingFeatures(ImageTransform):
-    """
-    Transform to add a small gaussian noise to the mapping feature.
+    """Transform to add a small gaussian noise to the mapping feature.
 
     Parameters
     ----------
@@ -896,13 +958,13 @@ class JitterMappingFeatures(ImageTransform):
 
 
 class CenterRoll(ImageTransform):
-    """
-    Transform to center the mappings along the width axis of spherical images.
-    The images and mappings are rolled along the width so as to position the
-    center of the mappings as close to the center of the image as possible.
+    """Transform to center the mappings along the width axis of
+    spherical images. The images and mappings are rolled along the width
+    so as to position the center of the mappings as close to the center
+    of the image as possible.
 
-    This assumes the images have a circular representation (ie that the first
-    and last pixels along the width are adjacent in reality).
+    This assumes the images have a circular representation (ie that the
+    first and last pixels along the width are adjacent in reality).
 
     Does not support prior cropping along the width or resizing.
     """
@@ -917,15 +979,15 @@ class CenterRoll(ImageTransform):
         # images and mappings
         assert images.mappings is not None, "No mappings found in images."
         assert images.ref_size[0] == images.img_size[0], \
-            f"{self.__class__.__name__} cannot operate if images and mappings " \
-            f"underwent prior cropping or resizing."
+            f"{self.__class__.__name__} cannot operate if images and " \
+            f"mappings underwent prior cropping or resizing."
         assert images.crop_size is None \
                or images.crop_size[0] == images.ref_size[0], \
-            f"{self.__class__.__name__} cannot operate if images and mappings " \
-            f"underwent prior cropping or resizing."
+            f"{self.__class__.__name__} cannot operate if images and " \
+            f"mappings underwent prior cropping or resizing."
         assert images.downscale is None or images.downscale == 1, \
-            f"{self.__class__.__name__} cannot operate if images and mappings " \
-            f"underwent prior cropping or resizing."
+            f"{self.__class__.__name__} cannot operate if images and " \
+            f"mappings underwent prior cropping or resizing."
 
         # Skip if no image mappings
         if images.mappings.images.shape[0] == 0:
@@ -974,18 +1036,17 @@ class CenterRoll(ImageTransform):
 
 
 class CropImageGroups(ImageTransform):
-    """
-    Transform to crop images and mappings in a greedy fashion, so as to
-    minimize the size of the images while preserving all the mappings and
-    padding constraints. This is typically useful for optimizing the size of
-    the images to embed with respect to the available mappings.
+    """Transform to crop images and mappings in a greedy fashion, so as
+    to minimize the size of the images while preserving all the mappings
+    and padding constraints. This is typically useful for optimizing the
+    size of the images to embed with respect to the available mappings.
 
-    The images are distributed to a set of cropping sizes, based on their
-    mappings and the padding. Images with the same cropping size are batched
-    together.
+    The images are distributed to a set of cropping sizes, based on
+    their mappings and the padding. Images with the same cropping size
+    are batched together.
 
-    Returns an ImageData made of SameSettingImageData of fixed cropping sizes
-    with their respective mappings.
+    Returns an `ImageData` made of `SameSettingImageData` of fixed
+    cropping sizes with their respective mappings.
     """
 
     def __init__(self, padding=0, min_size=64):
@@ -1068,13 +1129,15 @@ class CropImageGroups(ImageTransform):
             # Index images and mappings and update their cropping
             crop_families[size] = images[idx].update_cropping(size, offsets)
 
-        # Create a holder for the SameSettingImageData of each crop size
+        # Create a holder for the `SameSettingImageData` of each crop size
         return data, ImageData(list(crop_families.values()))
 
 
 # TODO: CropFromMask
 class CropFromMask(ImageTransform):
-    """Transform to crop top and bottom from images and mappings based on mask."""
+    """Transform to crop top and bottom from images and mappings based
+    on mask.
+    """
     pass
 
 
@@ -1122,7 +1185,9 @@ class AddPixelWidthFeature(ImageTransform):
 
 
 class RandomHorizontalFlip(ImageTransform):
-    """Horizontally flip the given image randomly with a given probability."""
+    """Horizontally flip the given image randomly with a given
+    probability.
+    """
 
     def __init__(self, p=0.50):
         self.p = p
@@ -1146,7 +1211,9 @@ class RandomHorizontalFlip(ImageTransform):
 
 
 class ToFloatImage(ImageTransform):
-    """Transform to convert [0, 255] uint8 images into [0, 1] float tensors."""
+    """Transform to convert [0, 255] uint8 images into [0, 1] float
+    tensors.
+    """
 
     def _process(self, data: Data, images: SameSettingImageData):
         if images.x is None:
@@ -1158,7 +1225,7 @@ class ToFloatImage(ImageTransform):
 
 
 class TorchvisionTransform(ImageTransform):
-    """Torchvision-based transform on the images"""
+    """Torchvision-based transform on the images."""
 
     def __init__(self):
         raise NotImplementedError
@@ -1172,7 +1239,9 @@ class TorchvisionTransform(ImageTransform):
 
 
 class ColorJitter(TorchvisionTransform):
-    """Randomly change the brightness, contrast and saturation of an image."""
+    """Randomly change the brightness, contrast and saturation of an
+    image.
+    """
 
     def __init__(self, brightness=0, contrast=0, saturation=0):
         self.brightness = brightness
@@ -1183,7 +1252,7 @@ class ColorJitter(TorchvisionTransform):
 
 
 class GaussianBlur(TorchvisionTransform):
-    """Blurs image with randomly chosen Gaussian blur."""
+    """Blur image with randomly chosen Gaussian blur."""
 
     def __init__(self, kernel_size=10, sigma=(0.1, 2.0)):
         self.kernel_size = kernel_size

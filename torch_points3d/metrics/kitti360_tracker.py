@@ -154,7 +154,8 @@ class KITTI360Tracker(SegmentationTracker):
         # schemes with multiple predictions on the same points. If the
         # dataset has no labels, these metrics will not be computed
         if self.has_labels:
-            per_class_iou = self._confusion_matrix.get_intersection_union_per_class()[0]
+            per_class_iou = \
+                self._confusion_matrix.get_intersection_union_per_class()[0]
             self._iou_per_class = {
                 self._dataset.INV_OBJECT_LABEL[k]: v
                 for k, v in enumerate(per_class_iou)}
@@ -257,7 +258,7 @@ class KITTI360Tracker(SegmentationTracker):
                 f'received {type(pred)} of shape {pred.shape} instead.')
 
         # Map TrainId labels to expected Ids
-        pred_remapped = TRAINID2ID[pred]
+        pred_remapped = TRAINID2ID[pred].astype(np.uint8)
 
         # Recover sequence and window information from stage dataset's
         # windows and format those to match the expected file name:
@@ -281,8 +282,7 @@ class KITTI360Tracker(SegmentationTracker):
         zipObj.close()
 
     def get_metrics(self, verbose=False) -> Dict[str, Any]:
-        """ Returns a dictionary of all metrics and losses being
-        tracked.
+        """Return a dictionary of all metrics and losses being tracked.
         """
         # Low-resolution metrics without voting
         metrics = super().get_metrics(verbose)
@@ -301,7 +301,8 @@ class KITTI360Tracker(SegmentationTracker):
             metrics[f'{self._stage}_full_miou'] = self._full_vote_miou
 
             if verbose:
-                metrics[f'{self._stage}_full_iou'] = self._full_vote_iou_per_class
+                metrics[f'{self._stage}_full_iou'] = \
+                    self._full_vote_iou_per_class
 
         return metrics
 

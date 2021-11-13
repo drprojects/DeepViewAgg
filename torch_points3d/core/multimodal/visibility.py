@@ -219,14 +219,14 @@ def pinhole_projection_cpu(xyz, img_extrinsic, img_intrinsic, camera='scannet'):
     # Recover the 4x4 camera-to-world matrix
     if camera == 'scannet':
         camera_to_world = np.linalg.inv(img_extrinsic)
-        T = camera_to_world[:3, 3].reshape((3, 1))
-        R = camera_to_world[:3, :3]
+        T = camera_to_world[:3, 3].copy().reshape((3, 1))
+        R = camera_to_world[:3, :3].copy()
         p = R @ xyz.T + T
 
     elif camera == 'kitti360_perspective':
         camera_to_world = img_extrinsic
-        T = camera_to_world[:3, 3].reshape((1, 3))
-        R = camera_to_world[:3, :3]
+        T = camera_to_world[:3, 3].copy().reshape((1, 3))
+        R = camera_to_world[:3, :3].copy()
         p = R.T @ (xyz - T).T
     else:
         raise ValueError
