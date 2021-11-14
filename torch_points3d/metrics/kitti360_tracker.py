@@ -110,9 +110,11 @@ class KITTI360Tracker(SegmentationTracker):
         # # Loop over items of the batch, because some may come from
         # # different windows
         # for data in data_list:
-        #
+        # #
         #     # Get window information
         #     idx_window = data.idx_window
+        #     if torch.is_tensor(idx_window):
+        #         idx_window = idx_window.item()
         #
         #     # If the tracker's currently-loaded window traking data must
         #     # change, save votes and counts for the previous window and

@@ -344,7 +344,6 @@ class SameSettingImageData(object):
         Number of points implied by ImageMapping. Zero is 'mappings' is
         None.
         """
-        self.crop_offsets
         return self.mappings.num_groups if self.mappings is not None else 0
 
     @property
@@ -1460,13 +1459,13 @@ class ImageBatch(ImageData):
     @staticmethod
     def from_data_list(image_data_list):
         assert isinstance(image_data_list, list) and len(image_data_list) > 0
-        assert all(isinstance(x, ImageData)
-                   for x in image_data_list)
+        assert all(isinstance(x, ImageData) for x in image_data_list)
 
         # Recover the list of unique hashes
-        hashes = list(set([im.settings_hash
-                           for il in image_data_list
-                           for im in il]))
+        hashes = list(set([
+            im.settings_hash
+           for il in image_data_list
+           for im in il]))
         hashes_idx = {h: i for i, h in enumerate(hashes)}
 
         # Recover the number of points in each ImageData
@@ -1535,8 +1534,14 @@ class ImageBatch(ImageData):
                     self.__im_idx_dict__[h],
                     ib.to_data_list()):
                 # Restore the point ids in the mappings
-                im.mappings = im.mappings[
-                              self.__cum_pts__[il_idx]:self.__cum_pts__[il_idx + 1]]
+                start = self.__cum_pts__[il_idx]
+                end = self.__cum_pts__[il_idx + 1]
+                print(f'im in IB.to_data_list : {im}')
+                print(f'mapping before slicing : {im.mappings}')
+                print(f'start:end : {start}:{end}')
+                print(f'type mappings : {type(im.mappings)}')
+                print(f'type mappings sliced : {type(im.mappings[start:end])}')
+                im.mappings = im.mappings[start:end]
 
                 # Update the list of MultiSettingImages with each
                 # SameSettingImageData in its original position
@@ -2105,7 +2110,7 @@ class ImageMapping(CSRData):
 
 class ImageMappingBatch(ImageMapping, CSRBatch):
     """Batch wrapper for ImageMapping."""
-    pass
+    __csr_type__ = ImageMapping
 
 
 """

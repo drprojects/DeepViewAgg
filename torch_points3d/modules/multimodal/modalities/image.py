@@ -26,7 +26,7 @@ class ModalityIdentity(Identity):
     supports unused kwargs in its `__init__` and `forward`.
     """
     def __init__(self, **kwargs):
-        super(ModalityIdentity, self).__init__()
+        super().__init__()
 
     def forward(self, x, *args, **kwargs):
         return x
@@ -59,7 +59,7 @@ class Conv2dWS(nn.Conv2d, ABC):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1,
                  padding=0, dilation=1, groups=1, bias=True,
                  padding_mode='zeros', scaled=True):
-        super(Conv2dWS, self).__init__(in_channels, out_channels, kernel_size,
+        super().__init__(in_channels, out_channels, kernel_size,
             stride=stride, padding=padding, dilation=dilation, groups=groups,
             bias=bias, padding_mode=padding_mode)
         self.scaled = scaled
@@ -82,7 +82,7 @@ class ConvTranspose2dWS(nn.ConvTranspose2d, ABC):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1,
                  padding=0, output_padding=0, dilation=1, groups=1, bias=True,
                  padding_mode='zeros', scaled=True):
-        super(ConvTranspose2dWS, self).__init__(in_channels, out_channels,
+        super().__init__(in_channels, out_channels,
             kernel_size, stride=stride, padding=padding,
             output_padding=output_padding, dilation=dilation, groups=groups,
             bias=bias, padding_mode=padding_mode)
@@ -632,7 +632,7 @@ class PrudentSynchronizedBatchNorm2d(MITSynchronizedBatchNorm2d):
         is_training = self.training
         if input.shape[0] == input.shape[2] == input.shape[3] == 1:
             self.training = False
-        output = super(PrudentSynchronizedBatchNorm2d, self).forward(input)
+        output = super().forward(input)
         self.training = is_training
         return output
 
@@ -654,7 +654,7 @@ class PPMFeatMap(nn.Module):
     Adapted from https://github.com/CSAILVision/semantic-segmentation-pytorch
     """
     def __init__(self, fc_dim=4096, pool_scales=(1, 2, 3, 6)):
-        super(PPMFeatMap, self).__init__()
+        super().__init__()
 
         self.ppm = []
         for scale in pool_scales:
@@ -717,7 +717,7 @@ class ADE20KResNet18PPM(nn.Module, ABC):
     """
 
     def __init__(self, *args, frozen=False, pretrained=True, **kwargs):
-        super(ADE20KResNet18PPM, self).__init__()
+        super().__init__()
 
         # Adapt the default config to use ResNet18 + PPM-Deepsup model
         ARCH = 'resnet18dilated-ppm_deepsup'
@@ -779,7 +779,7 @@ class ADE20KResNet18PPM(nn.Module, ABC):
             p.requires_grad = not self.frozen
 
     def train(self, mode=True):
-        return super(ADE20KResNet18PPM, self).train(mode and not self.frozen)
+        return super().train(mode and not self.frozen)
 
 
 class ADE20KResNet18TruncatedLayer4(nn.Module):
@@ -793,7 +793,7 @@ class ADE20KResNet18TruncatedLayer4(nn.Module):
     _LAYERS_SCALE = {k: v for k, v in zip(_LAYERS, [4, 1, 2, 1, 1])}
 
     def __init__(self, frozen=False, scale_factor=None, **kwargs):
-        super(ADE20KResNet18TruncatedLayer4, self).__init__()
+        super().__init__()
 
         # Adapt the default config to use ResNet18 + PPM-Deepsup model
         ARCH = 'resnet18dilated-ppm_deepsup'
@@ -882,7 +882,7 @@ class ADE20KResNet18TruncatedLayer4(nn.Module):
             p.requires_grad = not self.frozen
 
     def train(self, mode=True):
-        return super(ADE20KResNet18TruncatedLayer4, self).train(
+        return super().train(
             mode and not self.frozen)
 
     def extra_repr(self) -> str:
@@ -930,7 +930,7 @@ class ADE20KResNet18Pyramid(ADE20KResNet18TruncatedLayer4):
     def __init__(self, frozen=False, scale_factor=-1, **kwargs):
         assert scale_factor is not None, \
             f'scale_factor cannot be None for feature pyramid.'
-        super(ADE20KResNet18Pyramid, self).__init__(
+        super().__init__(
             frozen=frozen, scale_factor=scale_factor, **kwargs)
 
     def forward(self, x, *args, **kwargs):
@@ -989,7 +989,7 @@ class ResNet18TruncatedLayer4(nn.Module):
 
     def __init__(
             self, frozen=False, pretrained=True, scale_factor=None, **kwargs):
-        super(ResNet18TruncatedLayer4, self).__init__()
+        super().__init__()
 
         # Instantiate the full ResNet
         resnet18 = _instantiate_torchvision_resnet(
@@ -1050,7 +1050,7 @@ class ResNet18TruncatedLayer4(nn.Module):
             p.requires_grad = not self.frozen
 
     def train(self, mode=True):
-        return super(ResNet18TruncatedLayer4, self).train(
+        return super().train(
             mode and not self.frozen)
 
     def extra_repr(self) -> str:
@@ -1099,7 +1099,7 @@ class ResNet18Pyramid(ResNet18TruncatedLayer4):
             self, frozen=False, pretrained=True, scale_factor=-1, **kwargs):
         assert scale_factor is not None, \
             f'scale_factor cannot be None for feature pyramid.'
-        super(ResNet18Pyramid, self).__init__(
+        super().__init__(
             frozen=frozen, pretrained=pretrained, scale_factor=scale_factor,
             **kwargs)
 
@@ -1189,7 +1189,7 @@ class CityscapesResNet18(nn.Module):
         if self.frozen:
             self.training = False
 
-    def forward(self, x):
+    def forward(self, x, *args, **kwargs):
         x = self.resnet(x)  # (N, 128, h/8, w/8)
         x = self.layer4(x)  # (N, 256, h/8, w/8)
         x = self.layer5(x)  # (N, 512, h/8, w/8)
@@ -1219,4 +1219,4 @@ class CityscapesResNet18(nn.Module):
             p.requires_grad = not self.frozen
 
     def train(self, mode=True):
-        return super(ADE20KResNet18PPM, self).train(mode and not self.frozen)
+        return super().train(mode and not self.frozen)

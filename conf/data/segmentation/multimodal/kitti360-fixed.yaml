@@ -3,6 +3,7 @@ defaults:
     - /data/segmentation/kitti360-fixed
 
 class: kitti360.KITTI360DatasetMM
+task: segmentation.multimodal
 
 # Note that changing 'resolution_3d', 'resolution_2d', 'image_ratio' or
 # 'image_r_max' will change the nature of image mappings and will hence
@@ -99,7 +100,6 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
         - transform: PickImagesFromMappingArea  # Remove images with not enough mappings
           params:
                 use_bbox: ${data.exact_splatting_2d}
-        - transform: AddPixelHeightFeature  # Pixel height as image channel
         - transform: CropImageGroups  # Compute cropping groups to minimize embedding cost
           params:
                 padding: ${data.padding_2d}

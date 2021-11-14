@@ -24,6 +24,7 @@ def get_dataset_class(dataset_config):
     datasetlib = importlib.import_module(dataset_module)
 
     target_dataset_name = class_name
+    dataset_cls = None
     for name, cls in datasetlib.__dict__.items():
         if name.lower() == target_dataset_name.lower() and issubclass(cls, BaseDataset):
             dataset_cls = cls
