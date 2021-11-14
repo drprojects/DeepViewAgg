@@ -1536,6 +1536,11 @@ class ImageBatch(ImageData):
                 # Restore the point ids in the mappings
                 start = self.__cum_pts__[il_idx]
                 end = self.__cum_pts__[il_idx + 1]
+                print(f'im in IB.to_data_list : {im}')
+                print(f'mapping before slicing : {im.mappings}')
+                print(f'start:end : {start}:{end}')
+                print(f'type mappings : {type(im.mappings)}')
+                print(f'type mappings sliced : {type(im.mappings[start:end])}')
                 im.mappings = im.mappings[start:end]
 
                 # Update the list of MultiSettingImages with each
@@ -2105,7 +2110,7 @@ class ImageMapping(CSRData):
 
 class ImageMappingBatch(ImageMapping, CSRBatch):
     """Batch wrapper for ImageMapping."""
-    pass
+    __csr_type__ = ImageMapping
 
 
 """
