@@ -740,6 +740,14 @@ class SameSettingImageData(object):
         if self.mappings is None or idx is None or idx.shape[0] == 0:
             return self.clone()
 
+        # If no images, still need to preserve the number of points in
+        # the mappings
+        if len(self) == 0:
+            images = self.clone()
+            images.mappings.pointers = torch.zeros(
+                idx.shape[0] + 1).long().to(self.device)
+            return images
+
         # Picking mode by default
         if mode == 'pick':
             # Select mappings wrt the point index
@@ -797,7 +805,8 @@ class SameSettingImageData(object):
 
         # Images are not affected if no mappings are present or
         # view_mask is None or all True
-        if self.mappings is None or view_mask is None or torch.all(view_mask):
+        if self.mappings is None or view_mask is None or torch.all(view_mask) \
+                or len(self) == 0:
             return self.clone()
 
         # Select mappings wrt the point index
@@ -1283,10 +1292,10 @@ class ImageData:
                and all(isinstance(x, torch.Tensor) for x in x_list), \
             f"Expected a List(torch.Tensor) but got {type(x_list)} instead."
 
-        if x_list is None:
+        if x_list is None or len(x_list) == 0:
             x_list = [None] * self.num_settings
 
-        for im, x in (self, x_list):
+        for im, x in zip(self, x_list):
             im.x = x
 
     def debug(self):
@@ -1316,13 +1325,13 @@ class ImageData:
             raise ValueError(
                 f'{self} cannot be indexed because it has length 0.')
 
+        # TODO: only return self.__class__ data from this ? Isn't it
+        #  awkward to change classes for integer indexation only ?
         if isinstance(idx, int) and idx < self.__len__():
             return self._list[idx]
-        elif isinstance(idx, slice):
-            return self.__class__(self._list[idx])
         else:
-            raise NotImplementedError(
-                f'Indexing {self.__class__} with {type(idx)} is not supported.')
+            return self.__class__([
+                self._list[i] for i in tensor_idx(idx).tolist()])
 
     def __iter__(self):
         for i in range(self.__len__()):
@@ -1405,10 +1414,17 @@ class ImageData:
                 im.view_csr_indexing[1:] - im.view_csr_indexing[:-1])
             for im in self]
 
-        # Assuming the corresponding view features will be concatenated
-        # in the same order as in self, compute the sorting indices to
-        # arrange features wrt point indices, to facilitate CSR indexing
-        sorting = torch.cat([idx for idx in dense_idx_list]).argsort()
+        try:
+            # Assuming the corresponding view features will be concatenated
+            # in the same order as in self, compute the sorting indices to
+            # arrange features wrt point indices, to facilitate CSR indexing
+            sorting = torch.cat([idx for idx in dense_idx_list]).argsort()
+        except:
+            print(f'self : {self}')
+            print(f'len(self) : {len(self)}')
+            print(f'dense_idx_list : {dense_idx_list}')
+            print(f'num_points : {[im.num_points for im in self]}')
+            print(f'view_csr_indexing : {[im.view_csr_indexing for im in self]}')
 
         return sorting
 
@@ -1536,11 +1552,6 @@ class ImageBatch(ImageData):
                 # Restore the point ids in the mappings
                 start = self.__cum_pts__[il_idx]
                 end = self.__cum_pts__[il_idx + 1]
-                print(f'im in IB.to_data_list : {im}')
-                print(f'mapping before slicing : {im.mappings}')
-                print(f'start:end : {start}:{end}')
-                print(f'type mappings : {type(im.mappings)}')
-                print(f'type mappings sliced : {type(im.mappings[start:end])}')
                 im.mappings = im.mappings[start:end]
 
                 # Update the list of MultiSettingImages with each
@@ -2000,9 +2011,12 @@ class ImageMapping(CSRData):
                     point_ids, image_ids, device=point_ids.device)
                 view_ids = view_ids.data.squeeze()
                 # Average the features per view
-                features = torch_scatter.scatter_mean(
-                    self.features, view_ids, 0)
-                # Prepare view indices for torch.gather
+                if self.features.shape[0] > 1:
+                    features = torch_scatter.scatter_mean(
+                        self.features, view_ids, 0)
+                else:
+                    features = self.features
+                    # Prepare view indices for torch.gather
                 if features.dim() > 1:
                     view_ids = view_ids.view(-1, 1).repeat(1, features.shape[1])
                 # Redistribute mean features to source indices

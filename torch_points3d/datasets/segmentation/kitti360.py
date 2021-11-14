@@ -605,7 +605,7 @@ class KITTI360Cylinder(InMemoryDataset):
         window `idx_window`.
         """
         # Load the associated window
-        window = self.buffer[idx_window]
+        window = self.buffer[int(idx_window)]
 
         # Pick a random center
         valid_centers = torch.where(window.centers.y == label)[0]
@@ -636,7 +636,7 @@ class KITTI360Cylinder(InMemoryDataset):
         idx_center = idx - offsets[idx_window]
 
         # Load the associated window
-        window = self.buffer[idx_window]
+        window = self.buffer[int(idx_window)]
 
         # Get the cylindrical sampling
         center = window.centers.pos[idx_center]

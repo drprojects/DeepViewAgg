@@ -74,73 +74,73 @@ class KITTI360Tracker(SegmentationTracker):
             return
 
         # TODO: investigate bug. See TRELLO
-        # # Create a temporary directory in the `/tmp` directory. If no
-        # # such directory is found on the machine, the dataset root
-        # # directory (where `raw` and `processed` folders are) will be
-        # # used. This is where the tracker will create a file for each
-        # # window, storing the per-point votes. The directory will be
-        # # automatically deleted when the tracker is deleted or
-        # # `self.reset` is called
-        # if self._temp_dir is None:
-        #     tmp_dir = '/tmp' if osp.exists('/tmp') else self.stage_dataset.root
-        #     self._temp_dir = tempfile.TemporaryDirectory(dir=tmp_dir)
-        #
-        # # Gather input data
-        # data = model.get_input() if data is None else data
-        # data = data.data if model.is_multimodal else data
-        #
-        # # Recover predictions from the model and add them to data
-        # # attributes
-        # data.pred = model.get_output()
-        #
-        # # If the data is batched, split into its original elements.
-        # # Special attention must be given to the newly-added 'pred'
-        # # attribute which was not present in the Data list at Batch
-        # # creation time
+        # Create a temporary directory in the `/tmp` directory. If no
+        # such directory is found on the machine, the dataset root
+        # directory (where `raw` and `processed` folders are) will be
+        # used. This is where the tracker will create a file for each
+        # window, storing the per-point votes. The directory will be
+        # automatically deleted when the tracker is deleted or
+        # `self.reset` is called
+        if self._temp_dir is None:
+            tmp_dir = '/tmp' if osp.exists('/tmp') else self.stage_dataset.root
+            self._temp_dir = tempfile.TemporaryDirectory(dir=tmp_dir)
+
+        # Gather input data
+        data = model.get_input() if data is None else data
+        data = data.data if model.is_multimodal else data
+
+        # Recover predictions from the model and add them to data
+        # attributes
+        data.pred = model.get_output()
+
+        # If the data is batched, split into its original elements.
+        # Special attention must be given to the newly-added 'pred'
+        # attribute which was not present in the Data list at Batch
+        # creation time
         # # TODO: this is only for torch geometric Batch, but won't work
         #    for TP3D's SimpleBatch
-        # if callable(getattr(data, 'to_data_list', None)):
-        #     data.__slices__['pred'] = data.__slices__['pos']
-        #     data.__cat_dims__['pred'] = 0
-        #     data.__cumsum__['pred'] = data.__cumsum__['pos']
-        #     data_list = data.to_data_list()
-        # else:
-        #     data_list = [data]
+        if callable(getattr(data, 'to_data_list', None)):
+            data.__slices__['pred'] = data.__slices__['pos']
+            data.__cat_dims__['pred'] = 0
+            data.__cumsum__['pred'] = data.__cumsum__['pos']
+            data_list = data.to_data_list()
+        else:
+            data_list = [data]
+
+        # Loop over items of the batch, because some may come from
+        # different windows
+        for data in data_list:
         #
-        # # Loop over items of the batch, because some may come from
-        # # different windows
-        # for data in data_list:
-        # #
-        #     # Get window information
-        #     idx_window = data.idx_window
-        #     if torch.is_tensor(idx_window):
-        #         idx_window = idx_window.item()
-        #
-        #     # If the tracker's currently-loaded window traking data must
-        #     # change, save votes and counts for the previous window and
-        #     # load those for the new one
-        #     if idx_window != self._idx_window:
-        #         self._save_window_tracking()
-        #         self._load_window_tracking(idx_window)
-        #
-        #     # Recover the point indices in the original raw cloud
-        #     origin_ids = data[SaveOriginalPosId.KEY]
-        #     if origin_ids is None:
-        #         raise ValueError(
-        #             f'The inputs given to the model do not have a '
-        #             f'{SaveOriginalPosId.KEY } attribute."')
-        #     if origin_ids.dim() == 2:
-        #         origin_ids = origin_ids.flatten()
-        #     if origin_ids.max() >= self._votes.shape[0]:
-        #         raise ValueError(
-        #             'Origin ids are larger than the number of points in the '
-        #             'original point cloud.')
-        #
-        #     # Save predictions
-        #     # WARNING: if a point appears multiple times in origin_ids,
-        #     # only one of its 'outputs' will be counted
-        #     self._votes[origin_ids] += data.pred.cpu()
-        #     self._counts[origin_ids] += 1
+            # Get window information
+            idx_window = data.idx_window
+            if torch.is_tensor(idx_window):
+                idx_window = idx_window.item()
+
+            # If the tracker's currently-loaded window traking data must
+            # change, save votes and counts for the previous window and
+            # load those for the new one
+            if idx_window != self._idx_window:
+                self._save_window_tracking()
+                self._load_window_tracking(idx_window)
+
+            # Recover the point indices in the original raw cloud
+            origin_ids = data[SaveOriginalPosId.KEY]
+            if origin_ids is None:
+                raise ValueError(
+                    f'The inputs given to the model do not have a '
+                    f'{SaveOriginalPosId.KEY } attribute."')
+            if origin_ids.dim() == 2:
+                origin_ids = origin_ids.flatten()
+            if origin_ids.max() >= self._votes.shape[0]:
+                raise ValueError(
+                    'Origin ids are larger than the number of points in the '
+                    'original point cloud.')
+
+            # Save predictions
+            # WARNING: if a point appears multiple times in origin_ids,
+            # only one of its 'outputs' will be counted
+            self._votes[origin_ids] += data.pred.cpu()
+            self._counts[origin_ids] += 1
 
     def finalise(self, full_res=False, make_submission=False, **kwargs):
         # Submission only for 'test' set and if submission is required,
@@ -172,80 +172,80 @@ class KITTI360Tracker(SegmentationTracker):
             return
 
         # TODO: investigate bug. See TRELLO
-        # # Compute voting and (optionally) full-resolution predictions
-        # # for each window
-        # for idx_window in tq(range(len(self.windows))):
-        #
-        #     # Load the votes and prediction counts
-        #     self._load_window_tracking(idx_window)
-        #
-        #     # Select the window points that received a prediction
-        #     has_pred = self._counts > 0
-        #     pred = torch.argmax(self._votes[has_pred], 1).numpy()
-        #
-        #     # Load ground truth and/or point positions from raw data. If
-        #     # no labels are found in the PLY file, y will simply be None
-        #     if full_res or self.has_labels:
-        #         full_data = read_kitti360_window(
-        #             self.window_raw_files[idx_window], xyz=full_res, rgb=False,
-        #             semantic=self.has_labels, instance=False, remap=True)
-        #
-        #     # If labels were found compute voting metrics for the window
-        #     # low-res points. Note that points with ignored labels are
-        #     # masked out
-        #     if self.has_labels and full_data.y is not None:
-        #         gt = full_data.y[has_pred].numpy()
-        #         mask = gt != self._ignore_label
-        #         self._vote_confusion_matrix.count_predicted_batch(
-        #             gt[mask], pred[mask])
-        #
-        #     # Stop here if full-resolution metrics are not required
-        #     if not full_res:
-        #         continue
-        #
-        #     # If full-resolution metrics or benchmark submission are
-        #     # required, compute full-resolution predictions by nearest
-        #     # neighbor interpolation
-        #     # TODO: NN search with faster CPU or GPU methods
-        #     full_pred = self._votes.argmax(1).numpy()
-        #     full_pred[~has_pred] = knn_interpolate(
-        #         self._votes[has_pred], full_data.pos[has_pred],
-        #         full_data.pos[~has_pred], k=1).argmax(1).numpy()
-        #
-        #     # If labels were found compute voting metrics for the window
-        #     # low-res points. Note that points with ignored labels are
-        #     # masked out
-        #     if self.has_labels and full_data.y is not None:
-        #         gt = full_data.y.numpy()
-        #         mask = gt != self._ignore_label
-        #         self._full_confusion_matrix.count_predicted_batch(
-        #             gt[mask], full_pred[mask])
-        #
-        #     if make_submission:
-        #         self._make_submission(idx_window, full_pred)
-        #
-        # # Compress submission files into a final .zip archive as
-        # # expected by the KITTI360 submission server
-        # if make_submission:
-        #     self._zip_submission()
-        #
-        # # Compute the global voting metrics for low-resolution points
-        # cm = self._vote_confusion_matrix
-        # if cm.confusion_matrix is not None and cm.confusion_matrix.sum() > 0:
-        #     self._vote_miou = cm.get_average_intersection_union() * 100
-        #     per_class_iou = cm.get_intersection_union_per_class()[0]
-        #     self._vote_iou_per_class = {
-        #         self._dataset.INV_OBJECT_LABEL[k]: 100 * v
-        #         for k, v in enumerate(per_class_iou)}
-        #
-        # # Compute the global voting metrics for full-resolution points
-        # cm = self._full_confusion_matrix
-        # if cm.confusion_matrix is not None and cm.confusion_matrix.sum() > 0:
-        #     self._full_vote_miou = cm.get_average_intersection_union() * 100
-        #     per_class_iou = cm.get_intersection_union_per_class()[0]
-        #     self._full_vote_iou_per_class = {
-        #         self._dataset.INV_OBJECT_LABEL[k]: 100 * v
-        #         for k, v in enumerate(per_class_iou)}
+        # Compute voting and (optionally) full-resolution predictions
+        # for each window
+        for idx_window in tq(range(len(self.windows))):
+
+            # Load the votes and prediction counts
+            self._load_window_tracking(idx_window)
+
+            # Select the window points that received a prediction
+            has_pred = self._counts > 0
+            pred = torch.argmax(self._votes[has_pred], 1).numpy()
+
+            # Load ground truth and/or point positions from raw data. If
+            # no labels are found in the PLY file, y will simply be None
+            if full_res or self.has_labels:
+                full_data = read_kitti360_window(
+                    self.window_raw_files[idx_window], xyz=full_res, rgb=False,
+                    semantic=self.has_labels, instance=False, remap=True)
+
+            # If labels were found compute voting metrics for the window
+            # low-res points. Note that points with ignored labels are
+            # masked out
+            if self.has_labels and full_data.y is not None:
+                gt = full_data.y[has_pred].numpy()
+                mask = gt != self._ignore_label
+                self._vote_confusion_matrix.count_predicted_batch(
+                    gt[mask], pred[mask])
+
+            # Stop here if full-resolution metrics are not required
+            if not full_res:
+                continue
+
+            # If full-resolution metrics or benchmark submission are
+            # required, compute full-resolution predictions by nearest
+            # neighbor interpolation
+            # TODO: NN search with faster CPU or GPU methods
+            full_pred = self._votes.argmax(1).numpy()
+            full_pred[~has_pred] = knn_interpolate(
+                self._votes[has_pred], full_data.pos[has_pred],
+                full_data.pos[~has_pred], k=1).argmax(1).numpy()
+
+            # If labels were found compute voting metrics for the window
+            # low-res points. Note that points with ignored labels are
+            # masked out
+            if self.has_labels and full_data.y is not None:
+                gt = full_data.y.numpy()
+                mask = gt != self._ignore_label
+                self._full_confusion_matrix.count_predicted_batch(
+                    gt[mask], full_pred[mask])
+
+            if make_submission:
+                self._make_submission(idx_window, full_pred)
+
+        # Compress submission files into a final .zip archive as
+        # expected by the KITTI360 submission server
+        if make_submission:
+            self._zip_submission()
+
+        # Compute the global voting metrics for low-resolution points
+        cm = self._vote_confusion_matrix
+        if cm.confusion_matrix is not None and cm.confusion_matrix.sum() > 0:
+            self._vote_miou = cm.get_average_intersection_union() * 100
+            per_class_iou = cm.get_intersection_union_per_class()[0]
+            self._vote_iou_per_class = {
+                self._dataset.INV_OBJECT_LABEL[k]: 100 * v
+                for k, v in enumerate(per_class_iou)}
+
+        # Compute the global voting metrics for full-resolution points
+        cm = self._full_confusion_matrix
+        if cm.confusion_matrix is not None and cm.confusion_matrix.sum() > 0:
+            self._full_vote_miou = cm.get_average_intersection_union() * 100
+            per_class_iou = cm.get_intersection_union_per_class()[0]
+            self._full_vote_iou_per_class = {
+                self._dataset.INV_OBJECT_LABEL[k]: 100 * v
+                for k, v in enumerate(per_class_iou)}
 
     def _make_submission(self, idx_window, pred):
         """Prepare data for a sumbission to KITTI360 for 3D semantic

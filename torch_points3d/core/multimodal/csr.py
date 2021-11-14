@@ -389,8 +389,6 @@ class CSRBatch(CSRData):
             if isinstance(csr_list[0].values[i], CSRData):
                 val = CSRBatch.from_csr_list(val_list)
             elif is_index_value[i]:
-                print()
-                print(f'val_list : {val_list}')
                 # "Index" values are stacked with updated indices.
                 # For mappings, this implies all elements designed by the
                 # index_values must be used in. There can be no element outside
