@@ -141,6 +141,63 @@ class Window:
 
 
 ########################################################################
+#                             Window Buffer                            #
+########################################################################
+
+class WindowBuffer:
+    """Takes care of loading and discarding windows for us. Since we
+    can't afford loading all windows at once in memory, the
+    `WindowBuffer` keeps at most `size` windows loaded at a time. When
+    an additional window is queried, the buffer is updated in a
+    first-in-first-out fashion.
+    """
+    def __init__(self, kitti360_dataset, size=3):
+        self._dataset = kitti360_dataset
+        self._size = size
+        self._queue = []
+        self._windows = {}
+
+    def __len__(self):
+        return len(self._queue)
+
+    @property
+    def is_full(self):
+        return len(self) == self._size
+
+    @property
+    def idx_loaded(self):
+        return list(self._windows.keys())
+
+    def __getitem__(self, idx):
+        """Load a window into memory based on its index in
+        `self._dataset.windows`.
+        """
+        # Check if the window is not already loaded
+        if idx in self.idx_loaded:
+            return self._windows[idx]
+
+        # If the buffer is full, drop the oldest window
+        if self.is_full:
+            self._drop_oldest_window()
+
+        # Load the window data and associated sampling data
+        self._windows[idx] = Window(
+            self._dataset.paths[idx], self._dataset.sampling_paths[idx])
+        self._queue.append(idx)
+
+        return self._windows[idx]
+
+    def _drop_oldest_window(self):
+        """Drop in FIFO order."""
+        idx = self._queue.pop(0)
+        _ = self._windows.pop(idx, None)
+
+    def clear(self):
+        """Clear the buffer."""
+        self._windows = {}
+
+
+########################################################################
 #                           KITTI360Cylinder                           #
 ########################################################################
 
@@ -164,15 +221,13 @@ class KITTI360Cylinder(InMemoryDataset):
     def __init__(
             self, root, split="train", sample_per_epoch=15000, radius=6,
             sample_res=0.3, transform=None, pre_transform=None,
-            pre_filter=None, keep_instance=False):
+            pre_filter=None, keep_instance=False, buffer=3):
 
         self._split = split
         self._sample_per_epoch = sample_per_epoch
         self._radius = radius
         self._sample_res = sample_res
         self._keep_instance = keep_instance
-        self._window = None
-        self._window_idx = None
 
         # Initialization with downloading and all preprocessing
         super().__init__(root, transform, pre_transform, pre_filter)
@@ -232,6 +287,10 @@ class KITTI360Cylinder(InMemoryDataset):
                 'nomenclature defined for KITTI360, that your dataset uses ' \
                 'enough windows and has reasonable downsampling and ' \
                 'cylinder sampling resolutions.'
+
+        # Initialize the window buffer that will take care of loading
+        # and dropping windows in memory
+        self._buffer = WindowBuffer(self, buffer)
 
     @property
     def split(self):
@@ -332,14 +391,9 @@ class KITTI360Cylinder(InMemoryDataset):
         return self._window_raw_sizes
 
     @property
-    def window(self):
-        """Currently loaded window."""
-        return self._window
-
-    @property
-    def window_idx(self):
-        """Index of the currently loaded window in self.windows."""
-        return self._window_idx
+    def buffer(self):
+        """Buffer holding currently loaded windows."""
+        return self._buffer
 
     @property
     def raw_file_names(self):
@@ -513,18 +567,6 @@ class KITTI360Cylinder(InMemoryDataset):
         if return_loaded:
             return data, sampling
 
-    def _load_window(self, idx):
-        """Load a window and its sampling data into memory based on its
-        index in `self.windows`.
-        """
-        # Check if the window is not already loaded
-        if self.window_idx == idx:
-            return
-
-        # Load the window data and associated sampling data
-        self._window = Window(self.paths[idx], self.sampling_paths[idx])
-        self._window_idx = idx
-
     def __len__(self):
         return self.sample_per_epoch if self.is_random \
             else self.sampling_sizes.sum()
@@ -563,17 +605,17 @@ class KITTI360Cylinder(InMemoryDataset):
         window `idx_window`.
         """
         # Load the associated window
-        self._load_window(idx_window)
+        window = self.buffer[idx_window]
 
         # Pick a random center
-        valid_centers = torch.where(self.window.centers.y == label)[0]
+        valid_centers = torch.where(window.centers.y == label)[0]
         idx_center = np.random.choice(valid_centers.numpy())
 
         # Get the cylindrical sampling
-        center = self.window.centers.pos[idx_center]
+        center = window.centers.pos[idx_center]
         sampler = cT.CylinderSampling(
             self.radius, center, align_origin=False)
-        data = sampler(self.window.data)
+        data = sampler(window.data)
 
         # Save the window index and center index in the data. This will
         # be used in the KITTI360Tracker to accumulate per-window votes
@@ -594,12 +636,12 @@ class KITTI360Cylinder(InMemoryDataset):
         idx_center = idx - offsets[idx_window]
 
         # Load the associated window
-        self._load_window(idx_window)
+        window = self.buffer[idx_window]
 
         # Get the cylindrical sampling
-        center = self.window.centers.pos[idx_center]
+        center = window.centers.pos[idx_center]
         sampler = cT.CylinderSampling(self.radius, center, align_origin=False)
-        data = sampler(self.window.data).clone()
+        data = sampler(window.data).clone()
 
         # Save the window index and center index in the data. This will
         # be used in the KITTI360Tracker to accumulate per-window votes
