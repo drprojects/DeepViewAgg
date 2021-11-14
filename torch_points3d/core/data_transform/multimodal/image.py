@@ -1060,6 +1060,12 @@ class CropImageGroups(ImageTransform):
     def _process(self, data: Data, images: SameSettingImageData):
         assert images.mappings is not None, "No mappings found in images."
 
+        # If no images, just return an empty ImageData with proper
+        # number of points in the mappings. This is important, for it
+        # will break `MMBatch.from_mm_data_list` otherwise
+        if images.num_views == 0:
+            return data, ImageData([images])
+
         # Compute the bounding boxes for each image
         w_min, w_max, h_min, h_max = images.mappings.bounding_boxes
 
