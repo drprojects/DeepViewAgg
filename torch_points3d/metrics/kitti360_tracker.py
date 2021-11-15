@@ -99,7 +99,7 @@ class KITTI360Tracker(SegmentationTracker):
         # creation time
         # # TODO: this is only for torch geometric Batch, but won't work
         #    for TP3D's SimpleBatch
-        if callable(getattr(data, 'to_data_list', None)):
+        if hasattr(data, 'batch'):
             data.__slices__['pred'] = data.__slices__['pos']
             data.__cat_dims__['pred'] = 0
             data.__cumsum__['pred'] = data.__cumsum__['pos']
@@ -110,11 +110,16 @@ class KITTI360Tracker(SegmentationTracker):
         # Loop over items of the batch, because some may come from
         # different windows
         for data in data_list:
-        #
-            # Get window information
-            idx_window = data.idx_window
-            if torch.is_tensor(idx_window):
-                idx_window = idx_window.item()
+            try:
+                # Get window information
+                idx_window = data.idx_window
+                if torch.is_tensor(idx_window):
+                    idx_window = idx_window.item()
+            except:
+                print()
+                print(f'data_list : {data_list}')
+                print(f'data : {data}')
+                print()
 
             # If the tracker's currently-loaded window traking data must
             # change, save votes and counts for the previous window and

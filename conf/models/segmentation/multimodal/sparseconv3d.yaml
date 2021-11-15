@@ -6964,6 +6964,7 @@ Res16UNet34-L4-early-cityscapes:
             image:
                 down_conv:
                     module_name: CityscapesResNet18
+                    frozen: False
                 atomic_pooling:
                     module_name: BimodalCSRPool
                     mode: max
