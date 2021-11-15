@@ -7141,13 +7141,13 @@ Res16UNet34-PointPyramid-early-cityscapes:
             in_feat_map: 8
             in_feat_attention: 4
             block: ResBlock # Can be any of the blocks in modules/MinkowskiEngine/api_modules.py
+            out_l1: 64
             out_l2: 128
             out_l3: 256
             out_l4: 512
-            out_pyramid: 896
 
         down_conv:
-            n_early_conv: 5
+            n_early_conv: 4
             module_name: ResNetDown
             block: block
             conv3d_after_fusion: False
@@ -7156,7 +7156,7 @@ Res16UNet34-PointPyramid-early-cityscapes:
             stride: [ 1, 2, 2, 2, 2 ]
             down_conv_nn:
               [
-                  [ FEAT + out_pyramid, 4*in_feat ],
+                  [ FEAT + out_l1 + out_l2 + out_l3 + out_l4, 4*in_feat ],
                   [ 4*in_feat, in_feat ],
                   [ in_feat, 2*in_feat ],
                   [ 2*in_feat, 4*in_feat ],
@@ -7165,14 +7165,14 @@ Res16UNet34-PointPyramid-early-cityscapes:
 
             image:
                 down_conv:
-                    module_name: [ CityscapesResNet18TruncatedLayer2, CityscapesResNet18Layer3, CityscapesResNet18Layer4 ]
+                    module_name: [ CityscapesResNet18TruncatedLayer1, CityscapesResNet18Layer2, CityscapesResNet18Layer3, CityscapesResNet18Layer4 ]
                 atomic_pooling:
                     module_name: BimodalCSRPool
                     mode: max
                 view_pooling:
                     module_name: GroupBimodalCSRPool
                     in_map: 8
-                    in_mod: [ out_l2, out_l3, out_l4 ]
+                    in_mod: [ out_l1, out_l2, out_l3, out_l4 ]
                     num_groups: 4
                     use_mod: False
                     map_encoder: DeepSetFeat
@@ -7180,8 +7180,8 @@ Res16UNet34-PointPyramid-early-cityscapes:
                 fusion:
                     module_name: BimodalFusion
                     mode: concatenation
-                branching_index: [ 0, 1, 2 ]
-                out_channels: FEAT + out_pyramid  # This is necessary to support batches with no images
+                branching_index: [ 0, 1, 2, 3 ]
+                out_channels: [ FEAT + out_l1, FEAT + out_l1 + out_l2, FEAT + out_l1 + out_l2 + out_l3, FEAT + out_l1 + out_l2 + out_l3 + out_l4 ]  # This is necessary to support batches with no images
                 checkpointing: c
 
         up_conv:
