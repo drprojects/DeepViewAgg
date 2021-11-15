@@ -638,7 +638,7 @@ class SameSettingImageData(object):
         # rescaling so that mappings do not go out of frame.
         # TODO: treat scales independently
         scale_x = self.img_size[0] / x.shape[3]
-        scale_y = self.img_size[1] / x.shape[4]
+        scale_y = self.img_size[1] / x.shape[2]
         scale = max(scale_x, scale_y)
         self._downscale = self.downscale * scale
         self.x = x
