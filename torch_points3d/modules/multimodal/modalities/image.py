@@ -19,6 +19,10 @@ from mit_semseg.lib.nn import SynchronizedBatchNorm2d as MITSynchronizedBatchNor
 PRETRAINED_DIR = osp.join(osp.dirname(osp.abspath(__file__)), 'pretrained')
 
 
+########################################################################
+#                             FROM SCRATCH                             #
+########################################################################
+
 class ModalityIdentity(Identity):
     """Identiy module for modalities.
 
@@ -623,6 +627,10 @@ class UNet(nn.Module, ABC):
         return x
 
 
+########################################################################
+#                                ADE20K                                #
+########################################################################
+
 class PrudentSynchronizedBatchNorm2d(MITSynchronizedBatchNorm2d):
     """MITSynchronizedBatchNorm2d with support for (1, C, 1, 1) inputs at
     training time.
@@ -1118,65 +1126,95 @@ class ResNet18Pyramid(ResNet18TruncatedLayer4):
         return torch.cat(feature_pyramid, dim=1)
 
 
+########################################################################
+#                              Cityscapes                              #
+########################################################################
+
+def conv3x3(in_planes, out_planes, stride=1):
+    """3x3 convolution with padding"""
+    return nn.Conv2d(
+        in_planes, out_planes, kernel_size=3, stride=stride, padding=1,
+        bias=False)
+
+
 class CityscapesBasicBlock(nn.Module):
     """BasicBlock for Cityscapes-pretrained ResNet18.
     Credit: https://github.com/fregu856/deeplabv3
     """
     expansion = 1
 
-    def __init__(self, in_channels, channels, stride=1, dilation=1):
+    def __init__(self, inplanes, planes, stride=1, downsample=None):
         super().__init__()
-
-        out_channels = self.expansion * channels
-
-        self.conv1 = nn.Conv2d(
-            in_channels, channels, kernel_size=3, stride=stride,
-            padding=dilation, dilation=dilation, bias=False)
-        self.bn1 = nn.BatchNorm2d(channels)
-
-        self.conv2 = nn.Conv2d(
-            channels, channels, kernel_size=3, stride=1, padding=dilation,
-            dilation=dilation, bias=False)
-        self.bn2 = nn.BatchNorm2d(channels)
-
-        if (stride != 1) or (in_channels != out_channels):
-            conv = nn.Conv2d(
-                in_channels, out_channels, kernel_size=1, stride=stride,
-                bias=False)
-            bn = nn.BatchNorm2d(out_channels)
-            self.downsample = nn.Sequential(conv, bn)
-        else:
-            self.downsample = nn.Sequential()
+        self.conv1 = conv3x3(inplanes, planes, stride)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.relu = nn.ReLU(inplace=True)
+        self.conv2 = conv3x3(planes, planes)
+        self.bn2 = nn.BatchNorm2d(planes)
+        self.downsample = downsample
+        self.stride = stride
 
     def forward(self, x):
-        out = F.relu(self.bn1(self.conv1(x)))
-        out = self.bn2(self.conv2(out))
-        out = out + self.downsample(x)
-        out = F.relu(out)
+        residual = x
+
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+
+        out = self.conv2(out)
+        out = self.bn2(out)
+
+        if self.downsample is not None:
+            residual = self.downsample(x)
+
+        out += residual
+        out = self.relu(out)
+
         return out
 
 
 class CityscapesResNet18(nn.Module):
-    """ResNet18-based encoder pretrained on Cityscapes. The output
-    feature map size is 1/8 of the input image size.
+    """ResNet18-based encoder pretrained on Cityscapes.
 
-    Credit: https://github.com/fregu856/deeplabv3
+    Adapted from: https://github.com/lxtGH/SFSegNets
     """
-    RELATIVE_PATH = 'cityscapes/CityscapesResNet18/resnet18.pth'
+    RELATIVE_PATH = 'cityscapes/CityscapesResNet18/resnet18_SFSegNets.pth'
     PRETRAINED_PATH = osp.join(PRETRAINED_DIR, RELATIVE_PATH)
 
     def __init__(self, *args, frozen=False, pretrained=True, **kwargs):
+        self.inplanes = 128
         super().__init__()
 
-        resnet = torchvision.models.resnet.resnet18()
-        # remove fc, avg pool, layer4 and layer5
-        self.resnet = nn.Sequential(*list(resnet.children())[:-4])
-        self.layer4 = self.make_layer(
-            CityscapesBasicBlock, in_channels=128, channels=256, num_blocks=2,
-            stride=1, dilation=2)
-        self.layer5 = self.make_layer(
-            CityscapesBasicBlock, in_channels=256, channels=512, num_blocks=2,
-            stride=1, dilation=4)
+        # Hardcoded ResNet18 parameters
+        layers = [2, 2, 2, 2]
+        block = CityscapesBasicBlock
+
+        # Build the layers
+        conv1 = nn.Sequential(
+            conv3x3(3, 64, stride=2),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            conv3x3(64, 64),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            conv3x3(64, 128))
+        self.layer0 = nn.Sequential(
+            conv1,
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=3, stride=2, padding=1))
+        self.layer1 = self._make_layer(block, 64, layers[0])
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
+
+        # Weight initialization schemes
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(
+                    m.weight, mode='fan_out', nonlinearity='relu')
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
 
         # Load pretrained weights
         self.pretrained = pretrained
@@ -1189,23 +1227,28 @@ class CityscapesResNet18(nn.Module):
         if self.frozen:
             self.training = False
 
-    def forward(self, x, *args, **kwargs):
-        x = self.resnet(x)  # (N, 128, h/8, w/8)
-        x = self.layer4(x)  # (N, 256, h/8, w/8)
-        x = self.layer5(x)  # (N, 512, h/8, w/8)
-        return x
+    def _make_layer(self, block, planes, blocks, stride=1):
+        downsample = None
+        if stride != 1 or self.inplanes != planes * block.expansion:
+            downsample = nn.Sequential(
+                nn.Conv2d(self.inplanes, planes * block.expansion,
+                          kernel_size=1, stride=stride, bias=False),
+                nn.BatchNorm2d(planes * block.expansion))
+        layers = []
+        layers.append(block(self.inplanes, planes, stride, downsample))
+        self.inplanes = planes * block.expansion
+        for index in range(1, blocks):
+            layers.append(block(self.inplanes, planes))
 
-    @staticmethod
-    def make_layer(
-            block, in_channels, channels, num_blocks, stride=1, dilation=1):
-        strides = [stride] + [1] * (num_blocks - 1)
-        blocks = []
-        for stride in strides:
-            blocks.append(block(
-                in_channels=in_channels, channels=channels, stride=stride,
-                dilation=dilation))
-            in_channels = block.expansion * channels
-        return nn.Sequential(*blocks)
+        return nn.Sequential(*layers)
+
+    def forward(self, x, *args, **kwargs):
+        x0 = self.layer0(x)   # /4
+        x1 = self.layer1(x0)  # /4
+        x2 = self.layer2(x1)  # /8
+        x3 = self.layer3(x2)  # /16
+        x4 = self.layer4(x3)  # /32
+        return x4
 
     @property
     def frozen(self):
@@ -1220,3 +1263,137 @@ class CityscapesResNet18(nn.Module):
 
     def train(self, mode=True):
         return super().train(mode and not self.frozen)
+
+
+class CityscapesResNet18TruncatedLayer4(nn.Module):
+    """ResNet18-based encoder pretrained on Cityscapes.
+
+    Adapted from: https://github.com/lxtGH/SFSegNets
+    """
+    _LAYERS = ['layer0', 'layer1', 'layer2', 'layer3', 'layer4']
+    _LAYERS_IN = {k: v for k, v in zip(_LAYERS, [3, 128, 64, 128, 256])}
+    _LAYERS_OUT = {k: v for k, v in zip(_LAYERS, [128, 64, 128, 256, 512])}
+    _LAYERS_SCALE = {k: v for k, v in zip(_LAYERS, [4, 1, 2, 2, 2])}
+
+    def __init__(self, frozen=False, scale_factor=None, pretrained=True, **kwargs):
+        super().__init__()
+
+        # Initialize the full ResNet18
+        resnet18 = CityscapesResNet18(pretrained=pretrained)
+
+        # Combine the selected layers into a nn.Sequential
+        self.conv = nn.Sequential(
+            *[getattr(resnet18, layer) for layer in self._LAYERS])
+
+        # If the model is frozen, it will always remain in eval mode
+        # and the parameters will have requires_grad=False
+        self.frozen = frozen
+        if self.frozen:
+            self.training = False
+
+        # Output will be resized wrt scale_factor if not None.
+        # If scale_factor < 0, the output will be resized to the input
+        # size
+        if scale_factor is not None and scale_factor < 0:
+            scale_factor = self.conv_scale_factor
+        self.scale_factor = scale_factor
+
+    def forward(self, x, *args, **kwargs):
+        x = self.conv(x)
+        if self.scale_factor is not None:
+            x = F.interpolate(
+                x, scale_factor=self.scale_factor, mode='bilinear',
+                align_corners=False)
+        return x
+
+    @property
+    def input_nc(self):
+        return self._LAYERS_IN[self._LAYERS[0]]
+
+    @property
+    def output_nc(self):
+        return self._LAYERS_OUT[self._LAYERS[-1]]
+
+    @property
+    def conv_scale_factor(self):
+        return torch.prod(torch.LongTensor([
+            self._LAYERS_SCALE[s] for s in self._LAYERS])).item()
+
+    @property
+    def frozen(self):
+        return self._frozen
+
+    @frozen.setter
+    def frozen(self, frozen):
+        if isinstance(frozen, bool):
+            self._frozen = frozen
+        for p in self.parameters():
+            p.requires_grad = not self.frozen
+
+    def train(self, mode=True):
+        return super().train(
+            mode and not self.frozen)
+
+    def extra_repr(self) -> str:
+        return f"scale_factor={self.scale_factor}" \
+            if self.scale_factor is not None else ""
+
+
+class CityscapesResNet18TruncatedLayer0(CityscapesResNet18TruncatedLayer4):
+    _LAYERS = ['layer0']
+
+
+class CityscapesResNet18TruncatedLayer1(CityscapesResNet18TruncatedLayer4):
+    _LAYERS = ['layer0', 'layer1']
+
+
+class CityscapesResNet18TruncatedLayer2(CityscapesResNet18TruncatedLayer4):
+    _LAYERS = ['layer0', 'layer1', 'layer2']
+
+
+class CityscapesResNet18TruncatedLayer3(CityscapesResNet18TruncatedLayer4):
+    _LAYERS = ['layer0', 'layer1', 'layer2', 'layer3']
+
+
+class CityscapesResNet18Layer0(CityscapesResNet18TruncatedLayer4):
+    _LAYERS = ['layer0']
+
+
+class CityscapesResNet18Layer1(CityscapesResNet18TruncatedLayer4):
+    _LAYERS = ['layer1']
+
+
+class CityscapesResNet18Layer2(CityscapesResNet18TruncatedLayer4):
+    _LAYERS = ['layer2']
+
+
+class CityscapesResNet18Layer3(CityscapesResNet18TruncatedLayer4):
+    _LAYERS = ['layer3']
+
+
+class CityscapesResNet18Layer4(CityscapesResNet18TruncatedLayer4):
+    _LAYERS = ['layer4']
+
+
+class CityscapesResNet18Pyramid(CityscapesResNet18TruncatedLayer4):
+    def __init__(
+            self, frozen=False, pretrained=True, scale_factor=-1, **kwargs):
+        assert scale_factor is not None, \
+            f'scale_factor cannot be None for feature pyramid.'
+        super().__init__(
+            frozen=frozen, pretrained=pretrained, scale_factor=scale_factor,
+            **kwargs)
+
+    def forward(self, x, *args, **kwargs):
+        feature_pyramid = []
+        output_size = [
+            int(s * self.scale_factor / self.conv_scale_factor)
+            for s in x.shape[2:4]]
+
+        for layer in self.conv:
+            x = layer(x)
+            x_up = F.interpolate(
+                x, size=output_size, mode='bilinear', align_corners=False)
+            feature_pyramid.append(x_up)
+
+        return torch.cat(feature_pyramid, dim=1)
