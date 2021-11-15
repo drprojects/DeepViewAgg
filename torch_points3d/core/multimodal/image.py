@@ -630,15 +630,24 @@ class SameSettingImageData(object):
         object before being passed to 'update_x_and_scale', for
         'downscale' and 'mappings' to be updated accordingly.
         """
-        # Update internal attributes based on the input
-        # downscaled image features
-        scale = self.img_size[0] / x.shape[3]
+        # Update internal attributes based on the input downscaled image
+        # features. We assume the scale hase been changed homogeneously
+        # on both width and height, but this could be wrong for some
+        # special cases with down convolutions. For security, since we
+        # use only a single scalar to describe scale, we use the largest
+        # rescaling so that mappings do not go out of frame.
+        # TODO: treat scales independently
+        scale_x = self.img_size[0] / x.shape[3]
+        scale_y = self.img_size[1] / x.shape[4]
+        scale = max(scale_x, scale_y)
         self._downscale = self.downscale * scale
         self.x = x
 
         if scale > 1:
             self.mappings = self.mappings.downscale_views(scale) \
                 if self.mappings is not None else None
+
+        # TODO: update mappings if scale increased for upsampling ?
 
         return self
 
@@ -661,11 +670,15 @@ class SameSettingImageData(object):
             assert isinstance(x, torch.Tensor), \
                 f"Expected a tensor of image features but got {type(x)} " \
                 f"instead."
-            assert x.shape[0] == self.num_views \
-                   and x.shape[2:][::-1] == self.img_size, \
+            assert x.shape[0] == self.num_views, \
                 f"Expected a tensor of shape ({self.num_views}, :, " \
                 f"{self.img_size[1]}, {self.img_size[0]}) but got " \
                 f"{x.shape} instead."
+            # TODO: removing this constraint as it may be broken when down
+            # assert x.shape[2:][::-1] == self.img_size, \
+            #     f"Expected a tensor of shape ({self.num_views}, :, " \
+            #     f"{self.img_size[1]}, {self.img_size[0]}) but got " \
+            #     f"{x.shape} instead."
             self._x = x.to(self.device)
 
     @property
