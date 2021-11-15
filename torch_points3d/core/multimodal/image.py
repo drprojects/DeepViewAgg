@@ -757,8 +757,9 @@ class SameSettingImageData(object):
         # the mappings
         if len(self) == 0:
             images = self.clone()
-            images.mappings.pointers = torch.zeros(
-                idx.shape[0] + 1).long().to(self.device)
+            # TODO: find out why this sometimes crashes and fix it
+            # images.mappings.pointers = torch.zeros(
+            #     idx.shape[0] + 1, dtype=torch.long, device=self.device)
             return images
 
         # Picking mode by default
@@ -1362,8 +1363,9 @@ class ImageData:
     def select_views(self, view_mask_list):
         assert isinstance(view_mask_list, list), \
             "Expected a list of view masks."
-        return self.__class__([im.select_views(view_mask)
-                               for im, view_mask in zip(self, view_mask_list)])
+        return self.__class__([
+            im.select_views(view_mask)
+            for im, view_mask in zip(self, view_mask_list)])
 
     def update_features_and_scale(self, x_list):
         assert isinstance(x_list, list) \

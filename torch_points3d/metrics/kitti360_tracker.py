@@ -73,7 +73,6 @@ class KITTI360Tracker(SegmentationTracker):
         if self._stage == "train":
             return
 
-        # TODO: investigate bug. See TRELLO
         # Create a temporary directory in the `/tmp` directory. If no
         # such directory is found on the machine, the dataset root
         # directory (where `raw` and `processed` folders are) will be
@@ -176,7 +175,6 @@ class KITTI360Tracker(SegmentationTracker):
                 and not make_submission:
             return
 
-        # TODO: investigate bug. See TRELLO
         # Compute voting and (optionally) full-resolution predictions
         # for each window
         for idx_window in tq(range(len(self.windows))):
