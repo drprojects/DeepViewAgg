@@ -2031,26 +2031,26 @@ class ImageMapping(CSRData):
                 self.pointers[1:] - self.pointers[:-1])
             image_ids = self.images
 
-            # Merge view-level mapping features
-            if self.has_features:
+            # Merge view-level mapping features. Take special care for
+            # cases when there is no mappings or only a single mapping
+            if not self.has_features:
+                features = None
+            elif self.num_items <= 1:
+                features = self.features
+            else:
                 # Compute composite point-image views ids
                 view_ids = CompositeTensor(
                     point_ids, image_ids, device=point_ids.device)
                 view_ids = view_ids.data.squeeze()
                 # Average the features per view
-                if self.features.shape[0] > 1:
-                    features = torch_scatter.scatter_mean(
-                        self.features, view_ids, 0)
-                else:
-                    features = self.features
-                    # Prepare view indices for torch.gather
+                features = torch_scatter.scatter_mean(
+                    self.features, view_ids, 0)
+                # Prepare view indices for torch.gather
                 if features.dim() > 1:
                     view_ids = view_ids.view(-1, 1).repeat(1, features.shape[1])
                 # Redistribute mean features to source indices
                 features = features.gather(0, view_ids)
                 del view_ids
-            else:
-                features = None
 
             # Expand to dense atomic-level format
             point_ids = idx.repeat_interleave(
