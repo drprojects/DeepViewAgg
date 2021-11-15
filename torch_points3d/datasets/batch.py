@@ -22,10 +22,11 @@ class SimpleBatch(Data):
         keys = list(set.union(*keys))
 
         # Check if all dimensions matches and we can concatenate data
-        # if len(data_list) > 0:
-        #    for data in data_list[1:]:
-        #        for key in keys:
-        #            assert data_list[0][key].shape == data[key].shape
+        if len(data_list) > 0:
+           for i, data in enumerate(data_list[1:]):
+               for key in keys:
+                   if torch.is_tensor(data[key]):
+                       assert data_list[0][key].shape == data[key].shape
 
         batch = SimpleBatch()
         batch.__data_class__ = data_list[0].__class__
@@ -40,12 +41,10 @@ class SimpleBatch(Data):
 
         for key in batch.keys:
             item = batch[key][0]
-            if (
-                torch.is_tensor(item)
-                or isinstance(item, int)
-                or isinstance(item, float)
-            ):
+            if torch.is_tensor(item):
                 batch[key] = torch.stack(batch[key])
+            elif isinstance(item, int) or isinstance(item, float):
+                batch[key] = torch.as_tensor(batch[key])
             else:
                 raise ValueError("Unsupported attribute type")
 

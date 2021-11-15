@@ -212,11 +212,14 @@ class MMBatch(MMData):
 
         data_list = self.data.to_data_list()
 
-        mods_list = {mod: data_mod.to_data_list()
-                     for mod, data_mod in self.modalities.items()}
-        mods_list = [{mod: data_mod[i] for mod, data_mod in mods_list.items()}
-                     for i in range(self.num_batch_items)]
+        mods_dict_list = {
+            mod: data_mod.to_data_list()
+            for mod, data_mod in self.modalities.items()}
+        mods_list_dict = [{
+            mod: data_mod[i]
+            for mod, data_mod in mods_dict_list.items()}
+            for i in range(self.num_batch_items)]
 
         return [MMData(data, **modalities)
                 for data, modalities
-                in zip(data_list, mods_list)]
+                in zip(data_list, mods_list_dict)]

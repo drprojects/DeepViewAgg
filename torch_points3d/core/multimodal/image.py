@@ -344,7 +344,6 @@ class SameSettingImageData(object):
         Number of points implied by ImageMapping. Zero is 'mappings' is
         None.
         """
-        self.crop_offsets
         return self.mappings.num_groups if self.mappings is not None else 0
 
     @property
@@ -741,6 +740,14 @@ class SameSettingImageData(object):
         if self.mappings is None or idx is None or idx.shape[0] == 0:
             return self.clone()
 
+        # If no images, still need to preserve the number of points in
+        # the mappings
+        if len(self) == 0:
+            images = self.clone()
+            images.mappings.pointers = torch.zeros(
+                idx.shape[0] + 1).long().to(self.device)
+            return images
+
         # Picking mode by default
         if mode == 'pick':
             # Select mappings wrt the point index
@@ -798,7 +805,8 @@ class SameSettingImageData(object):
 
         # Images are not affected if no mappings are present or
         # view_mask is None or all True
-        if self.mappings is None or view_mask is None or torch.all(view_mask):
+        if self.mappings is None or view_mask is None or torch.all(view_mask) \
+                or len(self) == 0:
             return self.clone()
 
         # Select mappings wrt the point index
@@ -1284,10 +1292,10 @@ class ImageData:
                and all(isinstance(x, torch.Tensor) for x in x_list), \
             f"Expected a List(torch.Tensor) but got {type(x_list)} instead."
 
-        if x_list is None:
+        if x_list is None or len(x_list) == 0:
             x_list = [None] * self.num_settings
 
-        for im, x in (self, x_list):
+        for im, x in zip(self, x_list):
             im.x = x
 
     def debug(self):
@@ -1317,13 +1325,13 @@ class ImageData:
             raise ValueError(
                 f'{self} cannot be indexed because it has length 0.')
 
+        # TODO: only return self.__class__ data from this ? Isn't it
+        #  awkward to change classes for integer indexation only ?
         if isinstance(idx, int) and idx < self.__len__():
             return self._list[idx]
-        elif isinstance(idx, slice):
-            return self.__class__(self._list[idx])
         else:
-            raise NotImplementedError(
-                f'Indexing {self.__class__} with {type(idx)} is not supported.')
+            return self.__class__([
+                self._list[i] for i in tensor_idx(idx).tolist()])
 
     def __iter__(self):
         for i in range(self.__len__()):
@@ -1406,10 +1414,17 @@ class ImageData:
                 im.view_csr_indexing[1:] - im.view_csr_indexing[:-1])
             for im in self]
 
-        # Assuming the corresponding view features will be concatenated
-        # in the same order as in self, compute the sorting indices to
-        # arrange features wrt point indices, to facilitate CSR indexing
-        sorting = torch.cat([idx for idx in dense_idx_list]).argsort()
+        try:
+            # Assuming the corresponding view features will be concatenated
+            # in the same order as in self, compute the sorting indices to
+            # arrange features wrt point indices, to facilitate CSR indexing
+            sorting = torch.cat([idx for idx in dense_idx_list]).argsort()
+        except:
+            print(f'self : {self}')
+            print(f'len(self) : {len(self)}')
+            print(f'dense_idx_list : {dense_idx_list}')
+            print(f'num_points : {[im.num_points for im in self]}')
+            print(f'view_csr_indexing : {[im.view_csr_indexing for im in self]}')
 
         return sorting
 
@@ -1460,13 +1475,13 @@ class ImageBatch(ImageData):
     @staticmethod
     def from_data_list(image_data_list):
         assert isinstance(image_data_list, list) and len(image_data_list) > 0
-        assert all(isinstance(x, ImageData)
-                   for x in image_data_list)
+        assert all(isinstance(x, ImageData) for x in image_data_list)
 
         # Recover the list of unique hashes
-        hashes = list(set([im.settings_hash
-                           for il in image_data_list
-                           for im in il]))
+        hashes = list(set([
+            im.settings_hash
+           for il in image_data_list
+           for im in il]))
         hashes_idx = {h: i for i, h in enumerate(hashes)}
 
         # Recover the number of points in each ImageData
@@ -1535,8 +1550,9 @@ class ImageBatch(ImageData):
                     self.__im_idx_dict__[h],
                     ib.to_data_list()):
                 # Restore the point ids in the mappings
-                im.mappings = im.mappings[
-                              self.__cum_pts__[il_idx]:self.__cum_pts__[il_idx + 1]]
+                start = self.__cum_pts__[il_idx]
+                end = self.__cum_pts__[il_idx + 1]
+                im.mappings = im.mappings[start:end]
 
                 # Update the list of MultiSettingImages with each
                 # SameSettingImageData in its original position
@@ -1819,6 +1835,10 @@ class ImageMapping(CSRData):
         assert idx.unique().numel() == idx.shape[0], \
             f"Index must not contain duplicates."
 
+        # Rule out empty mappings
+        if self.num_items == 0:
+            return self.clone()
+
         # Get view-level indices for images to keep
         view_idx = torch.where((self.images[..., None] == idx).any(-1))[0]
 
@@ -1886,6 +1906,10 @@ class ImageMapping(CSRData):
                and view_mask.dim() == 1 \
                and view_mask.shape[0] == self.num_items, \
             f"view_mask must be a torch.BoolTensor of size {self.num_items}."
+
+        # Rule out empty mappings
+        if self.num_items == 0:
+            return self.clone()
 
         # Index the values
         values = [val[view_mask] for val in self.values]
@@ -1966,8 +1990,14 @@ class ImageMapping(CSRData):
         # Work on a clone of self, to avoid in-place modifications.
         # Images are not affected if no mappings are present or idx is
         # None
-        if idx is None or idx.shape[0] == 0:
+        if idx is None or idx.shape[0] == 0 or self.num_groups == 0:
             return self.clone()
+
+        # If mappings have no data, we must still update the pointers
+        if self.num_items == 0:
+            out = self.clone()
+            out.pointers = torch.zeros(idx.shape[0] + 1).long().to(self.device)
+            return out
 
         # Picking mode by default
         if mode == 'pick':
@@ -1995,9 +2025,12 @@ class ImageMapping(CSRData):
                     point_ids, image_ids, device=point_ids.device)
                 view_ids = view_ids.data.squeeze()
                 # Average the features per view
-                features = torch_scatter.scatter_mean(
-                    self.features, view_ids, 0)
-                # Prepare view indices for torch.gather
+                if self.features.shape[0] > 1:
+                    features = torch_scatter.scatter_mean(
+                        self.features, view_ids, 0)
+                else:
+                    features = self.features
+                    # Prepare view indices for torch.gather
                 if features.dim() > 1:
                     view_ids = view_ids.view(-1, 1).repeat(1, features.shape[1])
                 # Redistribute mean features to source indices
@@ -2105,7 +2138,7 @@ class ImageMapping(CSRData):
 
 class ImageMappingBatch(ImageMapping, CSRBatch):
     """Batch wrapper for ImageMapping."""
-    pass
+    __csr_type__ = ImageMapping
 
 
 """

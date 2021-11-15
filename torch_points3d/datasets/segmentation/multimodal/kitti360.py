@@ -157,6 +157,38 @@ class WindowMM(Window):
 
 
 ########################################################################
+#                             Window Buffer                            #
+########################################################################
+
+class WindowMMBuffer(WindowBuffer):
+    """Takes care of loading and discarding windows for us. Since we
+    can't afford loading all windows at once in memory, the
+    `WindowBuffer` keeps at most `size` windows loaded at a time. When
+    an additional window is queried, the buffer is updated in a
+    first-in-first-out fashion.
+    """
+    def __getitem__(self, idx):
+        """Load a window into memory based on its index in
+        `self._dataset.windows`.
+        """
+        # Check if the window is not already loaded
+        if idx in self.idx_loaded:
+            return self._windows[idx]
+
+        # If the buffer is full, drop the oldest window
+        if self.is_full:
+            self._drop_oldest_window()
+
+        # Load the window data and associated sampling data
+        self._windows[idx] = WindowMM(
+            self._dataset.paths[idx], self._dataset.sampling_paths[idx],
+            self._dataset.image_paths[idx])
+        self._queue.append(idx)
+
+        return self._windows[idx]
+
+
+########################################################################
 #                           KITTI360Cylinder                           #
 ########################################################################
 
@@ -181,7 +213,7 @@ class KITTI360CylinderMM(KITTI360Cylinder):
             self, root, split="train", sample_per_epoch=15000, radius=6,
             sample_res=0.3, transform=None, pre_transform=None,
             pre_filter=None, keep_instance=False, pre_transform_image=None,
-            transform_image=None, image_r_max=20, image_ratio=5,
+            transform_image=None, buffer=3, image_r_max=20, image_ratio=5,
             image_size=(1408, 376), voxel=0.05):
 
         # 2D-related attributes
@@ -197,7 +229,11 @@ class KITTI360CylinderMM(KITTI360Cylinder):
             root, split=split, sample_per_epoch=sample_per_epoch,
             radius=radius, sample_res=sample_res, transform=transform,
             pre_transform=pre_transform, pre_filter=pre_filter,
-            keep_instance=keep_instance)
+            keep_instance=keep_instance, buffer=buffer)
+
+        # Initialize the window buffer that will take care of loading
+        # and dropping windows in memory
+        self._buffer = WindowMMBuffer(self, buffer)
 
     @property
     def image_r_max(self):
@@ -241,6 +277,11 @@ class KITTI360CylinderMM(KITTI360Cylinder):
 
     @property
     def processed_2d_file_names(self):
+        # TODO: in theory, to make sure we track whenever the parameters
+        #  affect the mapping, we should also track 'exact_splatting_2d',
+        #  'k_swell', 'd_swell' or, even better, the whole visibility
+        #  model. Not sure how hashing all this together would produce
+        #  consistent hashes.
         suffix = '_'.join([
             f'voxel-{int(self.voxel * 100)}',
             f'size-{self.image_size[0]}x{self.image_size[1]}',
@@ -252,8 +293,8 @@ class KITTI360CylinderMM(KITTI360Cylinder):
         if self.split == 'trainval':
             return [
                 osp.join(s, '2d', f'{w}_{suffix}.pt')
-                for w in self.windows
-                for s in ('train', 'val')]
+                for s in ('train', 'val')
+                for w in self._WINDOWS[s]]
 
         return [
             osp.join(self.split, '2d', f'{w}_{suffix}.pt')
@@ -312,24 +353,15 @@ class KITTI360CylinderMM(KITTI360Cylinder):
 
             # Run image pre-transform
             if self.pre_transform_image is not None:
-                _, images = self.pre_transform_image(data, images)
+                data, images = self.pre_transform_image(data, images)
 
             # Save scan 2D data to a file that will be loaded when
             # __get_item__ is called
             torch.save(images, image_path)
 
-    def _load_window(self, idx):
-        """Load a window, its sampling data, images and mappings into
-        memory based on its index in `self.windows`.
-       """
-        # Check if the window is not already loaded
-        if self.window_idx == idx:
-            return
-
-        # Load the window data and associated sampling data
-        self._window = WindowMM(
-            self.paths[idx], self.sampling_paths[idx], self.image_paths[idx])
-        self._window_idx = idx
+            # Save data again in case `self.pre_transform_image` has
+            # modified anything
+            torch.save(data, window_path)
 
     def __getitem__(self, idx):
         r"""Gets the cylindrical sample at index `idx` and transforms it
@@ -353,12 +385,13 @@ class KITTI360CylinderMM(KITTI360Cylinder):
         # and mappings are loaded within `self.window`
         data = super().__getitem__(idx)
 
-        # Recover all images and mappings from the window
-        images = self.window.images
+        # Recover images and mappings from the window
+        images = self.buffer[int(data.idx_window)].images
 
         # Run image transforms
         if self.transform_image is not None:
-            data, images = self.transform_image(data, images)
+            # TODO: do we really need to clone images here ?
+            data, images = self.transform_image(data, images.clone())
 
         return MMData(data, image=images)
 
@@ -472,3 +505,24 @@ class KITTI360DatasetMM(BaseDatasetMM):
         if dataset_opt.class_weight_method:
             # TODO: find an elegant way of returning class weights for train set
             raise NotImplementedError('KITTI360Dataset does not support class weights yet.')
+
+    @property
+    def submission_dir(self):
+        return self.train_dataset.submission_dir
+
+    def get_tracker(self, wandb_log: bool, tensorboard_log: bool):
+        """Factory method for the tracker
+
+        Arguments:
+            wandb_log - Log using weight and biases
+            tensorboard_log - Log using tensorboard
+        Returns:
+            [BaseTracker] -- tracker
+        """
+        # NB: this import needs to be here because of a loop between the
+        # `dataset.segmentation.kitti360` and `metrics.kitti360_tracker`
+        # modules imports
+        from torch_points3d.metrics.kitti360_tracker import KITTI360Tracker
+        return KITTI360Tracker(
+            self, wandb_log=wandb_log, use_tensorboard=tensorboard_log,
+            ignore_label=IGNORE)

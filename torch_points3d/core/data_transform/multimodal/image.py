@@ -715,9 +715,10 @@ class PickImagesFromMappingArea(ImageTransform):
     of images to keep.
     """
 
-    def __init__(self, area_ratio=0.02, n_max=None, use_bbox=False):
+    def __init__(self, area_ratio=0.02, n_max=None, n_min=0, use_bbox=False):
         self.area_ratio = area_ratio
         self.n_max = n_max if n_max is not None and n_max >= 1 else None
+        self.n_min = n_min if n_max is not None and n_min >= 0 else 0
         self.use_bbox = use_bbox
 
     def _process(self, data: Data, images: SameSettingImageData):
@@ -753,8 +754,8 @@ class PickImagesFromMappingArea(ImageTransform):
 
         # In case no images meet the requirements, pick the one with
         # the largest mapping to avoid having an empty idx
-        if idx.shape[0] == 0 and images.num_views > 0:
-            idx = areas.argmax().item()
+        if idx.shape[0] == 0 and images.num_views > 0 and self.n_min > 0:
+            idx = idx[:self.n_min]
 
         # Select the images and mappings meeting the threshold
         return data, images[idx]
@@ -1059,6 +1060,12 @@ class CropImageGroups(ImageTransform):
 
     def _process(self, data: Data, images: SameSettingImageData):
         assert images.mappings is not None, "No mappings found in images."
+
+        # If no images, just return an empty ImageData with proper
+        # number of points in the mappings. This is important, for it
+        # will break `MMBatch.from_mm_data_list` otherwise
+        if images.num_views == 0:
+            return data, ImageData([images])
 
         # Compute the bounding boxes for each image
         w_min, w_max, h_min, h_max = images.mappings.bounding_boxes

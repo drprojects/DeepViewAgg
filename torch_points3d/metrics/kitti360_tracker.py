@@ -73,6 +73,7 @@ class KITTI360Tracker(SegmentationTracker):
         if self._stage == "train":
             return
 
+        # TODO: investigate bug. See TRELLO
         # Create a temporary directory in the `/tmp` directory. If no
         # such directory is found on the machine, the dataset root
         # directory (where `raw` and `processed` folders are) will be
@@ -96,7 +97,9 @@ class KITTI360Tracker(SegmentationTracker):
         # Special attention must be given to the newly-added 'pred'
         # attribute which was not present in the Data list at Batch
         # creation time
-        if callable(getattr(data, 'to_data_list', None)):
+        # # TODO: this is only for torch geometric Batch, but won't work
+        #    for TP3D's SimpleBatch
+        if hasattr(data, 'batch'):
             data.__slices__['pred'] = data.__slices__['pos']
             data.__cat_dims__['pred'] = 0
             data.__cumsum__['pred'] = data.__cumsum__['pos']
@@ -107,9 +110,16 @@ class KITTI360Tracker(SegmentationTracker):
         # Loop over items of the batch, because some may come from
         # different windows
         for data in data_list:
-
-            # Get window information
-            idx_window = data.idx_window
+            try:
+                # Get window information
+                idx_window = data.idx_window
+                if torch.is_tensor(idx_window):
+                    idx_window = idx_window.item()
+            except:
+                print()
+                print(f'data_list : {data_list}')
+                print(f'data : {data}')
+                print()
 
             # If the tracker's currently-loaded window traking data must
             # change, save votes and counts for the previous window and
@@ -166,6 +176,7 @@ class KITTI360Tracker(SegmentationTracker):
                 and not make_submission:
             return
 
+        # TODO: investigate bug. See TRELLO
         # Compute voting and (optionally) full-resolution predictions
         # for each window
         for idx_window in tq(range(len(self.windows))):
