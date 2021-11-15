@@ -6979,6 +6979,7 @@ Res16UNet34-L4-early-cityscapes:
                     module_name: BimodalFusion
                     mode: concatenation
                 branching_index: 0
+                out_channels: FEAT + out_feat_img_0  # This is necessary to support batches with no images
 #                 checkpointing: cav
 
         up_conv:

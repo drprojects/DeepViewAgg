@@ -380,21 +380,13 @@ class KITTI360CylinderMM(KITTI360Cylinder):
         This mechanism is required for some PyTorch Dataset core
         functionalities calling `self[0]`.
         """
-        if len(self.buffer) > 0:
-            pts = {i: w.data.mapping_index.max() + 1 for i, w in self.buffer._windows.items()}
-            imgs = {i: w.images.num_points for i, w in self.buffer._windows.items()}
-            print(f'get idx={idx} buffer={self.buffer.idx_loaded}')
-            print(f'{pts}')
-            print(f'{imgs}\n')
-
-
         # Pick a 3D cylindrical sample and apply the 3D transforms. This
         # will take care of 'smart' window loading for us. The images
         # and mappings are loaded within `self.window`
         data = super().__getitem__(idx)
 
         # Recover images and mappings from the window
-        images = self.buffer[data.idx_window].images
+        images = self.buffer[int(data.idx_window)].images
 
         # Run image transforms
         if self.transform_image is not None:
