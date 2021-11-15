@@ -325,10 +325,9 @@ class KITTI360CylinderMM(KITTI360Cylinder):
             window_path, sampling_path, image_path = wsi
 
             # If window image data already exists, while either the
-            # window data or sampling is missing, remove it, because it
-            # may be out-of-date
-            if osp.exists(image_path) and any([
-                    not osp.exists(p) for p in [window_path, sampling_path]]):
+            # window data is missing, remove it, because it may be
+            # out-of-date
+            if osp.exists(image_path) and not osp.exists(window_path):
                 os.remove(image_path)
 
             # Create necessary parent folders if need be
