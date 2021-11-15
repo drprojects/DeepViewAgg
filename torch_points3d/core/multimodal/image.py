@@ -1835,6 +1835,10 @@ class ImageMapping(CSRData):
         assert idx.unique().numel() == idx.shape[0], \
             f"Index must not contain duplicates."
 
+        # Rule out empty mappings
+        if self.num_items == 0:
+            return self.clone()
+
         # Get view-level indices for images to keep
         view_idx = torch.where((self.images[..., None] == idx).any(-1))[0]
 
@@ -1902,6 +1906,10 @@ class ImageMapping(CSRData):
                and view_mask.dim() == 1 \
                and view_mask.shape[0] == self.num_items, \
             f"view_mask must be a torch.BoolTensor of size {self.num_items}."
+
+        # Rule out empty mappings
+        if self.num_items == 0:
+            return self.clone()
 
         # Index the values
         values = [val[view_mask] for val in self.values]
@@ -1982,8 +1990,14 @@ class ImageMapping(CSRData):
         # Work on a clone of self, to avoid in-place modifications.
         # Images are not affected if no mappings are present or idx is
         # None
-        if idx is None or idx.shape[0] == 0:
+        if idx is None or idx.shape[0] == 0 or self.num_groups == 0:
             return self.clone()
+
+        # If mappings have no data, we must still update the pointers
+        if self.num_items == 0:
+            out = self.clone()
+            out.pointers = torch.zeros(idx.shape[0] + 1).long().to(self.device)
+            return out
 
         # Picking mode by default
         if mode == 'pick':
