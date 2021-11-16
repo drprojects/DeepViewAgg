@@ -733,12 +733,12 @@ class KITTI360Sampler(Sampler):
             windows[i] = idx_window
 
         # Shuffle the order in which required windows will be loaded
-        unique_windows = windows.unique()
+        unique_windows, unique_inverse = windows.unique(return_inverse=True)
         window_order = unique_windows[torch.randperm(unique_windows.shape[0])]
 
         # Compute the order in which the cylinders will be loaded. Note
         # this disregards the max_consecutive for now
-        order = window_order[windows].argsort()
+        order = window_order[unique_inverse].argsort()
 
         # Sort the windows and labels
         labels = labels[order]
