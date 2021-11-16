@@ -350,8 +350,9 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
         for i, (xyz, axes) in enumerate(zip(image_xyz, image_axes)):
 
             # Draw image coordinate system axes
-            arrow_length = 0.1
+            arrow_length = 0.4
             for v, color in zip(axes, ['red', 'green', 'blue']):
+            # for v, color in zip(axes, [ 'blue', 'red', 'green',]):
                 v = xyz + v * arrow_length
                 fig.add_trace(
                     go.Scatter3d(
@@ -361,10 +362,11 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
                         mode='lines',
                         line=dict(
                             color=color,
-                            width=pointsize + 1),
+                            width=pointsize + 7),
                         showlegend=False,
                         hoverinfo='none',
-                        visible=True, ))
+                        # visible=True, ))  # TODO: reset this if you want to see all axes
+                        visible=(color == 'blue'), ))
 
             # Draw image position as ball
             img_traces.append(len(fig.data))
@@ -377,9 +379,10 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
                     mode='markers+text',
                     marker=dict(
                         line_width=2,
-                        size=pointsize + 4,
+                        size=pointsize + 12,
                         color=PALETTE[i % len(PALETTE)], ),
-                    text=f"<b>{i}</b>",
+                    # text=f"<b>{i}</b>",  # TODO: reset this if you want to see image number
+                    text='',
                     textposition="bottom center",
                     textfont=dict(size=16),
                     hoverinfo='x+y+z+name',
@@ -443,6 +446,36 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
             y=0.5,
             xanchor="right",
             x=0.99))
+
+    # Hide all axes and no background
+    fig.update_layout(
+        scene=dict(
+            xaxis_title='',
+            yaxis_title='',
+            zaxis_title='',
+            xaxis=dict(
+                autorange=True,
+                showgrid=False,
+                ticks='',
+                showticklabels=False,
+                backgroundcolor="rgba(0, 0, 0, 0)"
+            ),
+            yaxis=dict(
+                autorange=True,
+                showgrid=False,
+                ticks='',
+                showticklabels=False,
+                backgroundcolor="rgba(0, 0, 0, 0)"
+            ),
+            zaxis=dict(
+                autorange=True,
+                showgrid=False,
+                ticks='',
+                showticklabels=False,
+                backgroundcolor="rgba(0, 0, 0, 0)"
+            )
+        )
+    )
 
     output = {'figure': fig, 'data': data}
 
@@ -555,7 +588,8 @@ def visualize_2d(mm_data, figsize=800, width=None, height=None, alpha=3,
     else:
         for im in images:
             # Color the mapped foreground and darken the background
-            im.background_alpha = (im.background.float() / alpha).floor().type(torch.uint8)
+            im.background_alpha = (255 - 0.3 * (255 - im.background.float())).floor().type(torch.uint8)  # TODO: this is for clearer background
+            # im.background_alpha = (im.background.float() / alpha).floor().type(torch.uint8)  # TODO: this is for darker background
 
             # Get the mapping of all points in the sample
             idx = im.mappings.feature_map_indexing
