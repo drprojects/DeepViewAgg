@@ -144,6 +144,9 @@ SPLITS = ["train", "val", "test"]
 
 MAX_NUM_POINTS = 1200000
 
+CLASS_COLORS = [SCANNET_COLOR_MAP[i] for i in VALID_CLASS_IDS] + [(225, 225, 255)]
+CLASS_NAMES = list(CLASS_LABELS) + ['ignored']
+
 
 def get_release_scans(release_file):
     scan_lines = urlopen(release_file)
