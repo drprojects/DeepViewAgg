@@ -630,15 +630,24 @@ class SameSettingImageData(object):
         object before being passed to 'update_x_and_scale', for
         'downscale' and 'mappings' to be updated accordingly.
         """
-        # Update internal attributes based on the input
-        # downscaled image features
-        scale = self.img_size[0] / x.shape[3]
+        # Update internal attributes based on the input downscaled image
+        # features. We assume the scale hase been changed homogeneously
+        # on both width and height, but this could be wrong for some
+        # special cases with down convolutions. For security, since we
+        # use only a single scalar to describe scale, we use the largest
+        # rescaling so that mappings do not go out of frame.
+        # TODO: treat scales independently
+        scale_x = self.img_size[0] / x.shape[3]
+        scale_y = self.img_size[1] / x.shape[2]
+        scale = max(scale_x, scale_y)
         self._downscale = self.downscale * scale
         self.x = x
 
         if scale > 1:
             self.mappings = self.mappings.downscale_views(scale) \
                 if self.mappings is not None else None
+
+        # TODO: update mappings if scale increased for upsampling ?
 
         return self
 
@@ -661,11 +670,15 @@ class SameSettingImageData(object):
             assert isinstance(x, torch.Tensor), \
                 f"Expected a tensor of image features but got {type(x)} " \
                 f"instead."
-            assert x.shape[0] == self.num_views \
-                   and x.shape[2:][::-1] == self.img_size, \
+            assert x.shape[0] == self.num_views, \
                 f"Expected a tensor of shape ({self.num_views}, :, " \
                 f"{self.img_size[1]}, {self.img_size[0]}) but got " \
                 f"{x.shape} instead."
+            # TODO: removing this constraint as it may be broken when down
+            # assert x.shape[2:][::-1] == self.img_size, \
+            #     f"Expected a tensor of shape ({self.num_views}, :, " \
+            #     f"{self.img_size[1]}, {self.img_size[0]}) but got " \
+            #     f"{x.shape} instead."
             self._x = x.to(self.device)
 
     @property
@@ -744,8 +757,9 @@ class SameSettingImageData(object):
         # the mappings
         if len(self) == 0:
             images = self.clone()
-            images.mappings.pointers = torch.zeros(
-                idx.shape[0] + 1).long().to(self.device)
+            # TODO: find out why this sometimes crashes and fix it
+            # images.mappings.pointers = torch.zeros(
+            #     idx.shape[0] + 1, dtype=torch.long, device=self.device)
             return images
 
         # Picking mode by default
@@ -1349,8 +1363,9 @@ class ImageData:
     def select_views(self, view_mask_list):
         assert isinstance(view_mask_list, list), \
             "Expected a list of view masks."
-        return self.__class__([im.select_views(view_mask)
-                               for im, view_mask in zip(self, view_mask_list)])
+        return self.__class__([
+            im.select_views(view_mask)
+            for im, view_mask in zip(self, view_mask_list)])
 
     def update_features_and_scale(self, x_list):
         assert isinstance(x_list, list) \
@@ -2018,26 +2033,26 @@ class ImageMapping(CSRData):
                 self.pointers[1:] - self.pointers[:-1])
             image_ids = self.images
 
-            # Merge view-level mapping features
-            if self.has_features:
+            # Merge view-level mapping features. Take special care for
+            # cases when there is no mappings or only a single mapping
+            if not self.has_features:
+                features = None
+            elif self.num_items <= 1:
+                features = self.features
+            else:
                 # Compute composite point-image views ids
                 view_ids = CompositeTensor(
                     point_ids, image_ids, device=point_ids.device)
                 view_ids = view_ids.data.squeeze()
                 # Average the features per view
-                if self.features.shape[0] > 1:
-                    features = torch_scatter.scatter_mean(
-                        self.features, view_ids, 0)
-                else:
-                    features = self.features
-                    # Prepare view indices for torch.gather
+                features = torch_scatter.scatter_mean(
+                    self.features, view_ids, 0)
+                # Prepare view indices for torch.gather
                 if features.dim() > 1:
                     view_ids = view_ids.view(-1, 1).repeat(1, features.shape[1])
                 # Redistribute mean features to source indices
                 features = features.gather(0, view_ids)
                 del view_ids
-            else:
-                features = None
 
             # Expand to dense atomic-level format
             point_ids = idx.repeat_interleave(

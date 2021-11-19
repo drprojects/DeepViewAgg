@@ -45,8 +45,8 @@ def read_kitti360_image_sequence(root, sequence, cam_id=0, size=None):
 
     # The poses may describe images that are not provided, so remove
     # missing images for paths and poses
-    idx = np.asarray([i for i, p in enumerate(paths) if osp.exists(p)])
-    poses = poses[idx]
+    idx = np.array([i for i, p in enumerate(paths) if osp.exists(p)]).astype(np.int64)
+    poses = poses[torch.from_numpy(idx)]
     paths = paths[idx]
     n_images = poses.shape[0]
     if n_images == 0:
@@ -273,7 +273,7 @@ class KITTI360CylinderMM(KITTI360Cylinder):
     def raw_file_names(self):
         """The filepaths to find in order to skip the download."""
         return super().raw_file_names + [
-            'data_2d_raw', 'data_2d_test', 'data_poses', 'calibration']
+            'data_2d_raw', 'data_poses', 'calibration']
 
     @property
     def processed_2d_file_names(self):
@@ -324,11 +324,9 @@ class KITTI360CylinderMM(KITTI360Cylinder):
             # Recover the path for each type of data
             window_path, sampling_path, image_path = wsi
 
-            # If window image data already exists, while either the
-            # window data or sampling is missing, remove it, because it
-            # may be out-of-date
-            if osp.exists(image_path) and any([
-                    not osp.exists(p) for p in [window_path, sampling_path]]):
+            # If window image data already exists, while the window data
+            # is missing, remove it, because it may be out-of-date
+            if osp.exists(image_path) and not osp.exists(window_path):
                 os.remove(image_path)
 
             # Create necessary parent folders if need be
@@ -475,21 +473,21 @@ class KITTI360DatasetMM(BaseDatasetMM):
             pre_transform_image=self.pre_transform_image,
             transform_image=self.val_transform_image)
 
-        # self.test_dataset = cls(
-        #     self._data_path,
-        #     radius=radius,
-        #     sample_res=eval_sample_res,
-        #     keep_instance=keep_instance,
-        #     image_r_max=image_r_max,
-        #     image_ratio=image_ratio,
-        #     image_size=image_size,
-        #     voxel=voxel,
-        #     sample_per_epoch=-1,
-        #     split='test',
-        #     pre_transform=self.pre_transform,
-        #     transform=self.test_transform,
-        #     pre_transform_image=self.pre_transform_image,
-        #     transform_image=self.test_transform_image)
+        self.test_dataset = cls(
+            self._data_path,
+            radius=radius,
+            sample_res=eval_sample_res,
+            keep_instance=keep_instance,
+            image_r_max=image_r_max,
+            image_ratio=image_ratio,
+            image_size=image_size,
+            voxel=voxel,
+            sample_per_epoch=-1,
+            split='test',
+            pre_transform=self.pre_transform,
+            transform=self.test_transform,
+            pre_transform_image=self.pre_transform_image,
+            transform_image=self.test_transform_image)
 
         # A dedicated sampler must be created for the train set. Indeed,
         # self.train_dataset.sample_per_epoch > 0 means cylindrical
