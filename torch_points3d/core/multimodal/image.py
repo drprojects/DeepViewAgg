@@ -264,8 +264,8 @@ class SameSettingImageData(object):
                 f"SameSettingImageData image indices."
             if self.mappings.num_items > 0:
                 w_max, h_max = self.mappings.pixels.max(dim=0).values
-                assert w_max < self.img_size[0] and h_max < self.img_size[1], \
-                    f"Max pixel values should be smaller than ({self.img_size}) " \
+                assert w_max < self.crop_size[0] and h_max < self.crop_size[1], \
+                    f"Max pixel values should be smaller than ({self.crop_size}) " \
                     f"but got ({w_max, h_max}) instead."
             assert self.device == self.mappings.device, \
                 f"Discrepancy in the devices of 'pos' and 'mappings' " \
@@ -577,8 +577,8 @@ class SameSettingImageData(object):
         # wrt 'ref_size'
         crop_offsets = crop_offsets.long()
         self._crop_size = tuple(int(x * self.downscale) for x in crop_size)
-        self._crop_offsets = (self.crop_offsets
-                              + crop_offsets * self.downscale).long()
+        self._crop_offsets = (
+                self.crop_offsets + crop_offsets * self.downscale).long()
 
         # Update the images' cropping
         #   - Image features have format: BxCxHxW
@@ -611,7 +611,7 @@ class SameSettingImageData(object):
         assert (self.x is None and self.mappings is None) \
                or self.downscale == scale, \
             "Can't directly edit 'downscale' if 'x' or 'mappings' are " \
-            "not both None. Consider using 'update_x_and_scale'."
+            "not both None. Consider using 'update_x'."
         assert scale >= 1, \
             f"Expected scalar larger than 1 but got {scale} instead."
         # assert isinstance(scale, int), \
@@ -620,7 +620,7 @@ class SameSettingImageData(object):
         #     f"Expected a power of 2 but got {scale} instead."
         self._downscale = scale
 
-    def update_x_and_scale(self, x):
+    def update_x(self, x, scale_mappings=False):
         """
         Update the downscaling state of the SameSettingImageData, WITH
         RESPECT TO ITS CURRENT STATE 'img_size'.
@@ -636,18 +636,18 @@ class SameSettingImageData(object):
         # special cases with down convolutions. For security, since we
         # use only a single scalar to describe scale, we use the largest
         # rescaling so that mappings do not go out of frame.
-        # TODO: treat scales independently
-        scale_x = self.img_size[0] / x.shape[3]
-        scale_y = self.img_size[1] / x.shape[2]
+        scale_x = x.shape[3] / self.img_size[0]
+        scale_y = x.shape[2] / self.img_size[1]
+        # TODO: treat scales independently. Careful with min or max
+        #  depending on upscale and downlscale
         scale = max(scale_x, scale_y)
         self._downscale = self.downscale * scale
         self.x = x
 
-        if scale > 1:
-            self.mappings = self.mappings.downscale_views(scale) \
-                if self.mappings is not None else None
+        if not scale_mappings or self.mappings is None:
+            return self
 
-        # TODO: update mappings if scale increased for upsampling ?
+        self.mappings = self.mappings.rescale_images(scale)
 
         return self
 
@@ -1155,6 +1155,28 @@ class SameSettingImageData(object):
         """
         return self.mappings.features
 
+    def get_mapped_features(self, interpolate=False):
+        # Compute the feature map's sampling ratio between the input
+        # `crop_size` and the current `img_size`
+        scale = max(a / b for a, b in zip(self.img_size, self.crop_size))
+
+        # Set the mapping to the proper scale
+        self.mappings = self.mappings if interpolate \
+            else self.mappings.rescale_images(scale)
+
+        # Index the features with/without interpolation
+        if interpolate:
+            im = self.mappings.feature_map_indexing[0]
+            pixels = self.mappings.pixels
+            # TODO: build a grid_sample grid with different sizes for each
+            #  image ?
+
+
+        else:
+            x = self.x[self.mappings.feature_map_indexing]
+
+        return
+
 
 class SameSettingImageBatch(SameSettingImageData):
     """
@@ -1375,7 +1397,7 @@ class ImageData:
         assert isinstance(x_list, list) \
                and all(isinstance(x, torch.Tensor) for x in x_list), \
             f"Expected a List(torch.Tensor) but got {type(x_list)} instead."
-        self._list = [im.update_x_and_scale(x)
+        self._list = [im.update_x(x)
                       for im, x in zip(self, x_list)]
         return self
 
@@ -1779,7 +1801,22 @@ class ImageMapping(CSRData):
         """
         return self.pointers
 
-    def downscale_views(self, ratio):
+    def rescale_images(self, ratio):
+        """
+        Update the image resolution after rebsampling. Typically called
+        after a downsampling or upsampling layer in an image CNN module.
+
+        The mappings will be downsampled if `ratio < 1`, and they will
+        be upsampled if `ratio > 1`.
+
+        Returns a new ImageMapping object.
+        """
+        if ratio < 1:
+            return self.downscale_images(1 / ratio)
+        else:
+            return self.upscale_images(ratio)
+
+    def downscale_images(self, ratio):
         """
         Update the image resolution after subsampling. Typically called
         after a pooling layer in an image CNN encoder.
@@ -1797,6 +1834,10 @@ class ImageMapping(CSRData):
 
         # Create a copy of self
         out = self.clone()
+
+        # Save time when the sampling did not change
+        if ratio == 1:
+            return out
 
         # Expand atomic-level mappings to 'dense' format
         ids = torch.arange(
@@ -1835,6 +1876,55 @@ class ImageMapping(CSRData):
                 "CSRBatch object.")
 
         return out
+
+    def upscale_images(self, ratio, center=True):
+        """
+        Update the image resolution after upsampling. Typically called
+        after an upsampling layer in an image CNN decoder.
+
+        To update the image resolution in the mappings, the pixel
+        coordinates are converted to higher resolutions. If
+        `center=True`, the higher-resolution pixel in chosen to be the
+        closest to the center of the lower-resolution pixel. If
+        `center=False`, the higher-resolution coordinates correspond to
+        the top-left corner of the lower-resolution pixel.
+
+        Note that this operation is not strictly the inverse of
+        `self.downscale_image`. Indeed, the latter discards redundant
+        mappings and loses spatial precision that cannot be recovered
+        in `self.upscale_images`.
+
+        Returns a new ImageMapping object.
+        """
+        assert ratio >= 1, \
+            f"Invalid image upsampling ratio: {ratio}. Must be larger than 1."
+
+        # Create a copy of self
+        out = self.clone()
+
+        # Save time when the sampling did not change
+        if ratio == 1:
+            return out
+
+        # Recover pixel coordinates
+        pix_x = out.values[1].values[0][:, 0]
+        pix_y = out.values[1].values[0][:, 1]
+        pix_dtype = pix_x.dtype
+
+        # Convert pixel coordinates to new resolution
+        if center:
+            pix_x = (pix_x.float() * ratio + ratio / 2).long()
+            pix_y = (pix_y.float() * ratio + ratio / 2).long()
+        else:
+            pix_x = (pix_x.float() * ratio).long()
+            pix_y = (pix_y.float() * ratio).long()
+
+        # Save pixel coordinates in output mapping
+        pixels = torch.stack((pix_x, pix_y), dim=1).type(pix_dtype)
+        out.values[1].values[0] = pixels
+
+        return out
+
 
     def select_images(self, idx):
         """

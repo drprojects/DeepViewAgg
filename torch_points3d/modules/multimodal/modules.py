@@ -250,7 +250,7 @@ class UnimodalBranch(nn.Module, ABC):
     def __init__(
             self, conv, atomic_pool, view_pool, fusion, drop_3d=0, drop_mod=0,
             hard_drop=False, keep_last_view=False, checkpointing='',
-            out_channels=None):
+            out_channels=None, interpolate=False):
         super(UnimodalBranch, self).__init__()
         self.conv = conv
         self.atomic_pool = atomic_pool
@@ -265,6 +265,7 @@ class UnimodalBranch(nn.Module, ABC):
             else None
         self.keep_last_view = keep_last_view
         self._out_channels = out_channels
+        self.interpolate = interpolate
 
         # Optional checkpointing to alleviate memory at train time.
         # Character rules:
@@ -381,7 +382,9 @@ class UnimodalBranch(nn.Module, ABC):
         # Conv on the modality data. The modality data holder
         # carries a feature tensor per modality settings. Hence the
         # modality features are provided as a list of tensors.
-        # Update modality features and mappings wrt modality scale.
+        # Update modality features and mappings wrt modality scale. If
+        # `self.interpolate`, do not modify the mappings' scale, so that
+        # the features can be interpolated to the input resolution.
         # Note that convolved features are preserved in the modality
         # data holder, to be later used in potential downstream
         # modules.
@@ -397,7 +400,7 @@ class UnimodalBranch(nn.Module, ABC):
                         mod_x = checkpoint(self.conv, mod_data[i].x, reset)
                     else:
                         mod_x = self.conv(mod_data[i].x, i == 0)
-                    mod_data[i].update_x_and_scale(mod_x)
+                    mod_data[i].update_x(mod_x)
             else:
                 if 'c' in self.checkpointing:
                     # Need to set requires_grad for input tensor
@@ -408,16 +411,38 @@ class UnimodalBranch(nn.Module, ABC):
                     mod_x = checkpoint(self.conv, mod_data.x, reset)
                 else:
                     mod_x = self.conv(mod_data.x, True)
-                mod_data = mod_data.update_x_and_scale(mod_x)
+                mod_data.update_x(mod_x)
 
         # Extract CSR-arranged atomic features from the feature maps
         # of each input modality setting
         if is_multi_shape:
-            x_mod = [x[idx]
-                     for x, idx
-                     in zip(mod_data.x, mod_data.feature_map_indexing)]
+            if not self.interpolate:
+                x_mod = [
+                    x[idx]
+                    for x, idx
+                    in zip(mod_data.x, mod_data.feature_map_indexing)]
+            else:
+                raise NotImplementedError
         else:
-            x_mod = mod_data.x[mod_data.feature_map_indexing]
+            if not self.interpolate:
+                # Recover the downscaled mapping for indexing the
+                # modality feature map in its lower resolution, in case
+                # the resolution was reduced
+                # TODO: support upsampling
+                # TODO: support anisotropic sampling
+                scale_x = mod_data.crop_size[0] / mod_data.x.shape[3]
+                scale_y = mod_data.crop_size[1] / mod_data.x.shape[2]
+                scale = max(scale_x, scale_y)
+                mapping = mod_data.mappings.downscale_images(scale)
+
+                # TODO: we want to hide this away and let images deal with it themselves
+                x_mod = mod_data.x[mod_data.feature_map_indexing]
+            else:
+                # Sparse interpolation
+                grid_sparse = grid[:, np.random.choice(np.arange(res), 5),
+                              np.random.choice(np.arange(res), 5)].unsqueeze(2)
+                out_sparse = torch.nn.functional.grid_sample(image.unsqueeze(0), grid_sparse,
+                                                             align_corners=False).squeeze(0).squeeze(-1)
 
         # Atomic pooling of the modality features on each
         # separate setting
