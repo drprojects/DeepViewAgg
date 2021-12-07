@@ -10,7 +10,9 @@ from tqdm.auto import tqdm as tq
 from zipfile import ZipFile
 
 from torch_geometric.nn.unpool import knn_interpolate
+from torch_geometric.data import Batch
 
+from torch_points3d.datasets.batch import SimpleBatch
 from torch_points3d.metrics.confusion_matrix import ConfusionMatrix
 from torch_points3d.metrics.segmentation_tracker import SegmentationTracker
 from torch_points3d.core.data_transform import SaveOriginalPosId
@@ -98,10 +100,12 @@ class KITTI360Tracker(SegmentationTracker):
         # creation time
         # # TODO: this is only for torch geometric Batch, but won't work
         #    for TP3D's SimpleBatch
-        if hasattr(data, 'batch'):
+        if isinstance(data, Batch):
             data.__slices__['pred'] = data.__slices__['pos']
             data.__cat_dims__['pred'] = 0
             data.__cumsum__['pred'] = data.__cumsum__['pos']
+            data_list = data.to_data_list()
+        elif isinstance(data, SimpleBatch):
             data_list = data.to_data_list()
         else:
             data_list = [data]

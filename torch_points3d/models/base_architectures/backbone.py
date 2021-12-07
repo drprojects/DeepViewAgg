@@ -177,13 +177,15 @@ class BackboneBasedModel(BaseModel, ABC):
                     keep_last_view = opt_branch.get('keep_last_view', False)
                     checkpointing = opt_branch.get('checkpointing', '')
                     out_channels = opt_branch.get('out_channels', None)
+                    interpolate = opt_branch.get('interpolate', False)
 
                     # Group modules into a UnimodalBranch and update the
                     # branches at the proper branching point
                     branches[idx][m] = UnimodalBranch(
                         conv, atomic_pool, view_pool, fusion, drop_3d=drop_3d,
                         drop_mod=drop_mod, keep_last_view=keep_last_view,
-                        checkpointing=checkpointing, out_channels=out_channels)
+                        checkpointing=checkpointing, out_channels=out_channels,
+                        interpolate=interpolate)
 
             # Update the down_modules list
             down_modules = [

@@ -21,16 +21,23 @@ DATA_DIR=${DATA_ROOT}/kitti360/5cm
 TASK=segmentation
 
 # MODELS=${TASK}/________
-# MODELS=${TASK}/multimodal/no3d
 MODELS=${TASK}/sparseconv3d
+# MODELS=${TASK}/pointnet2
+# MODELS=${TASK}/multimodal/no3d
+# MODELS=${TASK}/multimodal/sparseconv3d
 
 # MODEL_NAME=_________
 MODEL_NAME=Res16UNet34
+# MODEL_NAME=pointnet2_largemsg
+# MODEL_NAME=Res16UNet34-L4-early-cityscapes
 
 # DATASET=${TASK}/_________
 DATASET=${TASK}/kitti360-sparse
+# DATASET=${TASK}/kitti360-fixed
+# DATASET=${TASK}/multimodal/kitti360-sparse
 
 TRAINING=kitti360_benchmark/sparseconv3d
+# TRAINING=kitti360_benchmark/pointnet2
 # TRAINING=kitti360_benchmark/sparseconv3d_rgb-pretrained-0
 # TRAINING=kitti360_benchmark/no3d_pretrained
 
@@ -39,12 +46,16 @@ EXP_NAME=${MODEL_NAME}
 
 EPOCHS=60
 CYLINDERS_PER_EPOCH=12000  # Roughly speaking, 40 cylinders per window
-# BATCH_SIZE=4
+TRAINVAL=False
+MINI=False
 BATCH_SIZE=8
+# BATCH_SIZE=4
 WORKERS=4
 BASE_LR=0.1
+# BASE_LR=0.01  # for PointNet++
 LR_SCHEDULER=multi_step_kitti360_${EPOCHS}
-EVAL_FREQUENCY=1
+# LR_SCHEDULER=exponential_kitti360_${EPOCHS}
+EVAL_FREQUENCY=5
 export SPARSE_BACKEND=torchsparse
 # export SPARSE_BACKEND=minkowski
 SUBMISSION=False
@@ -66,6 +77,8 @@ lr_scheduler=${LR_SCHEDULER} \
 eval_frequency=${EVAL_FREQUENCY} \
 data.sample_per_epoch=${CYLINDERS_PER_EPOCH} \
 data.dataroot=${DATA_DIR} \
+data.train_is_trainval=${TRAINVAL} \
+data.mini=${MINI} \
 training.cuda=${I_GPU} \
 training.batch_size=${BATCH_SIZE} \
 training.epochs=${EPOCHS} \
