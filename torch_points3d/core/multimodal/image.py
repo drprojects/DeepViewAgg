@@ -124,8 +124,6 @@ def sparse_interpolation(features, coords, batch):
     assert 0 <= coords.min()
     assert coords.max() <= 1
 
-    device = features.device
-
     # Pad images with 0-feature
     images_pad = torch.nn.ZeroPad2d(1)(features)
 
@@ -133,7 +131,7 @@ def sparse_interpolation(features, coords, batch):
     h, w = features.shape[2:]
 
     # Adapt [0, 1] coordinates to padded image coordinate system
-    pixels = coords * torch.Tensor([[h, w]], device=device) + 0.5
+    pixels = coords * torch.Tensor([[h, w]]).to(features.device) + 0.5
 
     # Compute the interpolation pixel coordinates: top-left, top-right,
     # bottom-left, bottom-right
@@ -719,8 +717,8 @@ class SameSettingImageData(object):
         # special cases with down convolutions. For security, since we
         # use only a single scalar to describe scale, we use the largest
         # rescaling so that mappings do not go out of frame.
-        scale_x = x.shape[3] / self.img_size[0]
-        scale_y = x.shape[2] / self.img_size[1]
+        scale_x = self.img_size[0] / x.shape[3]
+        scale_y = self.img_size[1] / x.shape[2]
         scale = max(scale_x, scale_y)
         self._downscale = self.downscale * scale
         self._x = x.to(self.device)
@@ -1192,20 +1190,19 @@ class SameSettingImageData(object):
         `interpolate=False`, the mappings will be adjusted to
         `self.img_size`: the current size of the feature map `self.x`.
         """
-        # If not interpolating, set the mapping to the proper scale
         # Compute the feature map's sampling ratio between the input
-        # `crop_size` and the current `img_size`
-        if interpolate:
-            mappings = self.mappings
-        else:
-            # TODO: treat scales independently. Careful with min or max
-            #  depending on upscale and downscale
-            scale = max(a / b for a, b in zip(self.img_size, self.mapping_size))
-            mappings = self.mappings.rescale_images(scale)
+        # `mapping_size` and the current `img_size`
+        # TODO: treat scales independently. Careful with min or max
+        #  depending on upscale and downscale
+        scale = 1 / self.downscale
+
+        # If not interpolating, set the mapping to the proper scale
+        mappings = self.mappings if interpolate \
+            else self.mappings.rescale_images(scale)
 
         # Index the features with/without interpolation
-        if interpolate:
-            resolution = torch.Tensor([self.crop_size], device=self.device)
+        if interpolate and scale != 1:
+            resolution = torch.Tensor([self.mapping_size]).to(self.device)
             coords = mappings.pixels / (resolution - 1)
             batch = mappings.feature_map_indexing[0]
             x = sparse_interpolation(self.x, coords, batch)
@@ -1454,7 +1451,7 @@ class ImageData:
         will be adjusted to `self.img_size`: the current size of the
         feature map `self.x`.
         """
-        [im.get_mapped_features(interpolate=interpolate) for im in self]
+        return [im.get_mapped_features(interpolate=interpolate) for im in self]
 
     @property
     def feature_map_indexing(self):

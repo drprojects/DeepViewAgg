@@ -397,12 +397,7 @@ class UnimodalBranch(nn.Module, ABC):
         x_seen = csr_idx[1:] > csr_idx[:-1]
 
         # Dropout 3D or modality features
-        if self.drop_3d:
-            x_3d = self.drop_3d(x_3d)
-        if self.drop_mod:
-            x_mod = self.drop_mod(x_mod)
-            if self.keep_last_view:
-                mod_data.last_view_x_mod = self.drop_mod(mod_data.last_view_x_mod)
+        x_3d, x_mod, mod_data = self.forward_dropout(x_3d, x_mod, mod_data)
 
         # Fuse the modality features into the 3D points features
         x_3d = self.forward_fusion(x_3d, x_mod)
@@ -438,6 +433,7 @@ class UnimodalBranch(nn.Module, ABC):
         Update modality features and mappings wrt modality scale. If
         `self.interpolate`, do not modify the mappings' scale, so that
         the features can be interpolated to the input resolution.
+
         Note that convolved features are preserved in the modality
         data holder, to be later used in potential downstream
         modules.
@@ -452,7 +448,7 @@ class UnimodalBranch(nn.Module, ABC):
         # If the modality carries multi-setting data, recursive scheme
         if isinstance(mod_data.x, list):
             for i in range(len(mod_data)):
-                mod_data[i].x = self.forward_conv(mod_data[i], i == 0)
+                mod_data[i].x = self.forward_conv(mod_data[i], i == 0).x
             return mod_data
 
         # If checkpointing the conv, need to set requires_grad for input
@@ -541,6 +537,15 @@ class UnimodalBranch(nn.Module, ABC):
         else:
             x_3d = self.fusion(x_3d, x_mod)
         return x_3d
+
+    def forward_dropout(self, x_3d, x_mod, mod_data):
+        if self.drop_3d:
+            x_3d = self.drop_3d(x_3d)
+        if self.drop_mod:
+            x_mod = self.drop_mod(x_mod)
+            if self.keep_last_view:
+                mod_data.last_view_x_mod = self.drop_mod(mod_data.last_view_x_mod)
+        return x_3d, x_mod, mod_data
 
     def extra_repr(self) -> str:
         repr_attr = ['drop_3d', 'drop_mod', 'keep_last_view', 'checkpointing']
