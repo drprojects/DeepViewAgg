@@ -102,7 +102,7 @@ def adjust_intrinsic(func):
 #                      Sparse Image Interpolation                      #
 # -------------------------------------------------------------------- #
 
-def sparse_interpolation(features, coords, batch):
+def sparse_interpolation(features, coords, batch, padding_mode='border'):
     """Interpolate a batch of feature maps of size (B, C, H, W) only at
     given pixel coordinates. This function is equivalent to
     `torch.nn.functional.grid_sample` with `mode='bilinear'`,
@@ -110,12 +110,15 @@ def sparse_interpolation(features, coords, batch):
     pixel coordinates to be different for each feature map.
 
     :param features: feature map of size (B, C, H, W)
-    :param coords: tensor of size (N, 2) holding float interpolation 
+    :param coords: tensor of size (N, 2) holding float interpolation
       coordinates in [0, 1]. To convert interpolation pixel coordinates
-      to such float coordinates, use: 
+      to such float coordinates, use:
       `pixel_coordinate / (output_resolution - 1)`
     :param batch: LongTensor of size (N) indicating, for each row of
       `coords`, which feature map should be interpolated
+    :param padding_mode: string specifying the padding mode for outside
+      grid values ``'zeros'`` | ``'border'`` | ``'reflection'``.
+      Default: ``'border'``
     :return: tensor of size (N, C) of interpolated features
     """
     assert len(features.shape) == 4
@@ -125,7 +128,14 @@ def sparse_interpolation(features, coords, batch):
     assert coords.max() <= 1
 
     # Pad images with 0-feature
-    images_pad = torch.nn.ZeroPad2d(1)(features)
+    if padding_mode == 'zeros':
+        images_pad = torch.nn.ZeroPad2d(1)(features)
+    elif padding_mode == 'border':
+        images_pad = torch.nn.ReplicationPad2d(1)(features)
+    elif padding_mode == 'reflection':
+        images_pad = torch.nn.ReflectionPad2d(1)(features)
+    else:
+        raise NotImplementedError(f"Unknown padding_mode='{padding_mode}'")
 
     # Recover the image dimensions
     h, w = features.shape[2:]
@@ -1204,6 +1214,7 @@ class SameSettingImageData(object):
         if interpolate and scale != 1:
             resolution = torch.Tensor([self.mapping_size]).to(self.device)
             coords = mappings.pixels / (resolution - 1)
+            coords = coords[:, [1, 0]]  # pixel mappings are in (W, H) format
             batch = mappings.feature_map_indexing[0]
             x = sparse_interpolation(self.x, coords, batch)
         else:
