@@ -1064,6 +1064,19 @@ class Scannet(InMemoryDataset):
     def __repr__(self):
         return "{}({})".format(self.__class__.__name__, len(self))
 
+    # TODO: this overwrites `torch_geometric.data.InMemoryDataset.indices`
+    #  so that we can handle `torch_geometric>=1.6`. This dirty trick, in
+    #  return, was needed to use `torch>=1.8`, which we needed to access
+    #  the new torch profiler. In the long run, need to make TP3D
+    #  compatible with `torch_geometric>=2.0.0`
+    def indices(self):
+        import torch_geometric as pyg
+        version = pyg.__version__.split('.')
+        is_new_pyg = int(version[0]) >= 2 or int(version[1]) >= 7
+        if is_new_pyg:
+            return range(len(self)) if self._indices is None else self._indices
+        return super().indices()
+
 
 class ScannetDataset(BaseDataset):
     """Wrapper around Scannet that creates train and test datasets.
