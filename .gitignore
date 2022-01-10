@@ -10,7 +10,8 @@ site
 *.DS_Store
 kernels/dispositions/*
 notebooks/*checkpoints
-/notebooks/*.html
+notebooks/*.html
+notebooks/*
 py_scripts
 .ipynb_checkpoints
 measurements/*.pickle
