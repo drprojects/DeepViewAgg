@@ -205,7 +205,7 @@ def equirectangular_projection_cuda(
 
 
 @njit(cache=True, nogil=True)
-def pinhole_projection_cpu(xyz, img_extrinsic, img_intrinsic, camera='scannet'):
+def pinhole_projection_cpu(xyz, img_extrinsic, img_intrinsic_pinhole, camera='scannet'):
     """Compute the projection of 3D points into the image pixel
     coordinate system of a pinhole camera described by a 4x4 intrinsic
     and a 4x4 extrinsic parameters tensors. Computations are executed
@@ -213,7 +213,7 @@ def pinhole_projection_cpu(xyz, img_extrinsic, img_intrinsic, camera='scannet'):
 
     :param xyz:
     :param img_extrinsic:
-    :param img_intrinsic:
+    :param img_intrinsic_pinhole:
     :return:
     """
     # Recover the 4x4 camera-to-world matrix
@@ -231,13 +231,13 @@ def pinhole_projection_cpu(xyz, img_extrinsic, img_intrinsic, camera='scannet'):
     else:
         raise ValueError
 
-    p[0] = (p[0] * img_intrinsic[0][0]) / p[2] + img_intrinsic[0][2]
-    p[1] = (p[1] * img_intrinsic[1][1]) / p[2] + img_intrinsic[1][2]
+    p[0] = (p[0] * img_intrinsic_pinhole[0][0]) / p[2] + img_intrinsic_pinhole[0][2]
+    p[1] = (p[1] * img_intrinsic_pinhole[1][1]) / p[2] + img_intrinsic_pinhole[1][2]
 
     return p[0], p[1], p[2]
 
 
-def pinhole_projection_cuda(xyz, img_extrinsic, img_intrinsic, camera='scannet'):
+def pinhole_projection_cuda(xyz, img_extrinsic, img_intrinsic_pinhole, camera='scannet'):
     """Compute the projection of 3D points into the image pixel
     coordinate system of a pinhole camera described by a 4x4 intrinsic
     and a 4x4 extrinsic parameters tensors. Computations are executed
@@ -245,7 +245,7 @@ def pinhole_projection_cuda(xyz, img_extrinsic, img_intrinsic, camera='scannet')
 
     :param xyz:
     :param img_extrinsic:
-    :param img_intrinsic:
+    :param img_intrinsic_pinhole:
     :return:
     """
     if camera == 'scannet':
@@ -263,10 +263,117 @@ def pinhole_projection_cuda(xyz, img_extrinsic, img_intrinsic, camera='scannet')
     else:
         raise ValueError
 
-    p[0] = (p[0] * img_intrinsic[0][0]) / p[2] + img_intrinsic[0][2]
-    p[1] = (p[1] * img_intrinsic[1][1]) / p[2] + img_intrinsic[1][2]
+    p[0] = p[0] * img_intrinsic_pinhole[0][0] / p[2] + img_intrinsic_pinhole[0][2]
+    p[1] = p[1] * img_intrinsic_pinhole[1][1] / p[2] + img_intrinsic_pinhole[1][2]
 
     return p[0], p[1], p[2]
+
+
+@torch_to_numba
+@njit(cache=True, nogil=True)
+def fisheye_projection_cpu(
+        xyz, img_extrinsic, img_intrinsic_fisheye, camera='kitti360_fisheye'):
+    """Compute the projection of 3D points into the image pixel
+    coordinate system of a fisheye camera described by 6 intrinsic
+    and a 4x4 extrinsic parameters tensors. Computations are executed
+    on CPU with numpy and numba.
+
+    Credit: https://github.com/autonomousvision/kitti360Scripts
+
+    :param xyz:
+    :param img_extrinsic:
+    :param img_intrinsic_fisheye:
+    :param camera:
+    :return:
+    """
+    if camera == 'kitti360_fisheye':
+        camera_to_world = img_extrinsic
+        T = camera_to_world[:3, 3].copy().reshape((1, 3))
+        R = camera_to_world[:3, :3].copy()
+        p = R.T @ (xyz - T).T
+    else:
+        raise ValueError
+
+    # Recover fisheye camera intrinsic parameters
+    xi = img_intrinsic_fisheye[0]
+    k1 = img_intrinsic_fisheye[0]
+    k2 = img_intrinsic_fisheye[0]
+    gamma1 = img_intrinsic_fisheye[0]
+    gamma2 = img_intrinsic_fisheye[0]
+    u0 = img_intrinsic_fisheye[0]
+    v0 = img_intrinsic_fisheye[0]
+
+    # Compute float pixel coordinates
+    p = p.T
+    norm = np.linalg.norm(p, axis=1)
+
+    x = p[:, 0] / norm
+    y = p[:, 1] / norm
+    z = p[:, 2] / norm
+
+    x /= z + xi
+    y /= z + xi
+
+    r2 = x ** 2 + y ** 2
+    r4 = r2 ** 2
+
+    x = gamma1 * (1 + k1 * r2 + k2 * r4) * x + u0
+    y = gamma2 * (1 + k1 * r2 + k2 * r4) * y + v0
+
+    return x, y, norm * p[:, 2] / np.abs(p[:, 2] + 1e-4)
+
+
+def fisheye_projection_cuda(
+        xyz, img_extrinsic, img_intrinsic_fisheye, camera='kitti360_fisheye'):
+    """Compute the projection of 3D points into the image pixel
+    coordinate system of a fisheye camera described by 6 intrinsic
+    and a 4x4 extrinsic parameters tensors. Computations are executed
+    on GPU with torch and cuda.
+
+    Credit: https://github.com/autonomousvision/kitti360Scripts
+
+    :param xyz:
+    :param img_extrinsic:
+    :param img_intrinsic_fisheye:
+    :param camera:
+    :return:
+    """
+    if camera == 'kitti360_fisheye':
+        camera_to_world = img_extrinsic
+        T = camera_to_world[:3, 3].view(1, 3)
+        R = camera_to_world[:3, :3]
+        p = R.T @ (xyz - T).T
+
+    else:
+        raise ValueError
+
+    # Recover fisheye camera intrinsic parameters
+    xi = img_intrinsic_fisheye[0]
+    k1 = img_intrinsic_fisheye[0]
+    k2 = img_intrinsic_fisheye[0]
+    gamma1 = img_intrinsic_fisheye[0]
+    gamma2 = img_intrinsic_fisheye[0]
+    u0 = img_intrinsic_fisheye[0]
+    v0 = img_intrinsic_fisheye[0]
+
+    # Compute float pixel coordinates
+    p = p.T
+    norm = torch.linalg.norm(p, dim=1)
+
+    x = p[:, 0] / norm
+    y = p[:, 1] / norm
+    z = p[:, 2] / norm
+
+    x /= z + xi
+    y /= z + xi
+
+    r2 = x**2 + y**2
+    r4 = r2**2
+
+    x = gamma1 * (1 + k1 * r2 + k2 * r4) * x + u0
+    y = gamma2 * (1 + k1 * r2 + k2 * r4) * y + v0
+
+    return x, y, norm * p[:, 2] / (p[:, 2].abs() + 1e-4)
 
 
 @njit(cache=True, nogil=True, fastmath=True)
@@ -355,7 +462,8 @@ def field_of_view_cuda(
 @torch_to_numba
 @njit(cache=True, nogil=True)
 def camera_projection_cpu(
-        xyz, img_xyz, img_opk=None, img_intrinsic=None, img_extrinsic=None,
+        xyz, img_xyz, img_opk=None, img_intrinsic_pinhole=None,
+        img_intrinsic_fisheye=None, img_extrinsic=None,
         img_mask=None, img_size=(1024, 512), crop_top=0, crop_bottom=0,
         r_max=30, r_min=0.5, camera='s3dis_equirectangular'):
     assert img_mask is None or img_mask.shape == img_size
@@ -379,7 +487,10 @@ def camera_projection_cpu(
     # Project points to float pixel coordinates
     if camera in ['kitti360_perspective', 'scannet']:
         x_proj, y_proj, z_proj = pinhole_projection_cpu(
-            xyz, img_extrinsic, img_intrinsic, camera=camera)
+            xyz, img_extrinsic, img_intrinsic_pinhole, camera=camera)
+    elif camera == 'kitti360_fisheye':
+        x_proj, y_proj, z_proj = fisheye_projection_cpu(
+            xyz, img_extrinsic, img_intrinsic_fisheye, camera=camera)
     elif camera == 's3dis_equirectangular' and img_opk is not None:
         x_proj, y_proj = equirectangular_projection_cpu(
             xyz - img_xyz, dist, img_opk, img_size)
@@ -400,7 +511,8 @@ def camera_projection_cpu(
 
 
 def camera_projection_cuda(
-        xyz, img_xyz, img_opk=None, img_intrinsic=None, img_extrinsic=None,
+        xyz, img_xyz, img_opk=None, img_intrinsic_pinhole=None,
+        img_intrinsic_fisheye=None, img_extrinsic=None,
         img_mask=None, img_size=(1024, 512), crop_top=0, crop_bottom=0,
         r_max=30, r_min=0.5, camera='s3dis_equirectangular', **kwargs):
     assert img_mask is None or img_mask.shape == img_size, \
@@ -426,7 +538,10 @@ def camera_projection_cuda(
     # Project points to float pixel coordinates
     if camera in ['kitti360_perspective', 'scannet']:
         x_proj, y_proj, z_proj = pinhole_projection_cuda(
-            xyz, img_extrinsic, img_intrinsic, camera=camera)
+            xyz, img_extrinsic, img_intrinsic_pinhole, camera=camera)
+    elif camera == 'kitti360_fisheye':
+        x_proj, y_proj, z_proj = fisheye_projection_cuda(
+            xyz, img_extrinsic, img_intrinsic_fisheye, camera=camera)
     elif camera == 's3dis_equirectangular' and img_opk is not None:
         x_proj, y_proj = equirectangular_projection_cuda(
             xyz - img_xyz, dist, img_opk, img_size)
@@ -447,15 +562,16 @@ def camera_projection_cuda(
 
 
 def camera_projection(
-        xyz, img_xyz, img_opk=None, img_intrinsic=None, img_extrinsic=None,
-        img_mask=None, img_size=(1024, 512), crop_top=0, crop_bottom=0,
-        r_max=30, r_min=0.5, camera='s3dis_equirectangular', **kwargs):
+        xyz, img_xyz, img_opk=None, img_intrinsic_pinhole=None,
+        img_intrinsic_fisheye=None, img_extrinsic=None, img_mask=None,
+        img_size=(1024, 512), crop_top=0, crop_bottom=0, r_max=30, r_min=0.5,
+        camera='s3dis_equirectangular', **kwargs):
     """
 
     :param xyz:
     :param img_xyz:
     :param img_opk:
-    :param img_intrinsic:
+    :param img_intrinsic_pinhole:
     :param img_extrinsic:
     :param img_mask:
     :param img_size:
@@ -472,7 +588,8 @@ def camera_projection(
 
     f = camera_projection_cuda if xyz.is_cuda else camera_projection_cpu
     return f(
-        xyz, img_xyz, img_opk=img_opk, img_intrinsic=img_intrinsic,
+        xyz, img_xyz, img_opk=img_opk, img_intrinsic_pinhole=img_intrinsic_pinhole,
+        img_intrinsic_fisheye=img_intrinsic_fisheye,
         img_extrinsic=img_extrinsic, img_mask=img_mask, img_size=img_size,
         crop_top=crop_top, crop_bottom=crop_bottom, r_max=r_max, r_min=r_min,
         camera=camera)
@@ -615,14 +732,14 @@ def equirectangular_splat_cuda(
 
 @njit(cache=True, nogil=True)
 def pinhole_splat_cpu(
-        x_proj, y_proj, dist, img_intrinsic, img_size=(1024, 512), crop_top=0,
+        x_proj, y_proj, dist, img_intrinsic_pinhole, img_size=(1024, 512), crop_top=0,
         crop_bottom=0, voxel=0.02, k_swell=1.0, d_swell=1000):
     """
 
     :param x_proj:
     :param y_proj:
     :param dist:
-    :param img_intrinsic:
+    :param img_intrinsic_pinhole:
     :param img_size:
     :param crop_top:
     :param crop_bottom:
@@ -636,8 +753,8 @@ def pinhole_splat_cpu(
     # heuristic based on k_swell and d_swell.
     # Small angular widths assumption: tan(x)~x
     swell = (1 + k_swell * np.exp(-dist / np.log(d_swell))) * voxel / dist
-    width_x = swell * img_intrinsic[0, 0]
-    width_y = swell * img_intrinsic[1, 1]
+    width_x = swell * img_intrinsic_pinhole[0, 0]
+    width_y = swell * img_intrinsic_pinhole[1, 1]
 
     # NB: stack+transpose faster than column stack
     splat_xy_width = np.stack((width_x, width_y)).transpose()
@@ -683,14 +800,14 @@ def pinhole_splat_cpu(
 
 
 def pinhole_splat_cuda(
-        x_proj, y_proj, dist, img_intrinsic, img_size=(1024, 512), crop_top=0,
+        x_proj, y_proj, dist, img_intrinsic_pinhole, img_size=(1024, 512), crop_top=0,
         crop_bottom=0, voxel=0.02, k_swell=1.0, d_swell=1000):
     """
 
     :param x_proj:
     :param y_proj:
     :param dist:
-    :param img_intrinsic:
+    :param img_intrinsic_pinhole:
     :param img_size:
     :param crop_top:
     :param crop_bottom:
@@ -704,8 +821,8 @@ def pinhole_splat_cuda(
     # heuristic based on k_swell and d_swell.
     # Small angular widths assumption: tan(x)~x
     swell = (1 + k_swell * torch.exp(-dist / np.log(d_swell))) * voxel / dist
-    width_x = swell * img_intrinsic[0, 0]
-    width_y = swell * img_intrinsic[1, 1]
+    width_x = swell * img_intrinsic_pinhole[0, 0]
+    width_y = swell * img_intrinsic_pinhole[1, 1]
     splat_xy_width = torch.stack((width_x, width_y)).t()
 
     # Compute projection masks bounding box pixel coordinates
@@ -726,6 +843,61 @@ def pinhole_splat_cuda(
     splat[:, 3] = splat[:, 3].clamp(min=y_min + 1, max=y_max)
 
     return splat
+
+
+@njit(cache=True, nogil=True)
+def fisheye_splat_cpu(
+        x_proj, y_proj, xyz, img_extrinsic, img_intrinsic_fisheye,
+        img_size=(1024, 512), crop_top=0, crop_bottom=0, voxel=0.02,
+        k_swell=1.0, d_swell=1000, camera='kitti360_fisheye'):
+    """
+
+    :param x_proj:
+    :param y_proj:
+    :param xyz:
+    :param img_extrinsic:
+    :param img_intrinsic_fisheye:
+    :param img_size:
+    :param crop_top:
+    :param crop_bottom:
+    :param voxel:
+    :param k_swell:
+    :param d_swell:
+    :return:
+    """
+
+    # Compute angular width. 3D points' projected masks are grown based
+    # on their distance. Close-by points are further swollen with a
+    # heuristic based on k_swell and d_swell.
+    # Small angular widths assumption: tan(x)~x
+    dist = np.sqrt((xyz ** 2).sum(axis=1))
+    swell = (1 + k_swell * np.exp(-dist / np.log(d_swell)))
+
+
+    x, y, _ = fisheye_projection_cpu(xyz + , img_extrinsic, img_intrinsic_fisheye, camera=camera)
+
+    pass
+
+
+def fisheye_splat_cuda(
+        x_proj, y_proj, xyz, img_extrinsic, img_intrinsic_fisheye, img_size=(1024, 512), crop_top=0,
+        crop_bottom=0, voxel=0.02, k_swell=1.0, d_swell=1000, camera='kitti360_fisheye'):
+    """
+
+    :param x_proj:
+    :param y_proj:
+    :param xyz:
+    :param img_extrinsic:
+    :param img_intrinsic_fisheye:
+    :param img_size:
+    :param crop_top:
+    :param crop_bottom:
+    :param voxel:
+    :param k_swell:
+    :param d_swell:
+    :return:
+    """
+    pass
 
 
 def bbox_to_xy_grid_cuda(bbox):
@@ -791,7 +963,8 @@ def bbox_to_xy_grid_cuda(bbox):
 @torch_to_numba
 @njit(cache=True, nogil=True)
 def visibility_from_splatting_cpu(
-        x_proj, y_proj, dist, img_intrinsic=None, img_size=(1024, 512),
+        x_proj, y_proj, dist, xyz, img_extrinsic=None, img_intrinsic_pinhole=None,
+        img_intrinsic_fisheye=None, img_size=(1024, 512),
         crop_top=0, crop_bottom=0, voxel=0.1, k_swell=1.0, d_swell=1000,
         exact=False, camera='s3dis_equirectangular'):
     """Compute visibility model with splatting on the CPU with numpy and
@@ -804,7 +977,9 @@ def visibility_from_splatting_cpu(
     :param x_proj:
     :param y_proj:
     :param dist:
-    :param img_intrinsic:
+    :param img_extrinsic:
+    :param img_intrinsic_pinhole:
+    :param img_intrinsic_fisheye:
     :param img_size:
     :param crop_top:
     :param crop_bottom:
@@ -825,9 +1000,14 @@ def visibility_from_splatting_cpu(
             d_swell=d_swell)
     elif camera in ['kitti360_perspective', 'scannet']:
         splat = pinhole_splat_cpu(
-            x_proj, y_proj, dist, img_intrinsic, img_size=img_size, crop_top=crop_top,
-            crop_bottom=crop_bottom, voxel=voxel, k_swell=k_swell,
-            d_swell=d_swell)
+            x_proj, y_proj, dist, img_intrinsic_pinhole, img_size=img_size,
+            crop_top=crop_top, crop_bottom=crop_bottom, voxel=voxel,
+            k_swell=k_swell, d_swell=d_swell)
+    elif camera == 'kitti360_fisheye':
+        splat = fisheye_splat_cpu(
+            x_proj, y_proj, xyz, img_extrinsic, img_intrinsic_fisheye,
+            img_size=img_size, crop_top=crop_top, crop_bottom=crop_bottom,
+            voxel=voxel, k_swell=k_swell, d_swell=d_swell, camera=camera)
     else:
         raise ValueError
 
@@ -896,7 +1076,8 @@ def visibility_from_splatting_cpu(
 
 
 def visibility_from_splatting_cuda(
-        x_proj, y_proj, dist, img_intrinsic=None, img_size=(1024, 512),
+        x_proj, y_proj, dist, xyz, img_extrinsic=None, img_intrinsic_pinhole=None,
+        img_intrinsic_fisheye=None, img_size=(1024, 512),
         crop_top=0, crop_bottom=0, voxel=0.1, k_swell=1.0, d_swell=1000,
         exact=False, camera='s3dis_equirectangular'):
     """Compute visibility model with splatting on the GPU with torch and
@@ -909,7 +1090,9 @@ def visibility_from_splatting_cuda(
     :param x_proj:
     :param y_proj:
     :param dist:
-    :param img_intrinsic:
+    :param img_extrinsic:
+    :param img_intrinsic_pinhole:
+    :param img_intrinsic_fisheye:
     :param img_size:
     :param crop_top:
     :param crop_bottom:
@@ -935,9 +1118,14 @@ def visibility_from_splatting_cuda(
             d_swell=d_swell)
     elif camera in ['kitti360_perspective', 'scannet']:
         splat = pinhole_splat_cuda(
-            x_proj, y_proj, dist, img_intrinsic, img_size=img_size, crop_top=crop_top,
-            crop_bottom=crop_bottom, voxel=voxel, k_swell=k_swell,
-            d_swell=d_swell)
+            x_proj, y_proj, dist, img_intrinsic_pinhole, img_size=img_size,
+            crop_top=crop_top, crop_bottom=crop_bottom, voxel=voxel,
+            k_swell=k_swell, d_swell=d_swell)
+    elif camera == 'kitti360_fisheye':
+        splat = fisheye_splat_cuda(
+            x_proj, y_proj, xyz, img_extrinsic, img_intrinsic_fisheye,
+            img_size=img_size, crop_top=crop_top, crop_bottom=crop_bottom,
+            voxel=voxel, k_swell=k_swell, d_swell=d_swell, camera=camera)
     else:
         raise ValueError(f"Unknown camera '{camera}'")
 
@@ -978,7 +1166,8 @@ def visibility_from_splatting_cuda(
 
 
 def visibility_from_splatting(
-        x_proj, y_proj, dist, img_intrinsic=None, img_size=(1024, 512),
+        x_proj, y_proj, dist, xyz, img_extrinsic=None, img_intrinsic_pinhole=None,
+        img_intrinsic_fisheye=None, img_size=(1024, 512),
         crop_top=0, crop_bottom=0, voxel=0.1, k_swell=1.0, d_swell=1000,
         exact=False, camera='s3dis_equirectangular', **kwargs):
     """
@@ -986,7 +1175,9 @@ def visibility_from_splatting(
     :param x_proj:
     :param y_proj:
     :param dist:
-    :param img_intrinsic:
+    :param img_extrinsic:
+    :param img_intrinsic_pinhole:
+    :param img_intrinsic_fisheye:
     :param img_size:
     :param crop_top:
     :param crop_bottom:
@@ -1002,7 +1193,9 @@ def visibility_from_splatting(
         else visibility_from_splatting_cpu
 
     return f(
-        x_proj, y_proj, dist, img_intrinsic=img_intrinsic, img_size=img_size,
+        x_proj, y_proj, dist, xyz, img_extrinsic=img_extrinsic,
+        img_intrinsic_pinhole=img_intrinsic_pinhole,
+        img_intrinsic_fisheye=img_intrinsic_fisheye, img_size=img_size,
         crop_top=crop_top, crop_bottom=crop_bottom, voxel=voxel,
         k_swell=k_swell, d_swell=d_swell, exact=exact,
         camera=camera)
@@ -1326,7 +1519,7 @@ def visibility(
 
     if method == 'splatting':
         idx_2, x_pix, y_pix = visibility_from_splatting(
-            x_proj, y_proj, dist, **kwargs)
+            x_proj, y_proj, dist, xyz[idx_1], **kwargs)
     elif method == 'depth_map':
         idx_2, x_pix, y_pix = visibility_from_depth_map(
             x_proj, y_proj, dist, **kwargs)
