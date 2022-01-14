@@ -3,9 +3,9 @@ defaults:
     - /data/segmentation/multimodal/default
 
 # These parameters are intended to be specified in dedicated configs
-resolution_3d: ???       # Point cloud resolution
-resolution_2d: ???       # Image resolution
-exact_splatting_2d: ???  # Whether only exact mappings are preserved after splatting
+resolution_3d: 0.03       # Point cloud resolution
+resolution_2d: [320, 240]       # Image resolution
+exact_splatting_2d: True  # Whether only exact mappings are preserved after splatting
 
 class: scannet.ScannetDatasetMM
 dataset_name: "scannet-sparse"
