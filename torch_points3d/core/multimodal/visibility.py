@@ -231,8 +231,8 @@ def pinhole_projection_cpu(xyz, img_extrinsic, img_intrinsic_pinhole, camera='sc
     else:
         raise ValueError
 
-    p[0] = (p[0] * img_intrinsic_pinhole[0][0]) / p[2] + img_intrinsic_pinhole[0][2]
-    p[1] = (p[1] * img_intrinsic_pinhole[1][1]) / p[2] + img_intrinsic_pinhole[1][2]
+    p[0] = p[0] * img_intrinsic_pinhole[0][0] / p[2] + img_intrinsic_pinhole[0][2]
+    p[1] = p[1] * img_intrinsic_pinhole[1][1] / p[2] + img_intrinsic_pinhole[1][2]
 
     return p[0], p[1], p[2]
 
@@ -865,18 +865,63 @@ def fisheye_splat_cpu(
     :param d_swell:
     :return:
     """
-
     # Compute angular width. 3D points' projected masks are grown based
     # on their distance. Close-by points are further swollen with a
     # heuristic based on k_swell and d_swell.
     # Small angular widths assumption: tan(x)~x
-    dist = np.sqrt((xyz ** 2).sum(axis=1))
+    dist = norm_cpu(xyz)
     swell = (1 + k_swell * np.exp(-dist / np.log(d_swell)))
 
+    # Compute the projection of the top of the voxel / cube. The
+    # distance between this projection and the actual point's projection
+    # will serve as a proxy to estimate the splat's size. This heuristic
+    # does not hold if voxels are quite large and close to the camera,
+    # this should not cause too much trouble for outdoor scenes but may
+    # affect narrow indoor scenes with close-by objects such as walls
+    # TODO: improve fisheye splat computation
+    z_offset = np.zeros_like(xyz)
+    z_offset[:, 2] = swell * voxel / 2
+    x, y, _ = fisheye_projection_cpu(xyz + z_offset, img_extrinsic, img_intrinsic_fisheye, camera=camera)
+    splat_xy_width = 2 * np.tile(np.sqrt((x_proj - x)**2 + (y_proj - y)**2), (2, 1)).transpose()
 
-    x, y, _ = fisheye_projection_cpu(xyz + , img_extrinsic, img_intrinsic_fisheye, camera=camera)
+    # Compute projection masks bounding box pixel coordinates
+    x_a = np.empty_like(x_proj, dtype=np.float32)
+    x_b = np.empty_like(x_proj, dtype=np.float32)
+    y_a = np.empty_like(x_proj, dtype=np.float32)
+    y_b = np.empty_like(x_proj, dtype=np.float32)
+    np.round(x_proj - splat_xy_width[:, 0] / 2, 0, x_a)
+    np.round(x_proj + splat_xy_width[:, 0] / 2 + 1, 0, x_b)
+    np.round(y_proj - splat_xy_width[:, 1] / 2, 0, y_a)
+    np.round(y_proj + splat_xy_width[:, 1] / 2 + 1, 0, y_b)
+    splat = np.stack((x_a, x_b, y_a, y_b)).transpose().astype(np.int32)
 
-    pass
+    # Adjust masks at the image border
+    x_min = 0
+    x_max = img_size[0]
+    y_min = crop_top
+    y_max = img_size[1] - crop_bottom
+    for i in range(splat.shape[0]):
+        if splat[i, 0] < x_min:
+            splat[i, 0] = x_min
+        if splat[i, 0] > x_max - 1:
+            splat[i, 0] = x_max - 1
+
+        if splat[i, 1] < x_min + 1:
+            splat[i, 1] = x_min + 1
+        if splat[i, 1] > x_max:
+            splat[i, 1] = x_max
+
+        if splat[i, 2] < y_min:
+            splat[i, 2] = y_min
+        if splat[i, 2] > y_max - 1:
+            splat[i, 2] = y_max - 1
+
+        if splat[i, 3] < y_min + 1:
+            splat[i, 3] = y_min + 1
+        if splat[i, 3] > y_max:
+            splat[i, 3] = y_max
+
+    return splat
 
 
 def fisheye_splat_cuda(
@@ -897,7 +942,43 @@ def fisheye_splat_cuda(
     :param d_swell:
     :return:
     """
-    pass
+    # Compute angular width. 3D points' projected masks are grown based
+    # on their distance. Close-by points are further swollen with a
+    # heuristic based on k_swell and d_swell.
+    # Small angular widths assumption: tan(x)~x
+    dist = norm_cuda(xyz)
+    swell = (1 + k_swell * torch.exp(-dist / np.log(d_swell)))
+
+    # Compute the projection of the top of the voxel / cube. The
+    # distance between this projection and the actual point's projection
+    # will serve as a proxy to estimate the splat's size. This heuristic
+    # does not hold if voxels are quite large and close to the camera,
+    # this should not cause too much trouble for outdoor scenes but may
+    # affect narrow indoor scenes with close-by objects such as walls
+    # TODO: improve fisheye splat computation
+    z_offset = torch.zeros_like(xyz)
+    z_offset[:, 2] = swell * voxel / 2
+    x, y, _ = fisheye_projection_cpu(xyz + z_offset, img_extrinsic, img_intrinsic_fisheye, camera=camera)
+    splat_xy_width = 2 * ((x_proj - x) ** 2 + (y_proj - y) ** 2).sqrt().repeat(2, 1).t()
+
+    # Compute projection masks bounding box pixel coordinates
+    x_a = torch.round(x_proj - splat_xy_width[:, 0] / 2)
+    x_b = torch.round(x_proj + splat_xy_width[:, 0] / 2 + 1)
+    y_a = torch.round(y_proj - splat_xy_width[:, 1] / 2)
+    y_b = torch.round(y_proj + splat_xy_width[:, 1] / 2 + 1)
+    splat = torch.stack((x_a, x_b, y_a, y_b)).t().long()
+
+    # Adjust masks at the image border
+    x_min = 0
+    x_max = img_size[0]
+    y_min = crop_top
+    y_max = img_size[1] - crop_bottom
+    splat[:, 0] = splat[:, 0].clamp(min=x_min, max=x_max - 1)
+    splat[:, 1] = splat[:, 1].clamp(min=x_min + 1, max=x_max)
+    splat[:, 2] = splat[:, 2].clamp(min=y_min, max=y_max - 1)
+    splat[:, 3] = splat[:, 3].clamp(min=y_min + 1, max=y_max)
+
+    return splat
 
 
 def bbox_to_xy_grid_cuda(bbox):
