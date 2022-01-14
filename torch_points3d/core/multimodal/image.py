@@ -61,7 +61,7 @@ def adjust_intrinsic(func):
     def wrapper(self, *args, **kwargs):
         # assert isinstance(self, SameSettingImageData)
 
-        if not self.has_intrinsic:
+        if not self.is_perspective:
             return func(self, *args, **kwargs)
 
         # Try-except to handle the edge-case where SameSettingImageData
@@ -201,9 +201,10 @@ class SameSettingImageData(object):
         mask:BoolTensor             projection mask
     """
     _numpy_keys = ['path']
-    _torch_keys = [
-        'pos', 'opk', 'fx', 'fy', 'mx', 'my', 'extrinsic', 'crop_offsets',
-        'rollings']
+    _perspective_keys = ['fx', 'fy', 'mx', 'my']
+    _fisheye_keys = ['k1', 'k2', 'gamma1', 'gamma2', 'u0', 'v0']
+    _torch_keys = ['pos', 'opk', 'extrinsic', 'crop_offsets', 'rollings'] \
+                  + _perspective_keys + _fisheye_keys
     _map_key = 'mappings'
     _x_key = 'x'
     _mask_key = 'mask'
@@ -282,8 +283,21 @@ class SameSettingImageData(object):
                 f"attributes. Please use `SameSettingImageData.to()` to set " \
                 f"the device."
 
-        if self.has_intrinsic:
-            for key in ['fx', 'fy', 'mx', 'my']:
+        if self.is_perspective:
+            for key in self._perspective_keys:
+                p = getattr(self, key)
+                assert isinstance(p, torch.Tensor), \
+                    f"Expected a Tensor but got {type(p)} instead."
+                assert p.squeeze().shape == self.num_views, \
+                    f"Expected '{key}' to be a ({self.num_views},) Tensor but " \
+                    f"got {p.squeeze().shape} instead."
+                assert p.device == self.device, \
+                    f"Discrepancy in the devices of 'pos' and '{key}' " \
+                    f"attributes. Please use `SameSettingImageData.to()` to " \
+                    f"set the device."
+
+        if self.is_fisheye:
+            for key in self._fisheye_keys:
                 p = getattr(self, key)
                 assert isinstance(p, torch.Tensor), \
                     f"Expected a Tensor but got {type(p)} instead."
@@ -379,9 +393,18 @@ class SameSettingImageData(object):
         return getattr(self, 'extrinsic', None) is not None
 
     @property
-    def has_intrinsic(self):
+    def is_perspective(self):
         return not any(
-            getattr(self, a, None) is None for a in ['fx', 'fy', 'mx', 'my'])
+            getattr(self, a, None) is None for a in self._perspective_keys)
+
+    @property
+    def is_fisheye(self):
+        return not any(
+            getattr(self, a, None) is None for a in self._fisheye_keys)
+
+    @property
+    def is_equirectangular(self):
+        return self.has_opk and not self.is_perspective and not self.is_fisheye
 
     @property
     def intrinsic(self):
@@ -389,16 +412,16 @@ class SameSettingImageData(object):
 
         Credit: https://github.com/angeladai/3DMV
         """
-        if not self.has_intrinsic:
+        if not self.is_perspective:
             raise ValueError(
                 f"Cannot compute intrinsic matrix, please set 'fx', 'fy', "
                 f"'mx' and 'my'.")
-        intrinsic = torch.eye(4).repeat(self.num_views, 1, 1)
-        intrinsic[:, 0, 0] = self.fx
-        intrinsic[:, 1, 1] = self.fy
-        intrinsic[:, 0, 2] = self.mx
-        intrinsic[:, 1, 2] = self.my
-        return intrinsic
+        intrinsic_ = torch.eye(4).repeat(self.num_views, 1, 1)
+        intrinsic_[:, 0, 0] = self.fx
+        intrinsic_[:, 1, 1] = self.fy
+        intrinsic_[:, 0, 2] = self.mx
+        intrinsic_[:, 1, 2] = self.my
+        return intrinsic_
 
     @property
     def axes(self):
@@ -1075,10 +1098,10 @@ class SameSettingImageData(object):
             pos=self.pos[idx],
             opk=self.opk[idx] if self.has_opk else None,
             extrinsic=self.extrinsic[idx] if self.has_extrinsic else None,
-            fx=self.fx[idx] if self.has_intrinsic else None,
-            fy=self.fy[idx] if self.has_intrinsic else None,
-            mx=self.mx[idx] if self.has_intrinsic else None,
-            my=self.my[idx] if self.has_intrinsic else None,
+            fx=self.fx[idx] if self.is_perspective else None,
+            fy=self.fy[idx] if self.is_perspective else None,
+            mx=self.mx[idx] if self.is_perspective else None,
+            my=self.my[idx] if self.is_perspective else None,
             ref_size=copy.deepcopy(self.ref_size),
             proj_upscale=copy.deepcopy(self.proj_upscale),
             downscale=copy.deepcopy(self.downscale),
@@ -1121,10 +1144,10 @@ class SameSettingImageData(object):
             path=self.path, pos=self.pos.to(device),
             opk=self.opk.to(device) if self.has_opk else None,
             extrinsic=self.extrinsic.to(device) if self.has_extrinsic else None,
-            fx=self.fx.to(device) if self.has_intrinsic else None,
-            fy=self.fy.to(device) if self.has_intrinsic else None,
-            mx=self.mx.to(device) if self.has_intrinsic else None,
-            my=self.my.to(device) if self.has_intrinsic else None,
+            fx=self.fx.to(device) if self.is_perspective else None,
+            fy=self.fy.to(device) if self.is_perspective else None,
+            mx=self.mx.to(device) if self.is_perspective else None,
+            my=self.my.to(device) if self.is_perspective else None,
             ref_size=self.ref_size, proj_upscale=self.proj_upscale,
             downscale=self.downscale, rollings=self.rollings.to(device),
             crop_size=self.crop_size, crop_offsets=self.crop_offsets.to(device),

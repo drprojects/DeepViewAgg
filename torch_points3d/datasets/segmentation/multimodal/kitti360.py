@@ -1,3 +1,5 @@
+import re
+import yaml
 from torch_points3d.datasets.segmentation.kitti360 import *
 from torch_points3d.datasets.base_dataset_multimodal import BaseDatasetMM
 from torch_points3d.core.multimodal.image import SameSettingImageData
@@ -11,6 +13,20 @@ log = logging.getLogger(__name__)
 #                                 Utils                                #
 ########################################################################
 
+def readYAMLFile(fileName):
+    '''make OpenCV YAML file compatible with python'''
+    ret = {}
+    skip_lines = 1  # Skip the first line which says "%YAML:1.0". Or replace it with "%YAML 1.0"
+    with open(fileName) as fin:
+        for i in range(skip_lines):
+            fin.readline()
+        yamlFileOut = fin.read()
+        myRe = re.compile(r":([^ ])")  # Add space after ":", if it doesn't exist. Python yaml requirement
+        yamlFileOut = myRe.sub(r': \1', yamlFileOut)
+        ret = yaml.load(yamlFileOut)
+    return ret
+
+
 def read_kitti360_image_sequence(root, sequence, cam_id=0, size=None):
     """Read the raw KITTI360 image data for a given sequence and build a
     `SameSettingImageData` object gathering the paths and extrinsic and
@@ -20,12 +36,16 @@ def read_kitti360_image_sequence(root, sequence, cam_id=0, size=None):
     meta information is computed here. Images can be loaded later on
     using `SameSettingImageData.load()`.
     """
+    # Check on the camera id
+    if cam_id not in range(4):
+        NotImplementedError(f"Unknown Camera ID '{cam_id}'!")
+    fisheye = cam_id >= 2
+
     # Initialize paths to useful files and directories
-    camera_names = ['image_00', 'image_01']
+    camera_names = ['image_00', 'image_01', 'image_02', 'image_03']
     raw_2d_dir = osp.join(root, 'data_2d_raw')
     pose_dir = osp.join(root, 'data_poses', sequence)
     calib_dir = osp.join(root, 'calibration')
-    intrinsic_file = osp.join(calib_dir, 'perspective.txt')
     pose_file = osp.join(pose_dir, 'poses.txt')
     cam_to_pose_file = osp.join(calib_dir, 'calib_cam_to_pose.txt')
 
@@ -53,36 +73,55 @@ def read_kitti360_image_sequence(root, sequence, cam_id=0, size=None):
         raise ValueError(f'Could not fin any image')
 
     # Intrinsic parameters
-    K, R_rect, width, height = load_intrinsics(intrinsic_file, cam_id=cam_id)
-    fx = torch.Tensor([K[0, 0]]).repeat(n_images)
-    fy = torch.Tensor([K[1, 1]]).repeat(n_images)
-    mx = torch.Tensor([K[0, 2]]).repeat(n_images)
-    my = torch.Tensor([K[1, 2]]).repeat(n_images)
-    R_inv = torch.from_numpy(R_rect).inverse()
+    if not fisheye:
+        intrinsic_file = osp.join(calib_dir, 'perspective.txt')
+        K, R_rect, width, height = load_intrinsics_perspective(
+            intrinsic_file, cam_id=cam_id)
+        fx = torch.Tensor([K[0, 0]]).repeat(n_images)
+        fy = torch.Tensor([K[1, 1]]).repeat(n_images)
+        mx = torch.Tensor([K[0, 2]]).repeat(n_images)
+        my = torch.Tensor([K[1, 2]]).repeat(n_images)
+        R_inv = torch.from_numpy(R_rect).inverse()
+    else:
+        intrinsic_file = osp.join(calib_dir, f'image_0{cam_id}.yaml')
+        fi, width, height = load_intrinsics_fisheye(intrinsic_file)
+        xi = torch.Tensor(fi['mirror_parameters']['xi']).repeat(n_images)
+        k1 = torch.Tensor(fi['distortion_parameters']['k1']).repeat(n_images)
+        k2 = torch.Tensor(fi['distortion_parameters']['k2']).repeat(n_images)
+        gamma1 = torch.Tensor(fi['projection_parameters']['gamma1']).repeat(n_images)
+        gamma2 = torch.Tensor(fi['projection_parameters']['gamma2']).repeat(n_images)
+        u0 = torch.Tensor(fi['projection_parameters']['u0']).repeat(n_images)
+        v0 = torch.Tensor(fi['projection_parameters']['v0']).repeat(n_images)
     size = (width, height) if size is None else size
 
     # Recover the cam_to_world from system pose and calibration
     cam_to_world = []
     for pose in poses:
         pose = torch.cat((pose, torch.ones(1, 4)), dim=0)
-        if cam_id == 0:
+        if not fisheye:
             cam_to_world.append(pose @ cam_to_pose @ R_inv)
         else:
-            raise NotImplementedError(f"Unknown Camera ID '{cam_id}'!")
+            cam_to_world.append(pose @ cam_to_pose)
     cam_to_world = torch.cat([e.unsqueeze(0) for e in cam_to_world], dim=0)
 
     # Recover the image positions from the extrinsic matrix
     T = cam_to_world[:, :3, 3]
 
     # Gather the sequence image information in a `SameSettingImageData`
-    images = SameSettingImageData(
-        ref_size=size, proj_upscale=1, path=paths, pos=T, fx=fx, fy=fy,
-        mx=mx, my=my, extrinsic=cam_to_world)
+    if not fisheye:
+        images = SameSettingImageData(
+            ref_size=size, proj_upscale=1, path=paths, pos=T, fx=fx, fy=fy,
+            mx=mx, my=my, extrinsic=cam_to_world)
+    else:
+        images = SameSettingImageData(
+            ref_size=size, proj_upscale=1, path=paths, pos=T, xi=xi, k1=k1,
+            k2=k2, gamma1=gamma1, gamma2=gamma2, u0=u0, v0=v0,
+            extrinsic=cam_to_world)
 
     return images
 
 
-def load_intrinsics(intrinsic_file, cam_id=0):
+def load_intrinsics_perspective(intrinsic_file, cam_id=0):
     """Load KITTI360 perspective camera intrinsics.
 
     Credit: https://github.com/autonomousvision/kitti360Scripts
@@ -105,10 +144,21 @@ def load_intrinsics(intrinsic_file, cam_id=0):
         elif line[0] == f"S_rect_0{cam_id}:":
             width = int(float(line[1]))
             height = int(float(line[2]))
-    assert (intrinsic_loaded == True)
-    assert (width > 0 and height > 0)
+    assert intrinsic_loaded
+    assert width > 0 and height > 0
 
     return K, R_rect, width, height
+
+
+def load_intrinsics_fisheye(intrinsic_file):
+    """Load KITTI360 fisheye camera intrinsics.
+
+    Credit: https://github.com/autonomousvision/kitti360Scripts
+    """
+    intrinsics = readYAMLFile(intrinsic_file)
+    width, height = intrinsics['image_width'], intrinsics['image_height']
+    fi = intrinsics
+    return fi, width, height
 
 
 def load_calibration_camera_to_pose(filename):

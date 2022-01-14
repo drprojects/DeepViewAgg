@@ -274,7 +274,7 @@ class MapImages(ImageTransform):
                 data_sample.pos.float().to(device),
                 image.pos.squeeze().float().to(device),
                 img_opk=image.opk.squeeze().float().to(device) if image.has_opk else None,
-                img_intrinsic=image.intrinsic.squeeze().float().to(device) if image.has_intrinsic else None,
+                img_intrinsic=image.intrinsic.squeeze().float().to(device) if image.is_perspective else None,
                 img_extrinsic=image.extrinsic.squeeze().float().to(device) if image.has_extrinsic else None,
                 img_mask=image.mask.to(device) if image.mask is not None else None,
                 linearity=linearity.to(device) if linearity is not None else None,
