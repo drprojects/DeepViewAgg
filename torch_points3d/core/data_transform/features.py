@@ -288,7 +288,7 @@ def compute_planarity(eigenvalues):
 
 class NormalFeature(object):
     """
-    add normal as feature. if it doesn't exist, compute normals
+    add normal as feature. if it doesn't exist, compute normal
     using PCA
     """
 

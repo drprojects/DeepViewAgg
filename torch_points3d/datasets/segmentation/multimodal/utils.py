@@ -61,7 +61,8 @@ def img_info_to_img_data(info_ld, img_size):
         info_dl = {k: [dic[k] for dic in info_ld] for k in info_ld[0]}
         image_data = SameSettingImageData(
             path=np.array(info_dl['path']), pos=torch.Tensor(info_dl['xyz']),
-            opk=torch.Tensor(info_dl['opk']), ref_size=img_size)
+            extrinsic=torch.Tensor(info_dl['opk']), cam_size=img_size)
     else:
-        image_data = SameSettingImageData(ref_size=img_size)
+        image_data = SameSettingImageData(
+            cam_size=img_size, extrinsic=torch.empty([0, 3]))
     return image_data

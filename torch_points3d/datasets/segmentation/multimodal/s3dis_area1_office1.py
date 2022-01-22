@@ -205,7 +205,7 @@ class S3DISOriginalFusedMM(InMemoryDataset):
             pre_filter=None,
             pre_transform_image=None,
             transform_image=None,
-            img_ref_size=(512, 256),
+            img_cam_size=(512, 256),
             keep_instance=False,
             verbose=False,
             debug=False, ):
@@ -215,7 +215,7 @@ class S3DISOriginalFusedMM(InMemoryDataset):
         self.pre_collate_transform = pre_collate_transform
         self.pre_transform_image = pre_transform_image
         self.transform_image = transform_image
-        self.img_ref_size = img_ref_size
+        self.img_cam_size = img_cam_size
         self.test_area = test_area
         self.keep_instance = keep_instance
         self.verbose = verbose
@@ -467,7 +467,7 @@ class S3DISOriginalFusedMM(InMemoryDataset):
                       f"{len(image_info_list)} images")
 
                 # Keep all images for the test area
-                image_data_list.append(img_info_to_img_data(image_info_list, self.img_ref_size))
+                image_data_list.append(img_info_to_img_data(image_info_list, self.img_cam_size))
 
             # Save image data
             torch.save(image_data_list, self.image_data_path)
@@ -742,7 +742,7 @@ class S3DISFusedDataset(BaseDatasetMM):
             transform=self.train_transform,
             pre_transform_image=self.pre_transform_image,
             transform_image=self.train_transform_image,
-            img_ref_size=self.dataset_opt.resolution_2d)
+            img_cam_size=self.dataset_opt.resolution_2d)
 
         self.val_dataset = S3DISSphereMM(
             self._data_path,
@@ -753,7 +753,7 @@ class S3DISFusedDataset(BaseDatasetMM):
             transform=self.val_transform,
             pre_transform_image=self.pre_transform_image,
             transform_image=self.val_transform_image,
-            img_ref_size=self.dataset_opt.resolution_2d)
+            img_cam_size=self.dataset_opt.resolution_2d)
 
         # self.trainval_dataset = S3DISSphereMM(
         #     self._data_path,
@@ -764,7 +764,7 @@ class S3DISFusedDataset(BaseDatasetMM):
         #     transform=self.train_transform,
         #     pre_transform_image=self.pre_transform_image,
         #     transform_image=self.train_transform_image,
-        #     img_ref_size = self.dataset_opt.resolution_2d)
+        #     img_cam_size = self.dataset_opt.resolution_2d)
 
         self.test_dataset = S3DISSphereMM(
             self._data_path,
@@ -775,7 +775,7 @@ class S3DISFusedDataset(BaseDatasetMM):
             transform=self.test_transform,
             pre_transform_image=self.pre_transform_image,
             transform_image=self.test_transform_image,
-            img_ref_size=self.dataset_opt.resolution_2d)
+            img_cam_size=self.dataset_opt.resolution_2d)
 
         if dataset_opt.class_weight_method:
             self.add_weights(

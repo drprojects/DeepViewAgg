@@ -12,7 +12,6 @@ resolution_2d: [1408, 376]  # Image resolution
 padding_2d: 8               # Padding for CropImageGroups
 min_size_2d: 128            # Minimum size for CropImageGroups
 exact_splatting_2d: True    # Whether only exact mappings are preserved after splatting
-proj_upscale: 1
 image_ratio: 5              # One out of ratio images will be used
 image_r_max: 20             # Maximum radius for mapping construction
 image_k_swell: 1.5          # Affects voxel size when computing mappings
@@ -89,14 +88,12 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
                 random: False
         - transform: NonStaticMask  # Compute acquisition mask
           params:
-                ref_size: ${data.resolution_2d}
-                proj_upscale: ${data.proj_upscale}
+                cam_size: ${data.resolution_2d}
                 n_sample: 5
         - transform: MapImages  # Compute the 3D-2D mapping between a Window and all images of the Sequence
           params:
                 method: SplattingVisibility
-                ref_size: ${data.resolution_2d}
-                proj_upscale: ${data.proj_upscale}
+                cam_size: ${data.resolution_2d}
                 use_cuda: False
                 voxel: ${data.resolution_3d}
                 r_max: ${data.image_r_max}
@@ -118,7 +115,7 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
                 verbose: True  # True to print computation times
         - transform: LoadImages  # Read images from disk
           params:
-                ref_size: ${data.resolution_2d}
+                cam_size: ${data.resolution_2d}
                 show_progress: True
 
     train_transforms:

@@ -10,6 +10,37 @@ import copy
 MAPPING_KEY = 'mapping_index'
 
 
+def torch_to_numba(func):
+    """Decorator intended for numba functions to be fed and return
+    torch.Tensor arguments.
+
+    :param func:
+    :return:
+    """
+
+    def numbafy(x):
+        return x.cpu().numpy() if isinstance(x, torch.Tensor) else x
+
+    def torchify(x):
+        return torch.from_numpy(x) if isinstance(x, np.ndarray) else x
+
+    def wrapper_torch_to_numba(*args, **kwargs):
+        args_numba = [numbafy(x) for x in args]
+        kwargs_numba = {k: numbafy(v) for k, v in kwargs.items()}
+        out = func(*args_numba, **kwargs_numba)
+        if isinstance(out, list):
+            out = [torchify(x) for x in out]
+        elif isinstance(out, tuple):
+            out = tuple([torchify(x) for x in list(out)])
+        elif isinstance(out, dict):
+            out = {k: torchify(v) for k, v in out.items()}
+        else:
+            out = torchify(out)
+        return out
+
+    return wrapper_torch_to_numba
+
+
 def tensor_idx(idx):
     """Convert an int, slice, list or numpy index to a torch.LongTensor."""
     if idx is None:

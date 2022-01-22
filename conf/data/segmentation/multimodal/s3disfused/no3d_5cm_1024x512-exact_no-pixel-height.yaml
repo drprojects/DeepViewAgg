@@ -14,7 +14,6 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
 
     settings:
         mapping_key: mapping_index  # hardcoded key used to sync 3D points and modality mappings
-        proj_upscale: 2
         r_max: 8
         r_min: 0.05
         growth_k: 0.5
@@ -26,18 +25,16 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
     pre_transform:
         - transform: LoadImages  # Read images from disk
           params:
-                ref_size: ${data.resolution_2d}
+                cam_size: ${data.resolution_2d}
                 show_progress: True
         - transform: NonStaticMask  # Compute acquisition mask
           params:
-                ref_size: ${data.resolution_2d}
-                proj_upscale: ${data.multimodal.settings.proj_upscale}
+                cam_size: ${data.resolution_2d}
                 n_sample: 5
         - transform: MapImages  # Compute the 3D-2D mapping
           params:
                 method: SplattingVisibility
-                ref_size: ${data.resolution_2d}
-                proj_upscale: ${data.multimodal.settings.proj_upscale}
+                cam_size: ${data.resolution_2d}
                 use_cuda: True
                 voxel: ${data.first_subsampling}
                 r_max: ${data.multimodal.settings.r_max}
