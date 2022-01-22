@@ -206,7 +206,7 @@ class Camera(ABC):
         mask:BoolTensor    boolean mask for point projection
     """
 
-    def __init__(self, size, mask=None):
+    def __init__(self, size=(1024, 512), mask=None):
         self.size = size
         self.mask = mask
 
@@ -483,6 +483,10 @@ class EquirectangularCamera(Camera):
 class PerspectiveCamera(Camera):
     """Perspective (or pinhole) camera model.
 
+    Note: the default intrinsic parameters are those of KITTI360's
+    perspective camera. Make sure you edit those to match your own
+    camera.
+
     Attributes
         size:tuple          size of the pixel grid
         fx                  focal length x
@@ -493,8 +497,10 @@ class PerspectiveCamera(Camera):
     """
     _INVERT = False
 
-    def __init__(self, size, fx, fy, mx, my, mask=None):
-        super().__init__(size, mask=mask)
+    def __init__(
+            self, size=(1408, 376), fx=788.629315, fy=786.38223, mx=687.158398,
+            my=317.752196, mask=None):
+        super().__init__(size=size, mask=mask)
         self.fx = fx
         self.fy = fy
         self.mx = mx
@@ -679,6 +685,10 @@ class ScanNetCamera(PerspectiveCamera):
 class KITTI360Fisheye(Camera):
     """Fisheye camera model for KITTI360 dataset.
 
+    Note: the default intrinsic parameters are those of KITTI360's
+    fisheye camera number 2. Make sure you edit those to match your own
+    camera.
+
     Attributes
         size:tuple             size of the pixel grid
         xi
@@ -691,8 +701,12 @@ class KITTI360Fisheye(Camera):
         mask:BoolTensor        boolean mask for point projection
     """
 
-    def __init__(self, size, xi, k1, k2, gamma1, gamma2, u0, v0, mask=None):
-        super().__init__(size, mask=mask)
+    def __init__(
+            self, size=(1400, 1400), xi=2.2134047507854890,
+            k1=1.6798235660113681e-02, k2=1.6548773243373522e+00,
+            gamma1=1.3363220825849971e+03, gamma2=1.3357883350012958e+03,
+            u0=7.1694323510126321e+02, v0=7.0576498308221585e+02, mask=None):
+        super().__init__(size=size, mask=mask)
         self.xi = xi
         self.k1 = k1
         self.k2 = k2
