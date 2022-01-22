@@ -296,8 +296,8 @@ class Camera(ABC):
 # -------------------------------------------------------------------- #
 
 class EquirectangularCamera(Camera):
-    """Equirectangular camera model. Produces panoramic images of the
-    whole sphere surrounding the camera.
+    """Camera model producing equirectangular images of the whole sphere
+     surrounding the camera.
 
     Attributes
         size:tuple         size of the pixel grid
