@@ -61,7 +61,7 @@ def adjust_intrinsic(func):
     def wrapper(self, *args, **kwargs):
         # assert isinstance(self, SameSettingImageData)
 
-        if not self.is_perspective:
+        if not self.is_pinhole:
             return func(self, *args, **kwargs)
 
         # Try-except to handle the edge-case where SameSettingImageData
@@ -179,14 +179,21 @@ class SameSettingImageData(object):
     3D-2D mapping information.
 
     Attributes
-        path:numpy.ndarray          image N paths
-        pos:torch.Tensor            image Nx3 positions
-        opk:torch.Tensor            image Nx3 angular poses
-        extrinsic:torch.Tensor      image Nx4x4 extrinsic matrix poses
-        fx:torch.Tensor             image N focal length x
-        fy:torch.Tensor             image N focal length y
-        mx:torch.Tensor             image N principal point offset x
-        my:torch.Tensor             image N principal point offset x
+        path:numpy.ndarray          [N] paths
+        pos:torch.Tensor            [Nx3] positions
+        opk:torch.Tensor            [Nx3] angular poses
+        extrinsic:torch.Tensor      [Nx4x4] extrinsic matrix poses
+        fx:torch.Tensor             [N] focal length x
+        fy:torch.Tensor             [N] focal length y
+        mx:torch.Tensor             [N] principal point offset x
+        my:torch.Tensor             [N] principal point offset x
+        xi:torch.Tensor             [N]
+        k1:torch.Tensor             [N]
+        k2:torch.Tensor             [N]
+        gamma1:torch.Tensor         [N]
+        gamma2:torch.Tensor         [N]
+        u0:torch.Tensor             [N]
+        v0:torch.Tensor             [N]
 
         ref_size:tuple              initial size of the loaded images and mappings
         proj_upscale:float          upsampling of projection wrt to ref_size
@@ -201,10 +208,10 @@ class SameSettingImageData(object):
         mask:BoolTensor             projection mask
     """
     _numpy_keys = ['path']
-    _perspective_keys = ['fx', 'fy', 'mx', 'my']
-    _fisheye_keys = ['k1', 'k2', 'gamma1', 'gamma2', 'u0', 'v0']
+    _pinhole_keys = ['fx', 'fy', 'mx', 'my']
+    _fisheye_keys = ['xi', 'k1', 'k2', 'gamma1', 'gamma2', 'u0', 'v0']
     _torch_keys = ['pos', 'opk', 'extrinsic', 'crop_offsets', 'rollings'] \
-                  + _perspective_keys + _fisheye_keys
+        + _pinhole_keys + _fisheye_keys
     _map_key = 'mappings'
     _x_key = 'x'
     _mask_key = 'mask'
@@ -220,7 +227,8 @@ class SameSettingImageData(object):
             opk=None, ref_size=(512, 256), proj_upscale=2,
             downscale=1, rollings=None, crop_size=None, crop_offsets=None,
             x=None, mappings=None, mask=None, visibility=None, fx=None,
-            fy=None, mx=None, my=None, extrinsic=None, **kwargs):
+            fy=None, mx=None, my=None, xi=None, k1=None, k2=None, gamma1=None,
+            gamma2=None, u0=None, v0=None, extrinsic=None, **kwargs):
 
         # Initialize the private internal state attributes
         self._ref_size = None
@@ -241,6 +249,13 @@ class SameSettingImageData(object):
         self.fy = fy
         self.mx = mx
         self.my = my
+        self.xi = xi
+        self.k1 = k1
+        self.k2 = k2
+        self.gamma1 = gamma1
+        self.gamma2 = gamma2
+        self.u0 = u0
+        self.v0 = v0
         self.extrinsic = extrinsic
         self.ref_size = ref_size
         self.proj_upscale = proj_upscale
@@ -283,8 +298,8 @@ class SameSettingImageData(object):
                 f"attributes. Please use `SameSettingImageData.to()` to set " \
                 f"the device."
 
-        if self.is_perspective:
-            for key in self._perspective_keys:
+        if self.is_pinhole:
+            for key in self._pinhole_keys:
                 p = getattr(self, key)
                 assert isinstance(p, torch.Tensor), \
                     f"Expected a Tensor but got {type(p)} instead."
@@ -393,9 +408,9 @@ class SameSettingImageData(object):
         return getattr(self, 'extrinsic', None) is not None
 
     @property
-    def is_perspective(self):
+    def is_pinhole(self):
         return not any(
-            getattr(self, a, None) is None for a in self._perspective_keys)
+            getattr(self, a, None) is None for a in self._pinhole_keys)
 
     @property
     def is_fisheye(self):
@@ -404,24 +419,39 @@ class SameSettingImageData(object):
 
     @property
     def is_equirectangular(self):
-        return self.has_opk and not self.is_perspective and not self.is_fisheye
+        return self.has_opk and not self.is_pinhole and not self.is_fisheye
 
     @property
-    def intrinsic(self):
+    def intrinsic_pinhole(self):
         """Generate the 4x4 intrinsic matrix based on fx, fy, mx and my.
 
         Credit: https://github.com/angeladai/3DMV
         """
-        if not self.is_perspective:
+        if not self.is_pinhole:
             raise ValueError(
-                f"Cannot compute intrinsic matrix, please set 'fx', 'fy', "
-                f"'mx' and 'my'.")
+                f"Cannot compute intrinsic matrix, please set "
+                f"{self._pinhole_keys}.")
         intrinsic_ = torch.eye(4).repeat(self.num_views, 1, 1)
         intrinsic_[:, 0, 0] = self.fx
         intrinsic_[:, 1, 1] = self.fy
         intrinsic_[:, 0, 2] = self.mx
         intrinsic_[:, 1, 2] = self.my
         return intrinsic_
+
+    @property
+    def intrinsic_fisheye(self):
+        """Generate the Nx7 matrix of intrinsic parameters xi, k1, k2, gamma1,
+        gamma2, u0, v0 for fisheye camera.
+
+        Credit: https://github.com/angeladai/3DMV
+        """
+        if not self.is_fisheye:
+            raise ValueError(
+                f"Cannot compute intrinsic matrix, please set "
+                f"{self._fisheye_keys}.")
+        return torch.stack([
+            self.xi, self.k1, self.k2, self.gamma1, self.gamma2, self.u0,
+            self.v0]).T
 
     @property
     def axes(self):
@@ -1098,10 +1128,17 @@ class SameSettingImageData(object):
             pos=self.pos[idx],
             opk=self.opk[idx] if self.has_opk else None,
             extrinsic=self.extrinsic[idx] if self.has_extrinsic else None,
-            fx=self.fx[idx] if self.is_perspective else None,
-            fy=self.fy[idx] if self.is_perspective else None,
-            mx=self.mx[idx] if self.is_perspective else None,
-            my=self.my[idx] if self.is_perspective else None,
+            fx=self.fx[idx] if self.is_pinhole else None,
+            fy=self.fy[idx] if self.is_pinhole else None,
+            mx=self.mx[idx] if self.is_pinhole else None,
+            my=self.my[idx] if self.is_pinhole else None,
+            xi=self.xi[idx] if self.is_fisheye else None,
+            k1=self.k1[idx] if self.is_fisheye else None,
+            k2=self.k2[idx] if self.is_fisheye else None,
+            gamma1=self.gamma1[idx] if self.is_fisheye else None,
+            gamma2=self.gamma2[idx] if self.is_fisheye else None,
+            u0=self.u0[idx] if self.is_fisheye else None,
+            v0=self.v0[idx] if self.is_fisheye else None,
             ref_size=copy.deepcopy(self.ref_size),
             proj_upscale=copy.deepcopy(self.proj_upscale),
             downscale=copy.deepcopy(self.downscale),
@@ -1144,10 +1181,17 @@ class SameSettingImageData(object):
             path=self.path, pos=self.pos.to(device),
             opk=self.opk.to(device) if self.has_opk else None,
             extrinsic=self.extrinsic.to(device) if self.has_extrinsic else None,
-            fx=self.fx.to(device) if self.is_perspective else None,
-            fy=self.fy.to(device) if self.is_perspective else None,
-            mx=self.mx.to(device) if self.is_perspective else None,
-            my=self.my.to(device) if self.is_perspective else None,
+            fx=self.fx.to(device) if self.is_pinhole else None,
+            fy=self.fy.to(device) if self.is_pinhole else None,
+            mx=self.mx.to(device) if self.is_pinhole else None,
+            my=self.my.to(device) if self.is_pinhole else None,
+            xi=self.xi.to(device) if self.is_fisheye else None,
+            k1=self.k1.to(device) if self.is_fisheye else None,
+            k2=self.k2.to(device) if self.is_fisheye else None,
+            gamma1=self.gamma1.to(device) if self.is_fisheye else None,
+            gamma2=self.gamma2.to(device) if self.is_fisheye else None,
+            u0=self.u0.to(device) if self.is_fisheye else None,
+            v0=self.v0.to(device) if self.is_fisheye else None,
             ref_size=self.ref_size, proj_upscale=self.proj_upscale,
             downscale=self.downscale, rollings=self.rollings.to(device),
             crop_size=self.crop_size, crop_offsets=self.crop_offsets.to(device),
