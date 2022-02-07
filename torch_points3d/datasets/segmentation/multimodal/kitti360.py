@@ -4,6 +4,8 @@ from torch_points3d.datasets.segmentation.kitti360 import *
 from torch_points3d.datasets.base_dataset_multimodal import BaseDatasetMM
 from torch_points3d.core.multimodal.image import SameSettingImageData
 from torch_points3d.core.multimodal.data import MMData
+from torch_points3d.core.data_transform.multimodal.image import \
+    DropImagesOutsideDataBoundingBox, PickKImages
 
 DIR = os.path.dirname(os.path.realpath(__file__))
 log = logging.getLogger(__name__)
@@ -395,6 +397,23 @@ class KITTI360CylinderMM(KITTI360Cylinder):
             # images that see points in the window and discard the rest
             images = sequence_images[sequence_name]
             images.cam_size = self.image_size
+
+            # Run hardcoded image pre-transform to:
+            #   - drop images that are not close to the window at hand.
+            #   Indeed, images are provided by entire sequences, so many
+            #   images are far from the current window.
+            #   - select 1/k images in the train and val sets and 10/k
+            #   images in the test set. Indeed, the image acquisition
+            #   frequency is too high for our needs in the train and val
+            #   sequences. However, KITTI360 only provides about 10% of
+            #   the images in the test set (witheld one are for novel
+            #   view synthesis evaluation). For this reason, we try to
+            #   keep 10 times more images from test than from train/val.
+            k = self.image_ratio if split != 'test' \
+                else max(int(self.image_ratio / 10), 1)
+            t1 = DropImagesOutsideDataBoundingBox(margin=10, ignore_z=True)
+            t2 = PickKImages(k, random=False)
+            data, images = t2(t1(data, images))
 
             # Run image pre-transform
             if self.pre_transform_image is not None:

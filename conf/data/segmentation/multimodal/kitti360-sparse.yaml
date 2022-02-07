@@ -79,14 +79,6 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
     modality: image
 
     pre_transform:
-        - transform: DropImagesOutsideDataBoundingBox  # Remove Sequence images that are too far from the window
-          params:
-                margin: 10
-                ignore_z: True
-        - transform: PickKImages  # Pick one-every-k image
-          params:
-                k: ${data.image_ratio}
-                random: False
         - transform: NonStaticMask  # Compute acquisition mask
           params:
                 cam_size: ${data.resolution_2d}
