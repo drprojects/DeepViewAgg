@@ -417,7 +417,22 @@ class KITTI360CylinderMM(KITTI360Cylinder):
                 else max(int(self.image_ratio / 10), 1)
             t1 = DropImagesOutsideDataBoundingBox(margin=10, ignore_z=True)
             t2 = PickKImages(k, random=False)
-            data, images = t2(t1(data, images))
+            data, images = t2(*t1(data, images))
+
+            # Run hardcoded image pre-transform to:
+            #   - drop images that are not close to the window at hand.
+            #   Indeed, images are provided by entire sequences, so many
+            #   images are far from the current window.
+            #   - select 1/k images in the train and val sets and 10/k
+            #   images in the test set. Indeed, the image acquisition
+            #   frequency is too high for our needs in the train and val
+            #   sequences. However, KITTI360 only provides about 10% of
+            #   the images in the test set (witheld one are for novel
+            #   view synthesis evaluation). For this reason, we try to
+            #   keep 10 times more images from test than from train/val.
+            t1 = DropImagesOutsideDataBoundingBox(margin=10, ignore_z=True)
+            t2 = PickKImages(self.image_ratio, random=False)
+            data, images = t2(*t1(data, images))
 
             # Run image pre-transform
             if self.pre_transform_image is not None:
@@ -542,6 +557,13 @@ class KITTI360DatasetMM(BaseDatasetMM):
             transform=self.val_transform,
             pre_transform_image=self.pre_transform_image,
             transform_image=self.val_transform_image)
+        
+        # KITTI360 only provides about 10% of the images in the test set
+        # images (withheld images are for novel view synthesis evaluation).
+        # For this reason, the we should keep 10 times more images from
+        # test than from train and val for the image distributions to be
+        # comparable.
+        image_ratio_test = max(int(image_ratio / 10), 1)
 
         self.test_dataset = cls(
             self._data_path,
@@ -549,7 +571,7 @@ class KITTI360DatasetMM(BaseDatasetMM):
             sample_res=eval_sample_res,
             keep_instance=keep_instance,
             image_r_max=image_r_max,
-            image_ratio=image_ratio,
+            image_ratio=image_ratio_test,
             image_size=image_size,
             voxel=voxel,
             sample_per_epoch=-1,
