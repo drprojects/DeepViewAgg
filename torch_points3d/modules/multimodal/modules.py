@@ -405,7 +405,8 @@ class UnimodalBranch(nn.Module, ABC):
         # In case it has not been provided at initialization, save the
         # output channel size. This is useful for when a batch has no
         # modality data
-        self._out_channels = x_3d.shape[1]
+        if self._out_channels is None:
+            self._out_channels = x_3d.shape[1]
 
         # Update the multimodal data dictionary
         # TODO: does the modality-driven sequence of updates on x_3d
