@@ -76,6 +76,12 @@ class No3D(BaseModel, ABC):
         data = self.backbone(self.input)
         features = data.x
         seen_mask = data.seen
+        
+        if features.device != self.device:
+            features = features.to(self.device)
+        
+        if seen_mask is None:
+            seen_mask = torch.zeros(features.shape[0], dtype=torch.bool, device=self.device)
 
         # TODO: this is a bit dirty, saving the modality-wise feature
         #  maps in self.input. Need to find a cleaner way. This impacts
