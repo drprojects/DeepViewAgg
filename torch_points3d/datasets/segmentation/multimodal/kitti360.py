@@ -255,7 +255,52 @@ class KITTI360CylinderMM(KITTI360Cylinder):
 
     Parameters
     ----------
-    # TODO: parameters
+    Parameters
+    ----------
+    root : `str`
+        Path to the root data directory.
+    split : {'train', 'val', 'test', 'trainval'}, optional
+    sample_per_epoch : `int`, optional
+        Rules the sampling mechanism for the dataset.
+
+        When `self.sample_per_epoch > 0`, indexing the dataset produces
+        random cylindrical sampling, picked so as to even-out the class
+        distribution across the dataset.
+
+        When `self.sample_per_epoch <= 0`, indexing the dataset
+        addresses cylindrical samples in a deterministic fashion. The
+        cylinder indices are ordered with respect to their acquisition
+        window and the regular grid sampling of the centers in each
+        window.
+    radius : `float`, optional
+        The radius of cylindrical samples.
+    sample_res : `float`, optional
+        The resolution of the grid on which cylindrical samples are
+        generated. The higher the ```sample_res```, the less cylinders
+        in the dataset.
+    transform : callable, optional
+        transform function operating on data.
+    pre_transform : callable, optional
+        pre_transform function operating on data.
+    pre_filter : callable, optional
+        pre_filter function operating on data.
+    keep_instance : `bool`, optional
+        Whether instance labels should be loaded.
+    pre_transform_image : callable, optional
+        pre_transform_image function operating on data and images
+    transform_image : callable, optional
+        transform_image function operating on data and images
+    buffer : `int`, optional
+        Number of windows the buffer can hold in memory at once.
+    image_r_max : `float`, optional
+        The maximum radius of image mappings.
+    image_ratio : `float`, optional
+        The ratio of images used. A ratio of 5 means out-every five
+        images are selected from the sequence images.
+    image_size : `tuple`, optional
+        The size of images used in mappings.
+    voxel : `float`, optional
+        The voxel resolution of the point clouds used in mappings.
     """
 
     def __init__(
@@ -484,9 +529,9 @@ class MiniKITTI360CylinderMM(KITTI360CylinderMM):
 ########################################################################
 
 class KITTI360DatasetMM(BaseDatasetMM):
+    """Multimodal dataset holding train, val and test sets for KITTI360.
     """
-    # TODO: comments
-    """
+
     INV_OBJECT_LABEL = INV_OBJECT_LABEL
 
     def __init__(self, dataset_opt):

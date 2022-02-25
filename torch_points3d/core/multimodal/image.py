@@ -173,27 +173,6 @@ def sparse_interpolation(features, coords, batch, padding_mode='border'):
 #                              Image Data                              #
 # -------------------------------------------------------------------- #
 
-# TODO: cam_size is a scalar or a list of size num_cameras
-# TODO: if no cameras; cam_size MUST be et and MUST be a scalar (list not supported)
-# TODO: cam_size cannot be set if cameras exist
-# TODO: if cam_size exists, cameras can only be added
-
-
-
-# TODO: clean pass over the different image sizes
-
-# TODO: SCALE and CROP : project on camera-based img_size (make sure
-#  INTRINSICS are up to date) and CROP only after projection: the CAMERA
-#  receives the crop bbox and returns the relevant projection
-
-# TODO: how and when to adjust_intrinsics ?
-
-# TODO: modify NonStaticMask to run on the CAMERAS
-
-# TODO: clean all global calls to SameSettingImageData !!!
-
-
-
 class SameSettingImageData:
     """Class to hold arrays of images information, along with shared
     3D-2D mapping information.
@@ -613,7 +592,7 @@ class SameSettingImageData:
             f"Expected a tensor of shape ({self.num_views}, :, " \
             f"{self.img_size[1]}, {self.img_size[0]}) but got " \
             f"{x.shape} instead."
-        # TODO: removing this constraint as it may be broken when down
+        # TODO: quick fix. Investigate why this occasionally crashes
         # assert x.shape[2:][::-1] == self.img_size, \
         #     f"Expected a tensor of shape ({self.num_views}, :, " \
         #     f"{self.img_size[1]}, {self.img_size[0]}) but got " \
@@ -727,8 +706,6 @@ class SameSettingImageData:
 
         Returns a new SameSettingImageData object.
         """
-        # TODO: make sure the merge mode works on real data...
-
         # Convert idx to a convenient indexing format
         idx = tensor_idx(idx).to(self.device)
 
@@ -742,7 +719,7 @@ class SameSettingImageData:
         # the mappings
         if len(self) == 0:
             images = self.clone()
-            # TODO: find out why this sometimes crashes and fix it
+            # TODO: quick fix. Investigate why this occasionally crashes
             # images.mappings.pointers = torch.zeros(
             #     idx.shape[0] + 1, dtype=torch.long, device=self.device)
             return images
@@ -776,7 +753,7 @@ class SameSettingImageData:
                     "Merge correspondences must map to a compact set of " \
                     "indices."
             except:
-                # TODO: quick fix because we don't know why this occasionally crashes
+                # TODO: quick fix. Investigate why this occasionally crashes
                 return self.clone()
 
             # Select mappings wrt the point index
@@ -2000,7 +1977,6 @@ class ImageMapping(CSRData):
 
         Returns a new ImageMapping object.
         """
-        # TODO: make sure the merge mode works on real data...
         MODES = ['pick', 'merge']
         assert mode in MODES, \
             f"Unknown mode '{mode}'. Supported modes are {MODES}."
@@ -2035,7 +2011,7 @@ class ImageMapping(CSRData):
                     "Merge correspondences must map to a compact set of " \
                     "indices."
             except:
-                # TODO: quick fix because we don't know why this occasionally crashes
+                # TODO: quick fix. Investigate why this occasionally crashes
                 return self.clone()
 
             # Expand to dense view-level format

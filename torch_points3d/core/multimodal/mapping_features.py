@@ -49,10 +49,10 @@ def viewing_angle(u, v, requires_scaling=False):
 
 
 # TODO: integrate the NeighborhoodBasedMappingFeatures computation here,
-#  build this as a multimodal data trasnformer taking 1 image and the
+#  build this as a multimodal data transform taking 1 image and the
 #  points within range. This will make KNN much faster and easier. This
 #  will induce slight NN errors for points near the search radius edge
-#  but whatever...
+#  but this should be marginal.
 def viewing_conditions(
         features=None, xyz_to_img=None, dist=None, x_proj=None, y_proj=None,
         normal=None, img_size=None, r_max=30, r_min=0.5):

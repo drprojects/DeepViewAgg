@@ -1,4 +1,0 @@
-# @package _group_
-class: ExponentialLR
-params:
-  gamma: 0.9016 # = 0.002**(1/60.) divide by 1000 every 60 epochs

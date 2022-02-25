@@ -294,7 +294,7 @@ class MapImages(ImageTransform):
 
             # Add more mapping features based on viewing conditions
             # TODO: careful with image size here if you SCALE OR CROP
-            #  projection **********************************************
+            #  projection
             features_ = viewing_conditions(
                 features=features_, xyz_to_img=xyz[idx_seen] - img_xyz,
                 dist=depth, x_proj=pix_x_, y_proj=pix_y_, normal=normal,
