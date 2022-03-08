@@ -1,4 +1,4 @@
-name: tp3d_dev
+name: deep_view_aggregation
 channels:
   - conda-forge
   - defaults
@@ -98,4 +98,4 @@ dependencies:
   - zeromq=4.3.2=he1b5a44_3
   - zipp=3.1.0=py_0
   - zlib=1.2.11=h7b6447c_3
-prefix: /home/jupyter/.conda/envs/tp3d_dev
+prefix: /home/jupyter/.conda/envs/deep_view_aggregation
