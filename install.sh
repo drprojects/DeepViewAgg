@@ -1,13 +1,13 @@
 #!/bin/bash
 
 # Recover the project directory from the position of the install.sh script
-PROJECT_DIR=`dirname $0`
-PROJECT_DIR=`realpath $PROJECT_DIR`
+HERE=`dirname $0`
+HERE=`realpath $HERE`
 
 
 # Local variables
 PROJECT_NAME=deep_view_aggregation
-YML_FILE=${PROJECT_DIR}/${PROJECT_NAME}.yml
+YML_FILE=${HERE}/${PROJECT_NAME}.yml
 TORCH=1.7.0
 
 
@@ -34,8 +34,8 @@ echo "____________ Pick conda install _____________"
 echo
 # Recover the path to conda on your machine
 CONDA_DIR=`realpath ~/anaconda3`
+CONDA_DIR=/home/ign.fr/drobert/anaconda3 ###############"""**************************-------------------------////////////////////////////////
 
-# Accept with y / Y / ENTER
 while (test -z $CONDA_DIR) || [ ! -d $CONDA_DIR ]
 do
     echo "Could not find conda at: "$CONDA_DIR
@@ -51,28 +51,20 @@ echo
 
 echo "_____________ Pick CUDA version _____________"
 echo
-# List installed CUDA versions
-CUDA_VERSIONS_LIST=(`ls /usr/local/ | grep ^cuda- | sed 's/cuda-//'`)
 
-if [[ ${#CUDA_VERSIONS_LIST[@]} == 0 ]]; then
-    echo "Could not find any CUDA install in '/usr/local/'. Make sure you have CUDA installed there first (tested versions are 10.2, 11.2 and 11.4)."
-    exit 1
+CUDA_SUPPORTED=(10.2 11.2 11.4)
+CUDA_VERSION=`nvcc --version | grep release | sed 's/.* release //' | sed 's/, .*//'`
+
+# If CUDA version not supported, ask whether to proceed
+if [[ ! " ${CUDA_SUPPORTED[*]} " =~ " ${CUDA_VERSION} " ]]
+then
+    echo "Found CUDA ${CUDA_VERSION} installed, is not among tested versions: "`echo ${CUDA_SUPPORTED[*]}`
+    read -p "This may cause downstream errors when installing dependencies. Do you want to proceed anyways ? [y/n] " -n 1 -r; echo
+    if !(test -z $REPLY) && [[ ! $REPLY =~ ^[Yy]$ ]]
+    then
+        exit 1
+    fi
 fi
-
-if [[ ${#CUDA_VERSIONS_LIST[@]} == 1 ]]; then
-    CUDA_VERSION=${CUDA_VERSIONS_LIST[0]}
-else
-    echo "Found "`echo ${#CUDA_VERSIONS_LIST[@]}`" CUDA versions installed: "`echo "${CUDA_VERSIONS_LIST[*]}"`
-    read -p "Choose a CUDA version for the environment: " CUDA_VERSION
-    echo
-fi
-
-while [[ ! " ${CUDA_VERSIONS_LIST[*]} " =~ " ${CUDA_VERSION} " && ${#CUDA_VERSIONS_LIST[@]} > 2 ]]
-do
-    echo "'$CUDA_VERSION' not among supported CUDA versions: "$CUDA_VERSIONS_LIST
-    read -p "Choose a CUDA version for the environment: " CUDA_VERSION
-    echo
-done
 
 echo "Chosen CUDA version: ${CUDA_VERSION}"
 cuXXX=`echo "cu"${CUDA_VERSION} | sed 's/\.//'`
@@ -96,10 +88,10 @@ pip install torch-points-kernels
 pip install torchnet
 
 # Install torch-geometric and dependencies
-pip install --no-index torch-scatter -f https://pytorch-geometric.com/whl/torch-${TORCH}+${CUDA}.html
-pip install --no-index torch-sparse -f https://pytorch-geometric.com/whl/torch-${TORCH}+${CUDA}.html
-pip install --no-index torch-cluster -f https://pytorch-geometric.com/whl/torch-${TORCH}+${CUDA}.html
-pip install --no-index torch-spline-conv -f https://pytorch-geometric.com/whl/torch-${TORCH}+${CUDA}.html
+pip install --no-index torch-scatter -f https://pytorch-geometric.com/whl/torch-${TORCH}+${cuXXX}.html
+pip install --no-index torch-sparse -f https://pytorch-geometric.com/whl/torch-${TORCH}+${cuXXX}.html
+pip install --no-index torch-cluster -f https://pytorch-geometric.com/whl/torch-${TORCH}+${cuXXX}.html
+pip install --no-index torch-spline-conv -f https://pytorch-geometric.com/whl/torch-${TORCH}+${cuXXX}.html
 pip install torch-geometric
 
 # torch-points3d dependencies
