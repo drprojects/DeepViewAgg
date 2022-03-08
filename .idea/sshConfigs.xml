@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="SshConfigs">
+    <configs>
+      <sshConfig authType="OPEN_SSH" host="dgx2.myengie.com" id="795fd1b8-a856-480d-bfa5-1e8cea1d70fb" port="22" nameFormat="DESCRIPTIVE" username="WL5719" />
+    </configs>
+  </component>
+</project>
