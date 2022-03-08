@@ -6,7 +6,8 @@ PROJECT_DIR=`realpath $PROJECT_DIR`
 
 
 # Local variables
-YML_FILE=${PROJECT_DIR}/deep_view_aggregation.yml
+PROJECT_NAME=deep_view_aggregation
+YML_FILE=${PROJECT_DIR}/${PROJECT_NAME}.yml
 TORCH=1.7.0
 
 
@@ -87,7 +88,7 @@ conda env create -f ${YML_FILE}
 
 # Activate the env
 source ${CONDA_DIR}/etc/profile.d/conda.sh  
-conda activate tp3d_dev
+conda activate ${PROJECT_NAME}
 
 # Dependencies not installed from the .yml
 pip install torch==1.7.0 torchvision==0.8.0 --no-cache-dir 
