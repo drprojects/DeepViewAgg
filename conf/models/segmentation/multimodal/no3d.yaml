@@ -1419,3 +1419,53 @@ RGB_ResNet18PPM_g4_MinMaxDiffSetFeat:
                 mode: residual
             drop_mod: 0.1
             branching_index: 0
+
+RGB_PointPyramid-cityscapes-interpolate:
+    # 6.1 M params - 23.8 Mo on the GPU - ~7.2 ko/pixel at training time
+    class: no3d.No3DFeatureFusion
+    define_constants:
+        l0: 128
+        l1: 64
+        l2: 128
+        l3: 256
+        l4: 512
+        l0_map: 32
+        l1_map: 32
+        l2_map: 64
+        l3_map: 128
+        l4_map: 256
+    down_conv:
+        n_early_conv: 5
+        image:
+            output_nc: l0_map + l1_map + l2_map + l3_map + l4_map
+            down_conv:
+                module_name: [
+                    CityscapesResNet18Layer0,
+                    CityscapesResNet18Layer1,
+                    CityscapesResNet18Layer2,
+                    CityscapesResNet18Layer3,
+                    CityscapesResNet18Layer4 ]
+            atomic_pooling:
+                module_name: BimodalCSRPool
+                mode: max
+            view_pooling:
+                module_name: GroupBimodalCSRPool
+                in_map: 8
+                in_mod: [ l0, l1, l2, l3, l4 ]
+                out_mod: [ l0_map, l1_map, l2_map, l3_map, l4_map ]
+                num_groups: 4
+                use_mod: False
+                map_encoder: DeepSetFeat
+                use_num: True
+            fusion:
+                module_name: BimodalFusion
+                mode: [modality, concatenation, concatenation, concatenation, concatenation]
+            branching_index: [ 0, 1, 2, 3, 4 ]
+            out_channels: [
+                    FEAT + l0_map,
+                    FEAT + l0_map + l1_map,
+                    FEAT + l0_map + l1_map + l2_map,
+                    FEAT + l0_map + l1_map + l2_map + l3_map,
+                    FEAT + l0_map + l1_map + l2_map + l3_map + l4_map ]  # This is necessary to support batches with no images
+            checkpointing: c
+            interpolate: True

@@ -887,7 +887,7 @@ class SameSettingImageData(object):
         # Merge mode
         elif mode == 'merge':
             try:
-                assert idx.shape[0] == self.num_points, \
+                assert idx.shape[0] == self.num_points > 0, \
                     f"Merge correspondences has size {idx.shape[0]} but size " \
                     f"{self.num_points} was expected."
                 assert (torch.arange(idx.max() + 1, device=self.device)
@@ -2209,7 +2209,7 @@ class ImageMapping(CSRData):
         # Merge mode
         elif mode == 'merge':
             try:
-                assert idx.shape[0] == self.num_groups, \
+                assert idx.shape[0] == self.num_groups > 0, \
                     f"Merge correspondences has size {idx.shape[0]} but size " \
                     f"{self.num_groups} was expected."
                 assert (torch.arange(idx.max() + 1, device=self.device)

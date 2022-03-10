@@ -1,0 +1,62 @@
+# @package training
+# Ref: https://github.com/chrischoy/SpatioTemporalSegmentation/blob/master/config.py
+epochs: 100
+num_workers: 4
+batch_size: 8
+shuffle: False  # Do not shuffle, KITTI360Sampler takes care of it
+cuda: 0
+precompute_multi_scale: False # Compute multiscaLe features on cpu for faster training / inference
+optim:
+    base_lr: 0.1
+    # accumulated_gradient: -1 # Accumulate gradient accumulated_gradient * batch_size
+    grad_clip: -1
+    optimizer:
+        class: SGD
+        params:
+            params:
+                - 'head'
+                - 'backbone'
+                - 'backbone.down_modules.0.image.conv'
+                - 'backbone.down_modules.1.image.conv'
+                - 'backbone.down_modules.2.image.conv'
+                - 'backbone.down_modules.3.image.conv'
+                - 'backbone.down_modules.4.image.conv'
+            lr:
+                - ${training.optim.base_lr}
+                - ${training.optim.base_lr}
+                - ${training.optim.base_lr} * 0.01
+                - ${training.optim.base_lr} * 0.01
+                - ${training.optim.base_lr} * 0.01
+                - ${training.optim.base_lr} * 0.01
+                - ${training.optim.base_lr} * 0.01
+            momentum: 0.9
+            weight_decay: 1e-4
+            dampening: 0.1
+    lr_scheduler: ${lr_scheduler}
+    bn_scheduler:
+        bn_policy: "step_decay"
+        params:
+            bn_momentum: 0.02
+            bn_decay: 1
+            decay_step: 1000
+            bn_clip: 1e-2
+weight_name: "latest" # Used during resume, select with model to load from [miou, macc, acc..., latest]
+enable_cudnn: True
+checkpoint_dir: ""
+
+# Those arguments within experiment defines which model, dataset and task to be created for benchmarking
+# parameters for Weights and Biases
+wandb:
+    entity: "damien_robert"
+    project: kitti360-benchmark
+    log: True
+    notes: "SparseConv3D baseline"
+    name: "Res16UNet34"
+    id: 
+    public: True # It will be display the model within wandb log, else not.
+    config:
+        model_name: ${model_name}
+
+    # parameters for TensorBoard Visualization
+tensorboard:
+    log: False
