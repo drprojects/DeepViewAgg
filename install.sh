@@ -8,7 +8,6 @@ HERE=`realpath $HERE`
 # Local variables
 PROJECT_NAME=deep_view_aggregation
 YML_FILE=${HERE}/${PROJECT_NAME}.yml
-#TORCH=1.7.0 ############################************************!!!!!!!!!!!!!!!!§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§
 TORCH=1.7.1
 CUDA_SUPPORTED=(10.1 10.2 11.0 11.2 11.4)
 
