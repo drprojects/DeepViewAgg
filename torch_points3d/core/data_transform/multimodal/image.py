@@ -12,7 +12,6 @@ from torch_points3d.core.multimodal.image import SameSettingImageData, \
     ImageMapping, ImageData
 from torch_points3d.utils.multimodal import lexunique, lexargunique
 import torch_points3d.core.multimodal.visibility as visibility_module
-from torch_points3d.core.multimodal.mapping_features import viewing_conditions
 import torchvision.transforms as T
 from tqdm.auto import tqdm as tq
 from typing import TypeVar, Union
@@ -77,9 +76,9 @@ class LoadImages(ImageTransform):
     the `SameSettingImageData` resizing and cropping internal state.
     """
 
-    def __init__(self, cam_size=None, crop_size=None, crop_offsets=None,
+    def __init__(self, ref_size=None, crop_size=None, crop_offsets=None,
                  downscale=None, show_progress=False):
-        self.cam_size = cam_size
+        self.ref_size = ref_size
         self.crop_size = crop_size
         self.crop_offsets = crop_offsets
         self.downscale = downscale
@@ -87,8 +86,8 @@ class LoadImages(ImageTransform):
 
     def _process(self, data: Data, images: SameSettingImageData):
         # Edit `SameSettingImageData` internal state attributes.
-        if self.cam_size is not None:
-            images.cam_size = self.cam_size
+        if self.ref_size is not None:
+            images.ref_size = self.ref_size
         if self.crop_size is not None:
             images.crop_size = self.crop_size
         if self.crop_offsets is not None:
@@ -112,28 +111,30 @@ class NonStaticMask(ImageTransform):
     input data augmented with attributes mapping points to pixels in
     provided images.
 
-    Returns the same input. The mask is saved in the CameraModel
-    attached in `SameSettingImageData.cameras` attributes, to be used
-    for any subsequent image processing.
+    Returns the same input. The mask is saved in `SameSettingImageData`
+    attributes, to be used for any subsequent image processing.
     """
 
-    def __init__(self, cam_size=None, n_sample=5):
-        self.cam_size = tuple(cam_size)
+    def __init__(self, ref_size=None, proj_upscale=None, n_sample=5):
+        self.ref_size = tuple(ref_size)
+        self.proj_upscale = proj_upscale
         self.n_sample = n_sample
 
     def _process(self, data: Data, images: SameSettingImageData):
         # Edit `SameSettingImageData` internal state attributes
-        if self.cam_size is not None:
-            images.cam_size = self.cam_size
+        if self.ref_size is not None:
+            images.ref_size = self.ref_size
+        if self.proj_upscale is not None:
+            images.proj_upscale = self.proj_upscale
 
         # Compute the mask of identical pixels across a range of
         # 'n_sample' sampled images
         n_sample = min(self.n_sample, images.num_views)
         if n_sample < 2:
-            mask = torch.ones(images.cam_size, dtype=torch.bool)
+            mask = torch.ones(images.proj_size, dtype=torch.bool)
         else:
             # Initialize the mask to all False (ie all identical)
-            mask = torch.zeros(images.cam_size, dtype=torch.bool)
+            mask = torch.zeros(images.proj_size, dtype=torch.bool)
 
             # Iteratively update the mask w.r.t. a reference image
             idx = torch.multinomial(
@@ -141,11 +142,11 @@ class NonStaticMask(ImageTransform):
 
             # Read individual RGB images and squeeze them shape 3xHxW
             img_1 = images.read_images(
-                idx=idx[0], size=images.cam_size).squeeze()
+                idx=idx[0], size=images.proj_size).squeeze()
 
             for i in idx[1:]:
                 img_2 = images.read_images(
-                    idx=i, size=images.cam_size).squeeze()
+                    idx=i, size=images.proj_size).squeeze()
 
                 # Update mask where new pixel changes are detected
                 mask_diff = (img_1 != img_2).all(dim=0).t()
@@ -172,14 +173,16 @@ class MapImages(ImageTransform):
     """
 
     def __init__(
-            self, method='SplattingVisibility', cam_size=None, use_cuda=False,
-            verbose=False, cylinder=False, **kwargs):
+            self, method='SplattingVisibility', proj_upscale=None,
+            ref_size=None, use_cuda=False, verbose=False, cylinder=False,
+            **kwargs):
         self.key = MAPPING_KEY
         self.verbose = verbose
         self.cylinder = cylinder
 
         # Image internal state parameters
-        self.cam_size = cam_size
+        self.ref_size = ref_size
+        self.proj_upscale = proj_upscale
 
         # Visibility model parameters
         self.method = method
@@ -198,15 +201,18 @@ class MapImages(ImageTransform):
         device = 'cuda' if self.use_cuda else in_device
 
         # Edit `SameSettingImageData` internal state attributes
-        if self.cam_size is not None:
-            images.cam_size = self.cam_size
+        if self.ref_size is not None:
+            images.ref_size = self.ref_size
+        if self.proj_upscale is not None:
+            images.proj_upscale = self.proj_upscale
 
         # Control the size of any already-existing mask
         if images.mask is not None:
-            assert images.mask.shape == images.cam_size
+            assert images.mask.shape == images.proj_size
 
         # Instantiate the visibility model
-        vm = getattr(visibility_module, self.method)(**self.kwargs)
+        visi_cls = getattr(visibility_module, self.method)
+        visi_model = visi_cls(img_size=images.proj_size, **self.kwargs)
 
         # Initialize the mapping arrays
         image_ids = []
@@ -222,30 +228,38 @@ class MapImages(ImageTransform):
         t_stack_pixels = 0
         t_append = 0
 
-        # Prepare the image enumerator depending on the verbosity
-        enumerator = enumerate(images)
-        if self.verbose:
-            print("    MapImages...")
-            enumerator = tq(enumerator)
-
         # Project each image and gather the point-pixel mappings (on
         # CPU or GPU)
+        if self.verbose:
+            print("    MapImages...")
+            enumerator = tq(enumerate(images))
+        else:
+            enumerator = enumerate(images)
         for i_image, image in enumerator:
-
-            # Select the surrounding point cloud within r_max
+            # Subsample the surrounding point cloud
             torch.cuda.synchronize()
             start = time()
-            sampler_cls = CylinderSampling if self.cylinder else SphereSampling
+            cls = CylinderSampling if self.cylinder else SphereSampling
             center = image.pos.squeeze()[:2] if self.cylinder else image.pos
-            sampler = sampler_cls(vm.r_max, center, align_origin=False)
+            sampler = cls(visi_model.r_max, center, align_origin=False)
             data_sample = sampler(data)
             torch.cuda.synchronize()
             t_sphere_sampling += time() - start
 
+            # Prepare the visibility model input parameters
+            linearity = getattr(data_sample, 'linearity', None)
+            planarity = getattr(data_sample, 'planarity', None)
+            scattering = getattr(data_sample, 'scattering', None)
+            normals = getattr(data_sample, 'norm', None)
+            linearity = linearity.to(device) if linearity is not None else None
+            planarity = planarity.to(device) if planarity is not None else None
+            scattering = scattering.to(device) if scattering is not None else None
+            normals = normals.to(device) if normals is not None else None
+
             # TEMPORARY - read depth map from file for S3DIS images
             # TODO: better handle depth map files if DepthMapBasedVisibility is
             #  needed for other datasets than S3DIS
-            depth_file = osp.join(
+            depth_map_path = osp.join(
                 osp.dirname(osp.dirname(image.path[0])), 'depth',
                 osp.basename(image.path[0]).replace('_rgb.png', '_depth.png'))
 
@@ -256,11 +270,20 @@ class MapImages(ImageTransform):
             # (on CPU or GPU)
             torch.cuda.synchronize()
             start = time()
-            xyz = data_sample.pos.float().to(device)
-            img_xyz = image.pos.squeeze().float().to(device)
-            extrinsic = image.extrinsic.squeeze().float().to(device)
-            camera = image.cameras[image.camera_idx].item()
-            out_vm = vm(xyz, img_xyz, extrinsic, camera, depth_file=depth_file)
+            out_vm = visi_model(
+                data_sample.pos.float().to(device),
+                image.pos.squeeze().float().to(device),
+                img_opk=image.opk.squeeze().float().to(device) if image.has_opk else None,
+                img_intrinsic_pinhole=image.intrinsic_pinhole.squeeze().float().to(device) if image.is_perspective else None,
+                img_intrinsic_fisheye=image.intrinsic_fisheye.squeeze().float().to(device) if image.is_fisheye else None,
+                img_extrinsic=image.extrinsic.squeeze().float().to(device) if image.has_extrinsic else None,
+                img_mask=image.mask.to(device) if image.mask is not None else None,
+                linearity=linearity.to(device) if linearity is not None else None,
+                planarity=planarity.to(device) if planarity is not None else None,
+                scattering=scattering.to(device) if scattering is not None else None,
+                normals=normals.to(device) if normals is not None else None,
+                depth_map_path=depth_map_path)
+            del linearity, planarity, scattering, normals
 
             # Skip image if no mapping was found
             if out_vm['idx'].shape[0] == 0:
@@ -268,38 +291,10 @@ class MapImages(ImageTransform):
 
             # Recover point indices, pixel coordinates and features
             # (on CPU or GPU)
-            idx_seen = out_vm['idx']
-            point_ids_ = data_sample[self.key][idx_seen].to(device)
+            point_ids_ = data_sample[self.key].to(device)[out_vm['idx']]
             pix_x_ = out_vm['x'].long()
             pix_y_ = out_vm['y'].long()
-            depth = out_vm['depth']
-
-            # Prepare pointwise geometric features to be used in mapping
-            # features
-            features_ = [
-                getattr(data_sample, x)[idx_seen].view(-1, 1)
-                for x in ['linearity', 'planarity', 'scattering']
-                if getattr(data_sample, x, None) is not None]
-            normal = getattr(data_sample, 'norm', None)
-            normal = normal[idx_seen].to(device) if normal is not None else None
-
-            # Prepare camera one-hot encoding to be used in mapping
-            # features
-            if image.n_cameras > 1:
-                features_.append(
-                    image.camera_one_hot.squeeze().repeat(idx_seen.shape[0], 1))
-
-            # Column-stack pointwise features if not empty
-            features_ = torch.cat(features_, 1) if len(features_) > 0 else None
-
-            # Add more mapping features based on viewing conditions
-            # TODO: careful with image size here if you SCALE OR CROP
-            #  projection **********************************************
-            features_ = viewing_conditions(
-                features=features_, xyz_to_img=xyz[idx_seen] - img_xyz,
-                dist=depth, x_proj=pix_x_, y_proj=pix_y_, normal=normal,
-                img_size=camera.size, r_max=vm.r_max, r_min=vm.r_min)
-
+            features_ = out_vm['features'].float()
             del out_vm, data_sample
             torch.cuda.synchronize()
             t_visibility += time() - start
@@ -309,6 +304,8 @@ class MapImages(ImageTransform):
             # (on CPU or GPU)
             # TODO: add circular padding here if need be
             start = time()
+            pix_x_ = pix_x_ // image.proj_upscale
+            pix_y_ = pix_y_ // image.proj_upscale
             pix_x_ = pix_x_ - image.crop_offsets.squeeze()[0]
             pix_y_ = pix_y_ - image.crop_offsets.squeeze()[1]
             in_crop = torch.where(
@@ -423,8 +420,10 @@ class MapImages(ImageTransform):
             torch.cuda.synchronize()
             print(f"        t_ImageMapping_init: {time() - start:0.3f}\n\n")
 
-        # Save the mappings in the SameSettingImageData
+        # Save the mappings and visibility model in the
+        # SameSettingImageData
         images.mappings = mappings.to(in_device)
+        images.visibility = visi_model
 
         return data, images
 
@@ -981,11 +980,11 @@ class CenterRoll(ImageTransform):
         # Make sure no prior cropping or resizing was applied to the
         # images and mappings
         assert images.mappings is not None, "No mappings found in images."
-        assert images.cam_size[0] == images.img_size[0], \
+        assert images.ref_size[0] == images.img_size[0], \
             f"{self.__class__.__name__} cannot operate if images and " \
             f"mappings underwent prior cropping or resizing."
         assert images.crop_size is None \
-               or images.crop_size[0] == images.cam_size[0], \
+               or images.crop_size[0] == images.ref_size[0], \
             f"{self.__class__.__name__} cannot operate if images and " \
             f"mappings underwent prior cropping or resizing."
         assert images.downscale is None or images.downscale == 1, \
@@ -1003,7 +1002,7 @@ class CenterRoll(ImageTransform):
         w_pix = images.mappings.pixels[:, 0]
 
         # Convert to uint8 and keep unique values
-        w_pix = (w_pix.float() * 256 / images.cam_size[0]).long()
+        w_pix = (w_pix.float() * 256 / images.ref_size[0]).long()
         idx, w_pix = lexunique(idx, w_pix)
         w_pix = w_pix.byte()
 
@@ -1027,7 +1026,7 @@ class CenterRoll(ImageTransform):
         # Search for rollings minimizing centering distances
         idx = torch.arange(w_cost.shape[0])
         roll_idx = w_cost.min(axis=1).indices
-        rollings = (rolls[roll_idx] / 256. * images.cam_size[0]).long()
+        rollings = (rolls[roll_idx] / 256. * images.ref_size[0]).long()
         # Make sure the image ids are preserved
         assert (idx == torch.arange(images.num_views)).all(), \
             "Image indices discrepancy in the rollings."

@@ -3,9 +3,9 @@ defaults:
     - /data/segmentation/multimodal/default
 
 # These parameters are intended to be specified in dedicated configs
-resolution_3d: ???       # Point cloud resolution
-resolution_2d: ???       # Image resolution
-exact_splatting_2d: ???  # Whether only exact mappings are preserved after splatting
+resolution_3d: 0.03       # Point cloud resolution
+resolution_2d: [320, 240]       # Image resolution
+exact_splatting_2d: True  # Whether only exact mappings are preserved after splatting
 
 class: scannet.ScannetDatasetMM
 dataset_name: "scannet-sparse"
@@ -104,6 +104,7 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
 
     settings:
         mapping_key: mapping_index  # hardcoded key used to sync 3D points and modality mappings
+        proj_upscale: 1
         r_max: 8
         r_min: 0.05
         train_pixel_credit: 25  # Choose based on GPU capacity, model ko/pixel cost and 3D batch_size
@@ -113,15 +114,17 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
     pre_transform:
         - transform: LoadImages  # Read images from disk
           params:
-            cam_size: ${data.resolution_2d}
+            ref_size: ${data.resolution_2d}
         - transform: NonStaticMask  # Compute acquisition mask
           params:
-              cam_size: ${data.resolution_2d}
+              ref_size: ${data.resolution_2d}
+              proj_upscale: ${data.multimodal.settings.proj_upscale}
               n_sample: 5
         - transform: MapImages  # Compute the 3D-2D mapping
           params:
               method: SplattingVisibility
-              cam_size: ${data.resolution_2d}
+              ref_size: ${data.resolution_2d}
+              proj_upscale: ${data.multimodal.settings.proj_upscale}
               use_cuda: False
               voxel: ${data.resolution_3d}  # using the lower resolution here produces better occlusions for splatting
               r_max: ${data.multimodal.settings.r_max}

@@ -93,7 +93,7 @@ class ScannetMM(Scannet):
         Period of frames to skip when parsing the `.sens` frame streams. e.g. setting `frame_skip=50` will export 2% of the stream frames.
     is_test : bool, optional
         Switch to help debugging the dataset
-    img_cam_size : tuple, optional
+    img_ref_size : tuple, optional
         The size at which rgb images will be processed
     pre_transform_image : (callable, optional):
         Image pre_transforms
@@ -104,11 +104,11 @@ class ScannetMM(Scannet):
     DEPTH_IMG_SIZE = (640, 480)
 
     def __init__(
-            self, *args, img_cam_size=(320, 240), pre_transform_image=None,
+            self, *args, img_ref_size=(320, 240), pre_transform_image=None,
             transform_image=None, **kwargs):
         self.pre_transform_image = pre_transform_image
         self.transform_image = transform_image
-        self.img_cam_size = img_cam_size
+        self.img_ref_size = img_ref_size
         super(ScannetMM, self).__init__(*args, **kwargs)
 
     def process(self):
@@ -206,13 +206,14 @@ class ScannetMM(Scannet):
                 # Save scan images as SameSettingImageData
                 # NB: the image is first initialized to
                 # DEPTH_IMG_SIZE because the intrinsic parameters
-                # are defined accordingly. Setting cam_size
+                # are defined accordingly. Setting ref_size
                 # afterwards calls the @adjust_intrinsic method to
                 # rectify the intrinsics consequently
                 image_data = SameSettingImageData(
-                    cam_size=self.DEPTH_IMG_SIZE, path=path, pos=xyz,
+                    ref_size=self.DEPTH_IMG_SIZE, proj_upscale=1,
+                    path=path, pos=xyz, fx=fx, fy=fy, mx=mx, my=my,
                     extrinsic=extrinsic)
-                image_data.cam_size = self.img_cam_size
+                image_data.ref_size = self.img_ref_size
 
                 # Run image pre-transform
                 if self.pre_transform_image is not None:
