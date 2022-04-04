@@ -293,7 +293,7 @@ class ShapeNetDataset(BaseDataset):
 
             - dataroot
             - category: List of categories or All
-            - normal: bool, include normal or not
+            - normal: bool, include normals or not
             - pre_transforms
             - train_transforms
             - test_transforms

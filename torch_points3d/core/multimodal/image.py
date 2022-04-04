@@ -9,8 +9,9 @@ from torch_points3d.core.multimodal import CSRData, CSRBatch
 from torch_points3d.utils.multimodal import lexargsort, lexunique, \
     lexargunique, CompositeTensor
 from torch_points3d.utils.multimodal import tensor_idx
-from torch_points3d.core.multimodal.camera import opk_to_rotation_matrix_cuda
-from torch_points3d.core.multimodal.camera import Camera
+from torch_points3d.core.multimodal.visibility import VisibilityModel
+from torch_points3d.core.multimodal.visibility import \
+    pose_to_rotation_matrix_cuda
 
 
 # -------------------------------------------------------------------- #
@@ -66,7 +67,7 @@ def adjust_intrinsic(func):
         # Try-except to handle the edge-case where SameSettingImageData
         # attributes are not all set. This happens in the __init__
         # constructor when first setting important attributes such as
-        # 'cam_size', 'crop_offsets' without which the
+        # 'ref_size', 'proj_upscale', 'crop_offsets' without which the
         # intrinsic parameters cannot be re-computed
         try:
             # Gather image parameters before func
@@ -74,15 +75,15 @@ def adjust_intrinsic(func):
             in_fy = self.fy
             in_mx = self.mx
             in_my = self.my
-            in_size = self.cam_size
-            in_offsets = self.crop_offsets
+            in_size = self.proj_size
+            in_offsets = self.crop_offsets * self.proj_upscale
 
             out = func(self, *args, **kwargs)
 
             # Gather image parameters after func
             # TODO: take crop_size into account in projection ?
-            out_size = self.cam_size
-            out_offsets = self.crop_offsets
+            out_size = self.proj_size
+            out_offsets = self.crop_offsets * self.proj_upscale
 
             # Adjust intrinsic parameters to take resizing and cropping
             # into account
@@ -180,46 +181,94 @@ class SameSettingImageData:
     Attributes
         path:numpy.ndarray          [N] paths
         pos:torch.Tensor            [Nx3] positions
-        extrinsic:torch.Tensor      [Nx4x4] or [Nx3] extrinsic parameters. The latter format expects omega-phi-kappa angles
+        opk:torch.Tensor            [Nx3] angular poses
+        extrinsic:torch.Tensor      [Nx4x4] extrinsic matrix poses
+        fx:torch.Tensor             [N] focal length x
+        fy:torch.Tensor             [N] focal length y
+        mx:torch.Tensor             [N] principal point offset x
+        my:torch.Tensor             [N] principal point offset x
+        xi:torch.Tensor             [N]
+        k1:torch.Tensor             [N]
+        k2:torch.Tensor             [N]
+        gamma1:torch.Tensor         [N]
+        gamma2:torch.Tensor         [N]
+        u0:torch.Tensor             [N]
+        v0:torch.Tensor             [N]
 
-        cam_size:tuple              initial size of the loaded images and mappings
-        downscale:float             downsampling of images and mappings wrt cam_size
-        rollings:LongTensor         rolling offsets for each image wrt cam_size
-        crop_size:tuple             size of the cropping box wrt cam_size
-        crop_offsets:LongTensor     cropping box offsets for each image wrt cam_size
+        ref_size:tuple              initial size of the loaded images and mappings
+        proj_upscale:float          upsampling of projection wrt to ref_size
+        downscale:float             downsampling of images and mappings wrt ref_size
+        rollings:LongTensor         rolling offsets for each image wrt ref_size
+        crop_size:tuple             size of the cropping box wrt ref_size
+        crop_offsets:LongTensor     cropping box offsets for each image wrt ref_size
 
         x:Tensor                    tensor of features
         mappings:ImageMapping       mappings between 3D points and the images
+        visibility:VisibilityModel  visibility model used to compute the mappings
+        mask:BoolTensor             projection mask
     """
-    _numpy_keys = ['path', 'cameras', 'camera_idx']
-    _torch_keys = ['pos', 'x', 'extrinsic', 'crop_offsets', 'rollings']
+    _numpy_keys = ['path']
+    _pinhole_keys = ['fx', 'fy', 'mx', 'my']
+    _fisheye_keys = ['xi', 'k1', 'k2', 'gamma1', 'gamma2', 'u0', 'v0']
+    _torch_keys = ['pos', 'opk', 'extrinsic', 'crop_offsets', 'rollings'] \
+        + _pinhole_keys + _fisheye_keys
     _map_key = 'mappings'
-    _shared_keys = ['cam_size', 'downscale', 'crop_size', 'cameras']
-    _own_keys = _numpy_keys + _torch_keys + [_map_key]
+    _x_key = 'x'
+    _mask_key = 'mask'
+    _visi_key = 'visibility'
+    _shared_keys = [
+        'ref_size', 'proj_upscale', 'downscale', 'crop_size', _mask_key,
+        _visi_key]
+    _own_keys = _numpy_keys + _torch_keys + [_map_key, _x_key]
     _keys = _shared_keys + _own_keys
 
     def __init__(
             self, path=np.empty(0, dtype='O'), pos=torch.empty([0, 3]),
-            extrinsic=torch.empty([0, 4, 4]), cam_size=(512, 256),
+            opk=None, ref_size=(512, 256), proj_upscale=2,
             downscale=1, rollings=None, crop_size=None, crop_offsets=None,
-            x=None, mappings=None, cameras=None, camera_idx=None, **kwargs):
+            x=None, mappings=None, mask=None, visibility=None, fx=None,
+            fy=None, mx=None, my=None, xi=None, k1=None, k2=None, gamma1=None,
+            gamma2=None, u0=None, v0=None, extrinsic=None, **kwargs):
 
-        assert path.shape[0] == pos.shape[0] == extrinsic.shape[0]
+        # Initialize the private internal state attributes
+        self._ref_size = None
+        self._proj_upscale = None
+        self._rollings = None
+        self._downscale = None
+        self._crop_size = None
+        self._crop_offsets = None
+        self._x = None
+        self._mappings = None
+        self._mask = None
 
-        self.cam_size = cam_size
-        self._path = np.asarray(path)
-        self._pos = pos.double()
-        self._extrinsic = extrinsic.double()
+        # Initialize from parameters
+        self.path = np.array(path)
+        self.pos = pos.double()
+        self.opk = opk.double() if opk is not None else None
+        self.fx = fx
+        self.fy = fy
+        self.mx = mx
+        self.my = my
+        self.xi = xi
+        self.k1 = k1
+        self.k2 = k2
+        self.gamma1 = gamma1
+        self.gamma2 = gamma2
+        self.u0 = u0
+        self.v0 = v0
+        self.extrinsic = extrinsic
+        self.ref_size = ref_size
+        self.proj_upscale = proj_upscale
         self.rollings = rollings if rollings is not None \
             else torch.zeros(self.num_views, dtype=torch.int64)
-        self.crop_size = crop_size if crop_size is not None else self.cam_size
+        self.crop_size = crop_size if crop_size is not None else self.ref_size
         self.crop_offsets = crop_offsets if crop_offsets is not None \
             else torch.zeros((self.num_views, 2), dtype=torch.int64)
         self.downscale = downscale
         self.x = x
         self.mappings = mappings
-        self.cameras = cameras
-        self.camera_idx = camera_idx
+        self.mask = mask
+        self.visibility = visibility
 
         # self.debug()
 
@@ -227,24 +276,66 @@ class SameSettingImageData:
         assert self.path.shape[0] == self.num_views, \
             f"Attributes 'path' and 'pos' must have the same length."
 
-        assert self.has_opk_extrinsic != self.has_4x4_extrinsic, \
+        assert self.has_opk != self.has_extrinsic, \
             f"Poses must either be provided as Omega-Phi-Kappa angles or as " \
-            f"a full 4x4 extrinsic matrix."
+            f"a 4x4 extrinsic matrix."
 
-        assert self.device == self.extrinsic.device, \
-            f"Discrepancy in the devices of 'pos' and 'extrinsic' " \
-            f"attributes. Please use `SameSettingImageData.to()` to set " \
-            f"the device."
+        if self.has_opk:
+            assert self.opk.shape[0] == self.num_views, \
+                f"Attributes 'pos' and 'opk' must have the same length."
+            assert self.device == self.opk.device, \
+                f"Discrepancy in the devices of 'pos' and 'opk' attributes. " \
+                f"Please use `SameSettingImageData.to()` to set the device."
 
-        assert len(tuple(self.cam_size)) == 2, \
-            f"Expected len(cam_size)=2 but got {len(self.cam_size)} instead."
+        if self.has_extrinsic:
+            assert isinstance(self.extrinsic, torch.Tensor), \
+                f"Expected a Tensor but got {type(self.extrinsic)} instead."
+            assert self.extrinsic.shape == (self.num_views, 4, 4), \
+                f"Expected a ({self.num_views}, 4, 4) Tensor but got " \
+                f"{self.extrinsic.shape} instead."
+            assert self.device == self.extrinsic.device, \
+                f"Discrepancy in the devices of 'pos' and 'extrinsic' " \
+                f"attributes. Please use `SameSettingImageData.to()` to set " \
+                f"the device."
+
+        if self.is_pinhole:
+            for key in self._pinhole_keys:
+                p = getattr(self, key)
+                assert isinstance(p, torch.Tensor), \
+                    f"Expected a Tensor but got {type(p)} instead."
+                assert p.squeeze().shape == self.num_views, \
+                    f"Expected '{key}' to be a ({self.num_views},) Tensor but " \
+                    f"got {p.squeeze().shape} instead."
+                assert p.device == self.device, \
+                    f"Discrepancy in the devices of 'pos' and '{key}' " \
+                    f"attributes. Please use `SameSettingImageData.to()` to " \
+                    f"set the device."
+
+        if self.is_fisheye:
+            for key in self._fisheye_keys:
+                p = getattr(self, key)
+                assert isinstance(p, torch.Tensor), \
+                    f"Expected a Tensor but got {type(p)} instead."
+                assert p.squeeze().shape == self.num_views, \
+                    f"Expected '{key}' to be a ({self.num_views},) Tensor but " \
+                    f"got {p.squeeze().shape} instead."
+                assert p.device == self.device, \
+                    f"Discrepancy in the devices of 'pos' and '{key}' " \
+                    f"attributes. Please use `SameSettingImageData.to()` to " \
+                    f"set the device."
+
+        assert len(tuple(self.ref_size)) == 2, \
+            f"Expected len(ref_size)=2 but got {len(self.ref_size)} instead."
+        assert self.proj_upscale >= 1, \
+            f"Expected scalar larger than 1 but got {self.proj_upscale} " \
+            f"instead."
         assert self.rollings.shape[0] == self.num_views, \
             f"Expected tensor of size {self.num_views} but got " \
             f"{self.rollings.shape[0]} instead."
         assert len(tuple(self.crop_size)) == 2, \
             f"Expected len(crop_size)=2 but got {len(self.crop_size)} instead."
-        assert all(a <= b for a, b in zip(self.crop_size, self.cam_size)), \
-            f"Expected size smaller than {self.cam_size} but got " \
+        assert all(a <= b for a, b in zip(self.crop_size, self.ref_size)), \
+            f"Expected size smaller than {self.ref_size} but got " \
             f"{self.crop_size} instead."
         assert self.crop_offsets.shape == (self.num_views, 2), \
             f"Expected tensor of shape {(self.num_views, 2)} but got " \
@@ -286,40 +377,89 @@ class SameSettingImageData:
                 f"the device."
             self.mappings.debug()
 
+        if self.mask is not None:
+            assert self.mask.dtype == torch.bool, \
+                f"Expected a dtype=torch.bool but got dtype=" \
+                f"{self.mask.dtype} instead."
+            assert self.mask.shape == self.proj_size, \
+                f"Expected mask of size {self.proj_size} but got " \
+                f"{self.mask.shape} instead."
+            assert self.device == self.mask.device, \
+                f"Discrepancy in the devices of 'pos' and 'mask' attributes." \
+                f" Please use `SameSettingImageData.to()` to set the device."
+
+        if getattr(self, 'visibility', None) is not None:
+            assert isinstance(self.visibility, VisibilityModel)
+            assert self.visibility.img_size == self.proj_size
+
     def to_dict(self):
         return {key: getattr(self, key) for key in self._keys}
-
-    @property
-    def path(self):
-        return self._path
-
-    @property
-    def pos(self):
-        return self._pos
-
-    @property
-    def extrinsic(self):
-        return self._extrinsic
 
     @property
     def num_views(self):
         return self.pos.shape[0]
 
     @property
-    def has_4x4_extrinsic(self):
-        return self.extrinsic.shape == (self.num_views, 4, 4)
+    def has_opk(self):
+        return getattr(self, 'opk', None) is not None
 
     @property
-    def has_opk_extrinsic(self):
-        return self.extrinsic.shape == (self.num_views, 3)
+    def has_extrinsic(self):
+        return getattr(self, 'extrinsic', None) is not None
+
+    @property
+    def is_pinhole(self):
+        return not any(
+            getattr(self, a, None) is None for a in self._pinhole_keys)
+
+    @property
+    def is_fisheye(self):
+        return not any(
+            getattr(self, a, None) is None for a in self._fisheye_keys)
+
+    @property
+    def is_equirectangular(self):
+        return self.has_opk and not self.is_pinhole and not self.is_fisheye
+
+    @property
+    def intrinsic_pinhole(self):
+        """Generate the 4x4 intrinsic matrix based on fx, fy, mx and my.
+
+        Credit: https://github.com/angeladai/3DMV
+        """
+        if not self.is_pinhole:
+            raise ValueError(
+                f"Cannot compute intrinsic matrix, please set "
+                f"{self._pinhole_keys}.")
+        intrinsic_ = torch.eye(4).repeat(self.num_views, 1, 1)
+        intrinsic_[:, 0, 0] = self.fx
+        intrinsic_[:, 1, 1] = self.fy
+        intrinsic_[:, 0, 2] = self.mx
+        intrinsic_[:, 1, 2] = self.my
+        return intrinsic_
+
+    @property
+    def intrinsic_fisheye(self):
+        """Generate the Nx7 matrix of intrinsic parameters xi, k1, k2, gamma1,
+        gamma2, u0, v0 for fisheye camera.
+
+        Credit: https://github.com/angeladai/3DMV
+        """
+        if not self.is_fisheye:
+            raise ValueError(
+                f"Cannot compute intrinsic matrix, please set "
+                f"{self._fisheye_keys}.")
+        return torch.stack([
+            self.xi, self.k1, self.k2, self.gamma1, self.gamma2, self.u0,
+            self.v0]).T
 
     @property
     def axes(self):
-        if self.has_opk_extrinsic:
+        if self.has_opk:
             rotations = torch.cat([
-                opk_to_rotation_matrix_cuda(x).unsqueeze(0)
-                for x in self.extrinsic.view(-1, 3)], dim=0)
-        elif self.has_4x4_extrinsic:
+                pose_to_rotation_matrix_cuda(x).unsqueeze(0)
+                for x in self.opk.view(-1, 3)], dim=0)
+        elif self.has_extrinsic:
             rotations = self.extrinsic[:, :3, :3].transpose(1, 2)
         else:
             raise ValueError('No available pose information to compute axes.')
@@ -340,52 +480,86 @@ class SameSettingImageData:
         return tuple(int(x / self.downscale) for x in self.crop_size)
 
     @property
-    def cam_size(self):
+    def ref_size(self):
         """Initial size of the loaded image features and the mappings.
 
         This size is used as reference to characterize other
         SameSettingImageData attributes such as the crop offsets,
         resolution. As such, it should not be modified directly.
         """
-        return self._cam_size
+        return self._ref_size
 
-    @cam_size.setter
+    @ref_size.setter
     @adjust_intrinsic
-    def cam_size(self, cam_size):
-        cam_size = tuple(cam_size)
-        if self.cam_size == cam_size:
-            return
-        assert self.x is None and self.mappings is None, \
-            "Can't edit 'cam_size' if 'x', 'mappings' and 'cameras' are not all None."
-        assert len(cam_size) == 2, \
-            f"Expected len(cam_size)=2 but got {len(cam_size)} instead."
-        # Warning: modifying 'cam_size', has the effect of resetting 'crop_size'
-        self._cam_size = cam_size
-        self.crop_size = cam_size
+    def ref_size(self, ref_size):
+        ref_size = tuple(ref_size)
+        assert \
+            (self.x is None and self.mappings is None and self.mask is None) \
+            or self.ref_size == ref_size, \
+            "Can't directly edit 'ref_size' if 'x', 'mappings' and 'mask' " \
+            "are not all None."
+        assert len(ref_size) == 2, \
+            f"Expected len(ref_size)=2 but got {len(ref_size)} instead."
+        # Warning: modifying 'ref_size', has the effect of resetting 'crop_size'
+        self._ref_size = ref_size
+        self.crop_size = ref_size
 
     @property
     def pixel_dtype(self):
         """Smallest torch dtype allowed by the resolution for encoding
         pixel coordinates.
         """
-        size = self.cam_size
-        if size is None:
-            return torch.int64
         for dtype in [torch.int16, torch.int32, torch.int64]:
-            if torch.iinfo(dtype).max >= max(size[0], size[1]):
+            if torch.iinfo(dtype).max >= max(
+                    self.ref_size[0], self.ref_size[1]):
                 break
         return dtype
 
     @property
+    def proj_upscale(self):
+        """Upsampling scale factor of the projection map and mask size,
+        with respect to 'ref_size'.
+
+        Must follow: proj_upscale >= 1
+        """
+        return self._proj_upscale
+
+    @proj_upscale.setter
+    @adjust_intrinsic
+    def proj_upscale(self, scale):
+        assert (self.mask is None and self.mappings is None) \
+               or self.proj_upscale == scale, \
+            "Can't directly edit 'proj_upscale' if 'mask' and 'mappings' " \
+            "are not both None."
+        assert scale >= 1, \
+            f"Expected scalar larger than 1 but got {scale} instead."
+        # assert isinstance(scale, int), \
+        #     f"Expected an int but got a {type(scale)} instead."
+        # assert (scale & (scale-1) == 0) and scale != 0,\
+        #     f"Expected a power of 2 but got {scale} instead."
+
+        self._proj_upscale = scale
+
+    @property
+    def proj_size(self):
+        """Size of the projection map and mask.
+
+        This size is used to define the mask and initial mappings. It
+        is defined by 'ref_size' and 'proj_upscale' and, as such, cannot
+        be edited directly.
+        """
+        return tuple(int(x * self.proj_upscale) for x in self.ref_size)
+
+    @property
     def rollings(self):
         """Rollings to apply to each image, with respect to the
-        'cam_size' state.
+        'ref_size' state.
 
         By convention, rolling is applied first, then cropping, then
         resizing. For that reason, rollings should be defined before
         'x' or 'mappings' are cropped or resized.
         """
-        return getattr(self, '_rollings', None)
+        return self._rollings
 
     @rollings.setter
     def rollings(self, rollings):
@@ -403,7 +577,7 @@ class SameSettingImageData:
 
     def update_rollings(self, rollings):
         """Update the rollings state of the SameSettingImageData, WITH
-        RESPECT TO ITS REFERENCE STATE 'cam_size'.
+        RESPECT TO ITS REFERENCE STATE 'ref_size'.
 
         This assumes the images have a circular representation (ie that
         the first and last pixels along the width are adjacent in
@@ -413,11 +587,11 @@ class SameSettingImageData:
         """
         # Make sure no prior cropping or resizing was applied to the
         # images and mappings
-        assert self.cam_size[0] == self.img_size[0], \
+        assert self.ref_size[0] == self.img_size[0], \
             f"CenterRoll cannot operate if images and mappings " \
             f"underwent prior cropping or resizing."
         assert self.crop_size is None \
-               or self.crop_size == self.cam_size, \
+               or self.crop_size == self.ref_size, \
             f"CenterRoll cannot operate if images and mappings " \
             f"underwent prior cropping or resizing."
         assert self.downscale is None or self.downscale == 1, \
@@ -443,7 +617,7 @@ class SameSettingImageData:
 
             # Recover the width pixel coordinates
             w_pix = self.mappings.pixels[:, 0].long()
-            w_pix = (w_pix + pix_roll) % self.cam_size[0]
+            w_pix = (w_pix + pix_roll) % self.ref_size[0]
             w_pix = w_pix.type(self.pixel_dtype)
 
             # Apply pixel update
@@ -455,13 +629,13 @@ class SameSettingImageData:
 
     @property
     def crop_size(self):
-        """Size of the cropping to apply to the 'cam_size' to obtain the
+        """Size of the cropping to apply to the 'ref_size' to obtain the
         current image cropping.
 
         This size is used to characterize 'x' and 'mappings'. As
         such, it should not be modified directly.
         """
-        return getattr(self, '_crop_size', None)
+        return self._crop_size
 
     @crop_size.setter
     def crop_size(self, crop_size):
@@ -473,9 +647,9 @@ class SameSettingImageData:
             "not both None. Consider using 'update_cropping'."
         assert len(crop_size) == 2, \
             f"Expected len(crop_size)=2 but got {len(crop_size)} instead."
-        assert crop_size[0] <= self.cam_size[0] \
-               and crop_size[1] <= self.cam_size[1], \
-            f"Expected size smaller than {self.cam_size} but got " \
+        assert crop_size[0] <= self.ref_size[0] \
+               and crop_size[1] <= self.ref_size[1], \
+            f"Expected size smaller than {self.ref_size} but got " \
             f"{crop_size} instead."
         self._crop_size = crop_size
 
@@ -487,14 +661,14 @@ class SameSettingImageData:
     @property
     def crop_offsets(self):
         """X-Y (width, height) offsets of the top-left corners of
-        cropping boxes to apply to the 'cam_size' in order to obtain the
+        cropping boxes to apply to the 'ref_size' in order to obtain the
         current image cropping.
 
         These offsets must match the 'num_views' and is used to
         characterize 'x' and 'mappings'. As such, it should not be
         modified directly.
         """
-        return getattr(self, '_crop_offsets', None)
+        return self._crop_offsets
 
     @crop_offsets.setter
     @adjust_intrinsic
@@ -516,13 +690,13 @@ class SameSettingImageData:
         RESPECT TO ITS CURRENT STATE 'img_size'.
 
         Parameters crop_size and crop_offsets are resized to the
-        'cam_size'
+        'ref_size'
 
         Crop the 'x' and 'mappings', with respect to their current
-        'img_size' (as opposed to the 'cam_size').
+        'img_size' (as opposed to the 'ref_size').
         """
         # Update the private 'crop_size' and 'crop_offsets' attributes
-        # wrt 'cam_size'
+        # wrt 'ref_size'
         crop_offsets = crop_offsets.long()
         self._crop_size = tuple(int(x * self.downscale) for x in crop_size)
         self._crop_offsets = (
@@ -548,11 +722,11 @@ class SameSettingImageData:
     @property
     def downscale(self):
         """Downsampling scale factor of the current image resolution,
-        with respect to the initial image size 'cam_size'.
+        with respect to the initial image size 'ref_size'.
 
         Must follow: scale >= 1
         """
-        return getattr(self, '_downscale', None)
+        return self._downscale
 
     @downscale.setter
     def downscale(self, scale):
@@ -577,7 +751,7 @@ class SameSettingImageData:
 
         For clean load, consider using 'SameSettingImageData.load()'.
         """
-        return getattr(self, '_x', None)
+        return self._x
 
     @x.setter
     def x(self, x):
@@ -622,7 +796,7 @@ class SameSettingImageData:
         scaling and cropping. As such, it is recommended not to
         manipulate the mappings directly.
         """
-        return getattr(self, '_mappings', None)
+        return self._mappings
 
     @mappings.setter
     def mappings(self, mappings):
@@ -648,40 +822,6 @@ class SameSettingImageData:
         #         f"Max pixel values should be smaller than ({self.img_size}) " \
         #         f"but got ({w_max, h_max}) instead."
         self._mappings = mappings.to(self.device)
-
-    @property
-    def cameras(self):
-        return getattr(self, '_cameras', None)
-
-    @cameras.setter
-    def cameras(self, cameras):
-        assert isinstance(cameras, (list, np.ndarray))
-        assert all(isinstance(x, Camera) for x in cameras)
-        self._cameras = np.asarray(cameras)
-
-    @property
-    def num_cameras(self):
-        return len(self.cameras) if self.cameras else 0
-
-    @property
-    def camera_idx(self):
-        return getattr(self, '_camera_idx', None)
-
-    @camera_idx.setter
-    def camera_idx(self, camera_idx):
-        assert self.cameras is not None
-        assert isinstance(camera_idx, torch.LongTensor)
-        assert camera_idx.dim() == 1
-        assert camera_idx.shape[0] == self.num_views
-        assert camera_idx.max() + 1 <= self.num_cameras
-        self._camera_idx = camera_idx
-
-    @property
-    def camera_one_hot(self):
-        if self.cameras is None:
-            return None
-        return torch.nn.functional.one_hot(
-            self.camera_idx, num_classes=self.num_cameras)
 
     def select_points(self, idx, mode='pick'):
         """Update the 3D points sampling. Typically called after a 3D
@@ -810,17 +950,38 @@ class SameSettingImageData:
 
         return images
 
+    @property
+    def mask(self):
+        """Boolean mask used for 3D points projection in the images.
+
+        If not None, must be a BoolTensor of size 'proj_size'.
+        """
+        return self._mask
+
+    @mask.setter
+    def mask(self, mask):
+        if mask is None:
+            self._mask = None
+        else:
+            assert mask.dtype == torch.bool, \
+                f"Expected a dtype=torch.bool but got dtype={mask.dtype} " \
+                f"instead."
+            assert mask.shape == self.proj_size, \
+                f"Expected mask of size {self.proj_size} but got " \
+                f"{mask.shape} instead."
+            self._mask = mask.to(self.device)
+
     def load(self, show_progress=False):
         """Load images to the 'x' attribute.
 
         Images are batched into a tensor of size NxCxHxW, where
         N='num_views' and (W, H)='img_size'. They are read with
-        respect to their order in 'path', resized to 'cam_size', rolled
+        respect to their order in 'path', resized to 'ref_size', rolled
         with 'rollings', cropped with 'crop_size' and 'crop_offsets'
         and subsampled by 'downscale'.
         """
         self._x = self.read_images(
-            size=self.cam_size,
+            size=self.ref_size,
             rollings=self.rollings,
             crop_size=self.crop_size,
             crop_offsets=self.crop_offsets,
@@ -892,8 +1053,9 @@ class SameSettingImageData:
             crop_offsets = torch.zeros((idx.shape[0], 2)).long()
 
         # Downsampling after cropping
-        assert downscale is None or downscale >= 1, \
-            f"Expected scalar larger than 1 but got {downscale} instead."
+        if downscale is not None:
+            assert downscale >= 1, \
+                f"Expected scalar larger than 1 but got {downscale} instead."
 
         # Read images from files
         path_enum = tq(self.path[idx]) if show_progress else self.path[idx]
@@ -962,15 +1124,29 @@ class SameSettingImageData:
         return self.__class__(
             path=self.path[idx_numpy],
             pos=self.pos[idx],
-            extrinsic=self.extrinsic[idx],
-            cam_size=copy.deepcopy(self.cam_size),
+            opk=self.opk[idx] if self.has_opk else None,
+            extrinsic=self.extrinsic[idx] if self.has_extrinsic else None,
+            fx=self.fx[idx] if self.is_pinhole else None,
+            fy=self.fy[idx] if self.is_pinhole else None,
+            mx=self.mx[idx] if self.is_pinhole else None,
+            my=self.my[idx] if self.is_pinhole else None,
+            xi=self.xi[idx] if self.is_fisheye else None,
+            k1=self.k1[idx] if self.is_fisheye else None,
+            k2=self.k2[idx] if self.is_fisheye else None,
+            gamma1=self.gamma1[idx] if self.is_fisheye else None,
+            gamma2=self.gamma2[idx] if self.is_fisheye else None,
+            u0=self.u0[idx] if self.is_fisheye else None,
+            v0=self.v0[idx] if self.is_fisheye else None,
+            ref_size=copy.deepcopy(self.ref_size),
+            proj_upscale=copy.deepcopy(self.proj_upscale),
             downscale=copy.deepcopy(self.downscale),
             crop_size=copy.deepcopy(self.crop_size),
             crop_offsets=self.crop_offsets[idx],
             x=self.x[idx] if self.x is not None else None,
-            mappings=self.mappings.select_images(idx) if self.mappings is not None else None,
-            camera_idx=self.camera_idx[idx] if self.camera_idx else None,
-            cameras=self.cameras)
+            mappings=self.mappings.select_images(idx)
+            if self.mappings is not None else None,
+            mask=self.mask.clone() if self.mask is not None else None,
+            visibility=copy.deepcopy(self.visibility) if hasattr(self, 'visibility') else None)
 
     def __iter__(self):
         """Iteration mechanism.
@@ -1001,14 +1177,27 @@ class SameSettingImageData:
         """Set torch.Tensor attributes device."""
         out = self.__class__(
             path=self.path, pos=self.pos.to(device),
-            extrinsic=self.extrinsic.to(device), cam_size=self.cam_size,
+            opk=self.opk.to(device) if self.has_opk else None,
+            extrinsic=self.extrinsic.to(device) if self.has_extrinsic else None,
+            fx=self.fx.to(device) if self.is_pinhole else None,
+            fy=self.fy.to(device) if self.is_pinhole else None,
+            mx=self.mx.to(device) if self.is_pinhole else None,
+            my=self.my.to(device) if self.is_pinhole else None,
+            xi=self.xi.to(device) if self.is_fisheye else None,
+            k1=self.k1.to(device) if self.is_fisheye else None,
+            k2=self.k2.to(device) if self.is_fisheye else None,
+            gamma1=self.gamma1.to(device) if self.is_fisheye else None,
+            gamma2=self.gamma2.to(device) if self.is_fisheye else None,
+            u0=self.u0.to(device) if self.is_fisheye else None,
+            v0=self.v0.to(device) if self.is_fisheye else None,
+            ref_size=self.ref_size, proj_upscale=self.proj_upscale,
             downscale=self.downscale, rollings=self.rollings.to(device),
             crop_size=self.crop_size, crop_offsets=self.crop_offsets.to(device),
-            camera_idx=self.camera_idx.to(device) if self.camera_idx else None,
-            cameras=self.cameras)
+            visibility=self.visibility)
         out._x = self.x.to(device) if self.x is not None else None
         out._mappings = self.mappings.to(device) if self.mappings is not None \
             else None
+        out._mask = self.mask.to(device) if self.mask is not None else None
         return out
 
     @property
@@ -1018,12 +1207,16 @@ class SameSettingImageData:
 
     @property
     def settings_hash(self):
-        """Produces a hash of the shared SameSettingImageData settings.
-        This hash can be used as an identifier to characterize the
-        SameSettingImageData for Batching mechanisms.
+        """Produces a hash of the shared SameSettingImageData settings
+        (except for the mask). This hash can be used as an identifier
+        to characterize the SameSettingImageData for Batching
+        mechanisms.
         """
         # Assert shared keys are the same for all items
-        keys = tuple(set(SameSettingImageData._shared_keys))
+        keys = tuple(
+            set(SameSettingImageData._shared_keys)
+            - {SameSettingImageData._mask_key}
+            - {SameSettingImageData._visi_key})
         return hash(tuple(getattr(self, k) for k in keys))
 
     @staticmethod
@@ -1107,7 +1300,7 @@ class SameSettingImageBatch(SameSettingImageData):
     """
 
     def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+        super(SameSettingImageBatch, self).__init__(**kwargs)
         self.__sizes__ = None
 
     @property
@@ -1138,7 +1331,10 @@ class SameSettingImageBatch(SameSettingImageData):
             batch_dict[key] = [batch_dict[key]]
 
         # Only stack if all SameSettingImageData have the same shared
-        # attributes
+        # attributes. Except for the 'mask' attribute, for which the
+        # value of the first SameSettingImageData is used for the
+        # whole batch. This is because masks may differ slightly when
+        # computed statistically with NonStaticImageMask.
         if len(image_data_list) > 1:
 
             # Make sure shared keys are the same across the batch
@@ -1146,7 +1342,8 @@ class SameSettingImageBatch(SameSettingImageData):
             assert all(im.settings_hash == hash_ref
                        for im in image_data_list), \
                 f"All SameSettingImageData values for shared keys " \
-                f"{SameSettingImageData._shared_keys} must be the same."
+                f"{SameSettingImageData._shared_keys} must be the same " \
+                f"(except for the 'mask')."
 
             for image_data in image_data_list[1:]:
 
@@ -1160,25 +1357,31 @@ class SameSettingImageBatch(SameSettingImageData):
                 # .to_data_list
                 sizes.append(image_data.num_views)
 
-        # Concatenate numpy array attributes. Try/except here is needed
-        # to avoid crashing in case an attribute is None or non-existent
+        # Concatenate numpy array attributes
         for key in SameSettingImageData._numpy_keys:
-            try:
-                batch_dict[key] = np.concatenate(batch_dict[key])
-            except:
-                batch_dict[key] = None
+            batch_dict[key] = np.concatenate(batch_dict[key])
 
-        # Concatenate torch tensor attributes. Try/except here is needed
-        # to avoid crashing in case an attribute is None or non-existent
-        for key in SameSettingImageData._torch_keys + [SameSettingImageData._x_key]:
+        # Concatenate torch array attributes. Special care needed here
+        # for backward compatibility with former version of
+        # SameSettingImageData not holding intrinsic nor extrinsic
+        # attributes
+        for key in SameSettingImageData._torch_keys:
             try:
                 batch_dict[key] = torch.cat(batch_dict[key])
             except:
                 batch_dict[key] = None
 
+        # Concatenate images, unless one of the items does not have
+        # image features
+        if any(img is None for img in batch_dict[SameSettingImageData._x_key]):
+            batch_dict[SameSettingImageData._x_key] = None
+        else:
+            batch_dict[SameSettingImageData._x_key] = torch.cat(
+                batch_dict[SameSettingImageData._x_key])
+
         # Batch mappings, unless one of the items does not have mappings
-        if any(mappings is None
-               for mappings in batch_dict[SameSettingImageData._map_key]):
+        if any(mpg is None
+               for mpg in batch_dict[SameSettingImageData._map_key]):
             batch_dict[SameSettingImageData._map_key] = None
         else:
             batch_dict[SameSettingImageData._map_key] = \
@@ -1405,7 +1608,7 @@ class ImageBatch(ImageData):
     """
 
     def __init__(self, image_list: List[SameSettingImageData]):
-        super().__init__(image_list)
+        super(ImageBatch, self).__init__(image_list)
         self.__il_sizes__ = None
         self.__hashes__ = None
         self.__il_idx_dict__ = None
@@ -1594,7 +1797,7 @@ class ImageMapping(CSRData):
 
     def debug(self):
         # CSRData debug
-        super().debug()
+        super(ImageMapping, self).debug()
 
         # ImageMapping-specific debug
         assert len(self.values) == 2 or self.has_features, \

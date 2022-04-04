@@ -564,7 +564,7 @@ class RandomScaleAnisotropic:
 
 
 class MeshToNormal(object):
-    """ Computes mesh normal (IN PROGRESS)
+    """ Computes mesh normals (IN PROGRESS)
     """
 
     def __init__(self):

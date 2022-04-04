@@ -112,10 +112,13 @@ def read_kitti360_image_sequence(root, sequence, cam_id=0, size=None):
     # Gather the sequence image information in a `SameSettingImageData`
     if not fisheye:
         images = SameSettingImageData(
-            cam_size=size, path=paths, pos=T, extrinsic=cam_to_world)
+            ref_size=size, proj_upscale=1, path=paths, pos=T, fx=fx, fy=fy,
+            mx=mx, my=my, extrinsic=cam_to_world)
     else:
         images = SameSettingImageData(
-            cam_size=size, path=paths, pos=T, extrinsic=cam_to_world)
+            ref_size=size, proj_upscale=1, path=paths, pos=T, xi=xi, k1=k1,
+            k2=k2, gamma1=gamma1, gamma2=gamma2, u0=u0, v0=v0,
+            extrinsic=cam_to_world)
 
     return images
 
