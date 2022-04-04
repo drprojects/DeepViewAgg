@@ -17,9 +17,17 @@ optim:
         - 'head'
         - 'backbone'
         - 'backbone.down_modules.0.image.conv'
+        - 'backbone.down_modules.1.image.conv'
+        - 'backbone.down_modules.2.image.conv'
+        - 'backbone.down_modules.3.image.conv'
+        - 'backbone.down_modules.4.image.conv'
       lr:
         - ${training.optim.base_lr}
         - ${training.optim.base_lr}
+        - ${training.optim.base_lr} * 0.01
+        - ${training.optim.base_lr} * 0.01
+        - ${training.optim.base_lr} * 0.01
+        - ${training.optim.base_lr} * 0.01
         - ${training.optim.base_lr} * 0.01
       momentum: 0.9
       weight_decay: 1e-4
