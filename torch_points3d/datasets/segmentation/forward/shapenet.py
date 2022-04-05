@@ -23,7 +23,7 @@ class _ForwardShapenet(torch.utils.data.Dataset):
         path: folder that contains a set of files of a given category
         category: index of the category to use for forward inference. This value depends on how many categories the model has been trained one.
         transforms: transforms to be applied to the data
-        include_normals: wether to include normals for the forward inference
+        include_normals: wether to include normal for the forward inference
     """
 
     def __init__(self, path, category: int, transforms=None, include_normals=True):

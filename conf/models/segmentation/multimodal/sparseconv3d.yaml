@@ -2,8 +2,7 @@
 defaults:
   - segmentation/default
 
-Res16UNet21-15_Res16Image21_encoder_max:
-    # 28.1 M params - 109.4 Mo on the GPU - ~2.7 ko/pixel at training time
+Res16UNet34-L4-early-ade20k:
     class: sparseconv3d.APIModel
     conv_type: "SPARSE"
     backend: "torchsparse"
@@ -7208,14 +7207,10 @@ Res16UNet34-PointPyramid-early-cityscapes:
             in_feat_img: 4
             in_feat_map: 8
             in_feat_attention: 4
-            block: ResBlock # Can be any of the blocks in modules/MinkowskiEngine/api_modules.py
-            out_l1: 64
-            out_l2: 128
-            out_l3: 256
-            out_l4: 512
+            block: ResBlock
+            out_feat_img_0: 512  # out dim of ResNet18Layer4
 
         down_conv:
-            n_early_conv: 4
             module_name: ResNetDown
             block: block
             conv3d_after_fusion: False
@@ -7224,7 +7219,7 @@ Res16UNet34-PointPyramid-early-cityscapes:
             stride: [ 1, 2, 2, 2, 2 ]
             down_conv_nn:
               [
-                  [ FEAT + out_l1 + out_l2 + out_l3 + out_l4, 4*in_feat ],
+                  [ FEAT + out_feat_img_0, 4*in_feat ],
                   [ 4*in_feat, in_feat ],
                   [ in_feat, 2*in_feat ],
                   [ 2*in_feat, 4*in_feat ],
@@ -7233,14 +7228,15 @@ Res16UNet34-PointPyramid-early-cityscapes:
 
             image:
                 down_conv:
-                    module_name: [ CityscapesResNet18TruncatedLayer1, CityscapesResNet18Layer2, CityscapesResNet18Layer3, CityscapesResNet18Layer4 ]
+                    module_name: ADE20KResNet18TruncatedLayer4
+                    frozen: False
                 atomic_pooling:
                     module_name: BimodalCSRPool
                     mode: max
                 view_pooling:
                     module_name: GroupBimodalCSRPool
                     in_map: 8
-                    in_mod: [ out_l1, out_l2, out_l3, out_l4 ]
+                    in_mod: out_feat_img_0
                     num_groups: 4
                     use_mod: False
                     map_encoder: DeepSetFeat
@@ -7248,9 +7244,8 @@ Res16UNet34-PointPyramid-early-cityscapes:
                 fusion:
                     module_name: BimodalFusion
                     mode: concatenation
-                branching_index: [ 0, 1, 2, 3 ]
-                out_channels: [ FEAT + out_l1, FEAT + out_l1 + out_l2, FEAT + out_l1 + out_l2 + out_l3, FEAT + out_l1 + out_l2 + out_l3 + out_l4 ]  # This is necessary to support batches with no images
-                checkpointing: c
+                branching_index: 0
+                #checkpointing: cav  # UnimodalBranch gradient checkpointing at train time
 
         up_conv:
             block: block
@@ -7273,26 +7268,16 @@ Res16UNet34-PointPyramid-early-cityscapes-interpolate:
     class: sparseconv3d.APIModel
     conv_type: "SPARSE"
     backend: "torchsparse"
-    backbone: # backbone offset specific for Sparse conv application builder
+    backbone:
         define_constants:
             in_feat: 32
             in_feat_img: 4
             in_feat_map: 8
             in_feat_attention: 4
-            block: ResBlock # Can be any of the blocks in modules/MinkowskiEngine/api_modules.py
-            l0: 128
-            l1: 64
-            l2: 128
-            l3: 256
-            l4: 512
-            l0_map: 32
-            l1_map: 32
-            l2_map: 64
-            l3_map: 128
-            l4_map: 256
+            block: ResBlock
+            out_feat_img_0: 512  # out dim of ResNet18Layer4
 
         down_conv:
-            n_early_conv: 5
             module_name: ResNetDown
             block: block
             conv3d_after_fusion: False
@@ -7301,7 +7286,7 @@ Res16UNet34-PointPyramid-early-cityscapes-interpolate:
             stride: [ 1, 2, 2, 2, 2 ]
             down_conv_nn:
               [
-                  [ FEAT + l0_map + l1_map + l2_map + l3_map + l4_map, 4*in_feat ],
+                  [ FEAT + out_feat_img_0, 4*in_feat ],
                   [ 4*in_feat, in_feat ],
                   [ in_feat, 2*in_feat ],
                   [ 2*in_feat, 4*in_feat ],
@@ -7310,36 +7295,18 @@ Res16UNet34-PointPyramid-early-cityscapes-interpolate:
 
             image:
                 down_conv:
-                    module_name: [
-                        CityscapesResNet18Layer0,
-                        CityscapesResNet18Layer1,
-                        CityscapesResNet18Layer2,
-                        CityscapesResNet18Layer3,
-                        CityscapesResNet18Layer4 ]
+                    module_name: ADE20KResNet18TruncatedLayer4
+                    frozen: False
                 atomic_pooling:
                     module_name: BimodalCSRPool
                     mode: max
                 view_pooling:
-                    module_name: GroupBimodalCSRPool
-                    in_map: 8
-                    in_mod: [ l0, l1, l2, l3, l4 ]
-                    out_mod: [ l0_map, l1_map, l2_map, l3_map, l4_map ]
-                    num_groups: 4
-                    use_mod: False
-                    map_encoder: DeepSetFeat
-                    use_num: True
+                    module_name: BimodalCSRPool
+                    mode: max
                 fusion:
                     module_name: BimodalFusion
                     mode: concatenation
-                branching_index: [ 0, 1, 2, 3, 4 ]
-                out_channels: [
-                        FEAT + l0_map,
-                        FEAT + l0_map + l1_map,
-                        FEAT + l0_map + l1_map + l2_map,
-                        FEAT + l0_map + l1_map + l2_map + l3_map,
-                        FEAT + l0_map + l1_map + l2_map + l3_map + l4_map ]  # This is necessary to support batches with no images
-                checkpointing: c
-                interpolate: True
+                branching_index: 0
 
         up_conv:
             block: block
@@ -7361,13 +7328,13 @@ ResUNet34-PointPyramid-early-cityscapes-interpolate:
     class: sparseconv3d.APIModel
     conv_type: "SPARSE"
     backend: "torchsparse"
-    backbone: # backbone offset specific for Sparse conv application builder
+    backbone:
         define_constants:
             in_feat: 32
             in_feat_img: 4
             in_feat_map: 8
             in_feat_attention: 4
-            block: ResBlock # Can be any of the blocks in modules/MinkowskiEngine/api_modules.py
+            block: ResBlock
             l0: 128
             l1: 64
             l2: 128
@@ -8107,23 +8074,27 @@ Res16UNet34-L4-early-ade20k-interpolate:
                   [ 3*in_feat, 0, 3*in_feat ],
                 ]
 
-Res16UNet34-PointFPN-early-cityscapes-interpolate:
-    # 28.1 M params - 109.4 Mo on the GPU - ~2.7 ko/pixel at training time
+Res16UNet34-PointPyramid-early-max-cityscapes-interpolate:
     class: sparseconv3d.APIModel
     conv_type: "SPARSE"
     backend: "torchsparse"
-    backbone: # backbone offset specific for Sparse conv application builder
+    backbone:
         define_constants:
             in_feat: 32
             in_feat_img: 4
             in_feat_map: 8
             in_feat_attention: 4
-            block: ResBlock # Can be any of the blocks in modules/MinkowskiEngine/api_modules.py
+            block: ResBlock
             l0: 128
             l1: 64
             l2: 128
             l3: 256
             l4: 512
+            l0_map: 128
+            l1_map: 64
+            l2_map: 128
+            l3_map: 256
+            l4_map: 512
 
         down_conv:
             n_early_conv: 5
@@ -8135,7 +8106,7 @@ Res16UNet34-PointFPN-early-cityscapes-interpolate:
             stride: [ 1, 2, 2, 2, 2 ]
             down_conv_nn:
               [
-                  [ FEAT + l4, 4*in_feat ],
+                  [ FEAT + l0_map + l1_map + l2_map + l3_map + l4_map, 4*in_feat ],
                   [ 4*in_feat, in_feat ],
                   [ in_feat, 2*in_feat ],
                   [ 2*in_feat, 4*in_feat ],
@@ -8154,98 +8125,19 @@ Res16UNet34-PointFPN-early-cityscapes-interpolate:
                     module_name: BimodalCSRPool
                     mode: max
                 view_pooling:
-                    module_name: GroupBimodalCSRPool
-                    in_map: 8
-                    in_mod: [ l0, l1, l2, l3, l4 ]
-                    out_mod: [ l4, FEAT + l4, FEAT + l4, FEAT + l4, FEAT + l4 ]
-                    num_groups: 4
-                    use_mod: False
-                    map_encoder: DeepSetFeat
-                    use_num: True
-                fusion:
-                    module_name: BimodalFusion
-                    mode: [ concatenation, residual, residual, residual, residual ]
-                branching_index: [ 0, 1, 2, 3, 4 ]
-                out_channels: FEAT + l4  # This is necessary to support batches with no images
-                checkpointing: c
-                interpolate: True
-
-        up_conv:
-            block: block
-            module_name: ResNetUp
-            N: [ 1, 1, 1, 1, 1 ]
-            kernel_size: [ 2, 2, 2, 2, 3 ]
-            stride: [ 2, 2, 2, 2, 1 ]
-            up_conv_nn:
-                [
-                  [ 8*in_feat, 4*in_feat, 4*in_feat ],
-                  [ 4*in_feat, 2*in_feat, 4*in_feat ],
-                  [ 4*in_feat, in_feat, 3*in_feat ],
-                  [ 3*in_feat, 4*in_feat, 3*in_feat ],
-                  [ 3*in_feat, 0, 3*in_feat ],
-                ]
-
-Res16UNet34-PointFPN-early-ade20k-interpolate:
-    # 28.1 M params - 109.4 Mo on the GPU - ~2.7 ko/pixel at training time
-    class: sparseconv3d.APIModel
-    conv_type: "SPARSE"
-    backend: "torchsparse"
-    backbone: # backbone offset specific for Sparse conv application builder
-        define_constants:
-            in_feat: 32
-            in_feat_img: 4
-            in_feat_map: 8
-            in_feat_attention: 4
-            block: ResBlock # Can be any of the blocks in modules/MinkowskiEngine/api_modules.py
-            l0: 128
-            l1: 64
-            l2: 128
-            l3: 256
-            l4: 512
-
-        down_conv:
-            n_early_conv: 5
-            module_name: ResNetDown
-            block: block
-            conv3d_after_fusion: False
-            N: [ 0, 2, 3, 4, 6 ]
-            kernel_size: [ 3, 2, 2, 2, 2 ]
-            stride: [ 1, 2, 2, 2, 2 ]
-            down_conv_nn:
-              [
-                  [ FEAT + l4, 4*in_feat ],
-                  [ 4*in_feat, in_feat ],
-                  [ in_feat, 2*in_feat ],
-                  [ 2*in_feat, 4*in_feat ],
-                  [ 4*in_feat, 8*in_feat ],
-              ]
-
-            image:
-                down_conv:
-                    module_name: [
-                        ADE20KResNet18Layer0,
-                        ADE20KResNet18Layer1,
-                        ADE20KResNet18Layer2,
-                        ADE20KResNet18Layer3,
-                        ADE20KResNet18Layer4 ]
-                atomic_pooling:
                     module_name: BimodalCSRPool
                     mode: max
-                view_pooling:
-                    module_name: GroupBimodalCSRPool
-                    in_map: 8
-                    in_mod: [ l0, l1, l2, l3, l4 ]
-                    out_mod: [ l4, FEAT + l4, FEAT + l4, FEAT + l4, FEAT + l4 ]
-                    num_groups: 4
-                    use_mod: False
-                    map_encoder: DeepSetFeat
-                    use_num: True
                 fusion:
                     module_name: BimodalFusion
-                    mode: [ concatenation, residual, residual, residual, residual ]
+                    mode: concatenation
                 branching_index: [ 0, 1, 2, 3, 4 ]
-                out_channels: FEAT + l4  # This is necessary to support batches with no images
-                checkpointing: c
+                out_channels: [
+                        FEAT + l0_map,
+                        FEAT + l0_map + l1_map,
+                        FEAT + l0_map + l1_map + l2_map,
+                        FEAT + l0_map + l1_map + l2_map + l3_map,
+                        FEAT + l0_map + l1_map + l2_map + l3_map + l4_map ]  # This is necessary to support batches with no images
+                checkpointing: c  # UnimodalBranch gradient checkpointing at train time
                 interpolate: True
 
         up_conv:
