@@ -1,0 +1,52 @@
+models:
+    TestUnwrapper:
+        architecture: MockModel
+        conv_type: "DENSE"
+        use_category: True
+        down_conv:
+            module_name: ConvMockDown
+            down_conv_nn: [0,1,2,3]
+        innermost:
+            module_name: InnerMock
+            nn: [512 * 3 + 3, 512]
+        up_conv:
+            module_name: ConvMockUp
+            up_conv_nn: [4,5,6,7]
+
+    TestNoInnermost:
+        architecture: MockModel
+        conv_type: "DENSE"
+        use_category: True
+        down_conv:
+            module_name: ConvMockDown
+            down_conv_nn: [0,1,2,3]
+        up_conv:
+            module_name: ConvMockUp
+            up_conv_nn: [4,5,6]
+
+    TestUnbalanced:
+        architecture: MockModel
+        conv_type: "DENSE"
+        use_category: True
+        down_conv:
+            module_name: ConvMockDown
+            down_conv_nn: [0,1,2,3]
+        up_conv:
+            module_name: ConvMockUp
+            up_conv_nn: [4]
+
+    TestPrecompute:
+        architecture: MockModel
+        conv_type: "DENSE"
+        use_category: True
+        down_conv:
+            module_name: ConvMockDown
+            down_conv_nn: [0,1,2,3]
+            test_precompute: [True,True, True, True]
+        innermost:
+            module_name: InnerMock
+            nn: [512 * 3 + 3, 512]
+        up_conv:
+            module_name: ConvMockUp
+            up_conv_nn: [4,5,6,7]
+            test_precompute: [True,True, True, True]
