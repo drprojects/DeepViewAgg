@@ -1,0 +1,5 @@
+# @package _group_
+class: MultiStepLR
+params:
+  milestones: [60, 120, 150, 200]
+  gamma: 0.3

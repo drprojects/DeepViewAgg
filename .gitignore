@@ -1,13 +1,14 @@
 /data/
 *.pyc
-*__pycache__*
+__pycache__*
+__pycache__/
+.DS_Store
 .vscode
 *outputs*
 wandb
 logs
 results
 site
-*.DS_Store
 kernels/dispositions/*
 notebooks/*checkpoints
 notebooks/*.html

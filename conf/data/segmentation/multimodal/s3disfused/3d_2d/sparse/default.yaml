@@ -1,0 +1,57 @@
+# @package data
+defaults:
+  - /data/segmentation/multimodal/s3disfused/3d_2d/default
+
+# Same transforms as /data/segmentation/multimodal/s3disfused/3d_2d/default
+# but with a final GridSampling3D and ShiftVoxels
+train_transforms:
+    - transform: RandomNoise
+      params:
+            sigma: 0.001
+    - transform: RandomRotate
+      params:
+            degrees: 180
+            axis: 2
+    - transform: RandomScaleAnisotropic
+      params:
+            scales: [0.8, 1.2]
+    - transform: RandomSymmetry
+      params:
+            axis: [True, False, False]
+    - transform: XYZFeature
+      params:
+            add_x: False
+            add_y: False
+            add_z: True
+    - transform: AddFeatsByKeys  # No RGB for points
+      params:
+            feat_names: [pos_z, rgb, linearity, norm, planarity, scattering]
+            list_add_to_x: [True, False, False, False, False, False]
+            delete_feats: [True, True, True, True, True, True]
+    - transform: Center
+    - transform: GridSampling3D
+      params:
+            size: ${data.first_subsampling}
+            quantize_coords: True
+            mode: "last"
+    - transform: ShiftVoxels
+
+test_transform:
+    - transform: XYZFeature
+      params:
+            add_x: False
+            add_y: False
+            add_z: True
+    - transform: AddFeatsByKeys  # No RGB for points
+      params:
+            feat_names: [pos_z, rgb, linearity, norm, planarity, scattering]
+            list_add_to_x: [True, False, False, False, False, False]
+            delete_feats: [True, True, True, True, True, True]
+    - transform: Center
+    - transform: GridSampling3D
+      params:
+            size: ${data.first_subsampling}
+            quantize_coords: True
+            mode: "last"
+
+val_transform: ${data.test_transform}
