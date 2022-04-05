@@ -1,0 +1,5 @@
+# @package _group_
+class: ExponentialLR
+params:
+#   gamma: 0.7079  # = 0.001**(1/20.) divide by 1000 every 20 epochs
+  gamma: 0.7943  # = 0.01**(1/20.) divide by 100 every 20 epochs
