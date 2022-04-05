@@ -21,27 +21,30 @@ DATA_DIR=${DATA_ROOT}/s3dis/5cm_exact_1024x512
 TASK=segmentation
 
 # MODELS=${TASK}/________
-MODELS=${TASK}/multimodal/no3d
+# MODELS=${TASK}/multimodal/no3d
+MODELS=${TASK}/multimodal/sparseconv3d
 
 # MODEL_NAME=_________
 MODEL_NAME=RGB_ResNet18PPM_mean-feat
 
 # DATASET=${TASK}/_________
-DATASET=${TASK}/multimodal/s3disfused/no3d_5cm_1024x512-exact_no-pixel-height
+DATASET=${TASK}/multimodal/s3disfused/3d_2d/sparse/no_pixel_height/5cm_1024x512-exact
 
 # TRAINING=s3dis_benchmark/sparseconv3d
-TRAINING=s3dis_benchmark/no3d_pretrained
+TRAINING=s3dis_benchmark/sparseconv3d_rgb-pretrained-0
 
 # EXP_NAME=________
-EXP_NAME=RGB_ResNet18PPM_mean-feat_LR-10-1-2-3_exact_1024x512
+EXP_NAME=${MODEL_NAME}
 
 FOLD=5
-EPOCHS=100
-SPHERE_SAMPLES=2000  # 3000 for initial BATCH_SIZE=8
+EPOCHS=200
+# SPHERE_SAMPLES=2000  # 3000 for initial BATCH_SIZE=8
+SPHERE_SAMPLES=1500  # 3000 for initial BATCH_SIZE=8
 BATCH_SIZE=4
 WORKERS=8
 BASE_LR=0.1
-LR_SCHEDULER=multi_step_s3dis
+# LR_SCHEDULER=multi_step_rgb_fine_tuning
+LR_SCHEDULER=multi_step
 EVAL_FREQUENCY=5
 export SPARSE_BACKEND=torchsparse
 # export SPARSE_BACKEND=minkowski
