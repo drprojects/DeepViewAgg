@@ -49,6 +49,8 @@ pip install pypng
 pip install git+http://github.com/CSAILVision/semantic-segmentation-pytorch.git@master
 pip install matplotlib
 pip install h5py
+#pip install torch_tb_profiler  # for torch profiler
+#pip install importlib-metadata -U  # to fix tensorboard imports for torch profiler
 
 # Install MinkowskiEngine
 sudo apt install libopenblas-dev
@@ -56,7 +58,7 @@ pip install -U MinkowskiEngine==v0.4.3 --install-option="--blas=openblas" -v --n
 
 # Install torchsparse
 sudo apt-get install libsparsehash-dev
-pip install --upgrade git+http://github.com/mit-han-lab/torchsparse.git
+pip install --upgrade git+http://github.com/mit-han-lab/torchsparse.git@v1.2.0
 
 # Install plotly for jupyter
 pip install plotly==5.4.0

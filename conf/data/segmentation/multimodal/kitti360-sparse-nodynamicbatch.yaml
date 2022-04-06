@@ -1,0 +1,160 @@
+# @package data
+defaults:
+    - /data/segmentation/kitti360-sparse
+
+class: kitti360.KITTI360DatasetMM
+task: segmentation.multimodal
+
+# Note that changing 'resolution_3d', 'resolution_2d', 'image_ratio' or
+# 'image_r_max' will change the nature of image mappings and will hence
+# trigger the processing of new image mappings (if not already existing)
+resolution_2d: [1408, 376]  # Image resolution
+padding_2d: 8               # Padding for CropImageGroups
+min_size_2d: 1024           # Minimum size for CropImageGroups
+exact_splatting_2d: True    # Whether only exact mappings are preserved after splatting
+proj_upscale: 1
+image_ratio: 5              # One out of ratio images will be used
+image_r_max: 20             # Maximum radius for mapping construction
+image_k_swell: 1.5          # Affects voxel size when computing mappings
+image_d_swell: 1000000      # Affects voxel size when computing mappings
+train_pixel_credit: 4       # Choose based on GPU capacity, model ko/pixel cost and 3D batch_size
+test_pixel_credit: 4
+k_coverage: 2
+
+
+train_transforms:
+  - transform: RandomNoise
+    params:
+      sigma: 0.001
+  - transform: RandomRotate
+    params:
+      degrees: 180
+      axis: 2
+  - transform: RandomScaleAnisotropic
+    params:
+      scales: [0.8, 1.2]
+  - transform: RandomSymmetry
+    params:
+      axis: [True, False, False]
+  - transform: XYZFeature
+    params:
+      add_x: False
+      add_y: False
+      add_z: True
+  - transform: AddFeatsByKeys
+    params:
+      list_add_to_x: [False, True]
+      feat_names: [rgb, pos_z]
+      delete_feats: [True, True]
+  - transform: Center
+  - transform: GridSampling3D
+    params:
+      size: ${data.resolution_3d}
+      quantize_coords: True
+      mode: "last"
+  - transform: ShiftVoxels
+
+test_transform:
+  - transform: XYZFeature
+    params:
+      add_x: False
+      add_y: False
+      add_z: True
+  - transform: AddFeatsByKeys
+    params:
+      list_add_to_x: [False, True]
+      feat_names: [rgb, pos_z]
+      delete_feats: [True, True]
+  - transform: Center
+  - transform: GridSampling3D
+    params:
+      size: ${data.resolution_3d}
+      quantize_coords: True
+      mode: "last"
+
+val_transform: ${data.test_transform}
+
+
+multimodal:  # Each modality must be inserted in a dedicated 'multimodal' section
+
+    modality: image
+
+    pre_transform:
+        - transform: NonStaticMask  # Compute acquisition mask
+          params:
+                ref_size: ${data.resolution_2d}
+                proj_upscale: ${data.proj_upscale}
+                n_sample: 5
+        - transform: MapImages  # Compute the 3D-2D mapping between a Window and all images of the Sequence
+          params:
+                method: SplattingVisibility
+                ref_size: ${data.resolution_2d}
+                proj_upscale: ${data.proj_upscale}
+                use_cuda: False
+                voxel: ${data.resolution_3d}
+                r_max: ${data.image_r_max}
+                r_min: 0
+                k_swell: ${data.image_k_swell}
+                d_swell: ${data.image_d_swell}
+                exact: ${data.exact_splatting_2d}
+                camera: kitti360_perspective
+                cylinder: True  # Important for outdoor datasets where cylindrical samples are drawn
+                verbose: True  # True to print computation times
+        - transform: NeighborhoodBasedMappingFeatures  # Compute local density and occlusion
+          params:
+                k: 50  # empirically-chosen heuristic [30-100] is fine
+                voxel: ${data.resolution_3d}
+                density: True
+                occlusion: True
+                use_faiss: False
+                verbose: True  # True to print computation times
+        - transform: LoadImages  # Read images from disk
+          params:
+                ref_size: ${data.resolution_2d}
+                show_progress: True
+
+    train_transforms:
+        - transform: SelectMappingFromPointId  # Select mappings after 3D points sampling
+#         - transform: PickImagesFromMappingArea  # Remove images with not enough mappings
+#           params:
+#                 use_bbox: ${data.exact_splatting_2d}
+        - transform: CropImageGroups  # Compute cropping groups to minimize embedding cost
+          params:
+                padding: ${data.padding_2d}
+                min_size: ${data.min_size_2d}
+        - transform: PickImagesFromMemoryCredit  # Pick images based on memory credit
+          params:
+                img_size: ${data.resolution_2d}
+                n_img: ${data.train_pixel_credit}
+                k_coverage: ${data.k_coverage}
+        - transform: JitterMappingFeatures  # Mapping features augmentation
+          params:
+                sigma: 0.003
+                clip: 0.01
+        - transform: ColorJitter  # Radiometric augmentation
+          params:
+                  brightness: 0.2
+                  contrast: 0.2
+                  saturation: 0.2
+        - transform: RandomHorizontalFlip
+        - transform: ToFloatImage  # Convert uint8 image to float
+        - transform: Normalize  # Normalize colors
+
+    test_transforms:
+        - transform: SelectMappingFromPointId  # Select mappings after 3D points sampling
+#         - transform: PickImagesFromMappingArea  # Remove images with not enough mappings
+#           params:
+#                 use_bbox: ${data.exact_splatting_2d}
+        - transform: CropImageGroups  # Compute cropping groups to minimize embedding cost
+          params:
+                padding: ${data.padding_2d}
+                min_size: ${data.min_size_2d}
+        - transform: PickImagesFromMemoryCredit  # Pick images based on memory credit
+          params:
+                img_size: ${data.resolution_2d}
+                n_img: ${data.test_pixel_credit}
+                k_coverage: ${data.k_coverage}
+        - transform: ToFloatImage  # Convert uint8 image to float
+        - transform: Normalize  # Normalize colors
+
+    val_transforms: ${data.multimodal.test_transforms}
