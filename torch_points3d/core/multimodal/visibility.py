@@ -7,6 +7,18 @@ from pykeops.torch import LazyTensor
 from abc import ABC, abstractmethod
 
 
+# -------------------------------------------------------------------- #
+#                            Numba defaults                            #
+# -------------------------------------------------------------------- #
+OPK_DEFAULT=np.zeros(3, dtype=np.float32)
+PINHOLE_DEFAULT=np.eye(4, dtype=np.float32)
+FISHEYE_DEFAULT=np.ones(7, dtype=np.float32)
+EXTRINSIC_DEFAULT=np.eye(4, dtype=np.float32)
+
+# -------------------------------------------------------------------- #
+#                             Numba wrapper                            #
+# -------------------------------------------------------------------- #
+
 def torch_to_numba(func):
     """Decorator intended for numba functions to be fed and return
     torch.Tensor arguments.
@@ -20,7 +32,7 @@ def torch_to_numba(func):
 
     def torchify(x):
         return torch.from_numpy(x) if isinstance(x, np.ndarray) else x
-
+    
     def wrapper_torch_to_numba(*args, **kwargs):
         args_numba = [numbafy(x) for x in args]
         kwargs_numba = {k: numbafy(v) for k, v in kwargs.items()}
@@ -218,7 +230,7 @@ def pinhole_projection_cpu(xyz, img_extrinsic, img_intrinsic_pinhole, camera='sc
     """
     # Recover the 4x4 camera-to-world matrix
     if camera == 'scannet':
-        camera_to_world = np.linalg.inv(img_extrinsic)
+        camera_to_world = np.linalg.inv(np.ascontiguousarray(img_extrinsic))
         T = camera_to_world[:3, 3].copy().reshape((3, 1))
         R = camera_to_world[:3, :3].copy()
         p = R @ xyz.T + T
@@ -231,10 +243,13 @@ def pinhole_projection_cpu(xyz, img_extrinsic, img_intrinsic_pinhole, camera='sc
     else:
         raise ValueError
 
-    p[0] = p[0] * img_intrinsic_pinhole[0][0] / p[2] + img_intrinsic_pinhole[0][2]
-    p[1] = p[1] * img_intrinsic_pinhole[1][1] / p[2] + img_intrinsic_pinhole[1][2]
-
-    return p[0], p[1], p[2]
+    x = p[0] * img_intrinsic_pinhole[0][0] / p[2] + img_intrinsic_pinhole[0][2]
+    y = p[1] * img_intrinsic_pinhole[1][1] / p[2] + img_intrinsic_pinhole[1][2]
+    z = p[2]
+    
+    # Make sure you return floa64 like other projection_cpu functions 
+    # for Numba to happily compile
+    return x.astype(np.float64), y.astype(np.float64), z.astype(np.float64)
 
 
 def pinhole_projection_cuda(xyz, img_extrinsic, img_intrinsic_pinhole, camera='scannet'):
@@ -263,13 +278,13 @@ def pinhole_projection_cuda(xyz, img_extrinsic, img_intrinsic_pinhole, camera='s
     else:
         raise ValueError
 
-    p[0] = p[0] * img_intrinsic_pinhole[0][0] / p[2] + img_intrinsic_pinhole[0][2]
-    p[1] = p[1] * img_intrinsic_pinhole[1][1] / p[2] + img_intrinsic_pinhole[1][2]
+    x = p[0] * img_intrinsic_pinhole[0][0] / p[2] + img_intrinsic_pinhole[0][2]
+    y = p[1] * img_intrinsic_pinhole[1][1] / p[2] + img_intrinsic_pinhole[1][2]
+    z = p[2]
 
-    return p[0], p[1], p[2]
+    return x, y, z
 
 
-@torch_to_numba
 @njit(cache=True, nogil=True)
 def fisheye_projection_cpu(
         xyz, img_extrinsic, img_intrinsic_fisheye, camera='kitti360_fisheye'):
@@ -296,20 +311,20 @@ def fisheye_projection_cpu(
 
     # Recover fisheye camera intrinsic parameters
     xi = img_intrinsic_fisheye[0]
-    k1 = img_intrinsic_fisheye[0]
-    k2 = img_intrinsic_fisheye[0]
-    gamma1 = img_intrinsic_fisheye[0]
-    gamma2 = img_intrinsic_fisheye[0]
-    u0 = img_intrinsic_fisheye[0]
-    v0 = img_intrinsic_fisheye[0]
+    k1 = img_intrinsic_fisheye[1]
+    k2 = img_intrinsic_fisheye[2]
+    gamma1 = img_intrinsic_fisheye[3]
+    gamma2 = img_intrinsic_fisheye[4]
+    u0 = img_intrinsic_fisheye[5]
+    v0 = img_intrinsic_fisheye[6]
 
     # Compute float pixel coordinates
     p = p.T
-    norm = np.linalg.norm(p, axis=1)
-
-    x = p[:, 0] / norm
-    y = p[:, 1] / norm
-    z = p[:, 2] / norm
+    norm = norm_cpu(p)
+    
+    x = p[:, 0] / (norm + 1e-4)
+    y = p[:, 1] / (norm + 1e-4)
+    z = p[:, 2] / (norm + 1e-4)
 
     x /= z + xi
     y /= z + xi
@@ -319,8 +334,9 @@ def fisheye_projection_cpu(
 
     x = gamma1 * (1 + k1 * r2 + k2 * r4) * x + u0
     y = gamma2 * (1 + k1 * r2 + k2 * r4) * y + v0
+    z = norm * p[:, 2] / np.abs(p[:, 2] + 1e-4)
 
-    return x, y, norm * p[:, 2] / np.abs(p[:, 2] + 1e-4)
+    return x.astype(np.float64), y.astype(np.float64), z.astype(np.float64)
 
 
 def fisheye_projection_cuda(
@@ -463,17 +479,29 @@ def field_of_view_cuda(
 @njit(cache=True, nogil=True)
 def camera_projection_cpu(
         xyz, img_xyz, img_opk=None, img_intrinsic_pinhole=None,
-        img_intrinsic_fisheye=None, img_extrinsic=None,
-        img_mask=None, img_size=(1024, 512), crop_top=0, crop_bottom=0,
-        r_max=30, r_min=0.5, camera='s3dis_equirectangular'):
+        img_intrinsic_fisheye=None, img_extrinsic=None, img_mask=None, 
+        img_size=(1024, 512), crop_top=0, crop_bottom=0, r_max=30, r_min=0.5,
+        camera='s3dis_equirectangular'):
     assert img_mask is None or img_mask.shape == img_size
-
+    
+    # Need to set defaults inside the function rather than in the kwargs
+    # because those will be overwritten by the parent CPU-GPU dispatcher
+    # function
+    if img_opk is None:
+        img_opk = OPK_DEFAULT
+    if img_intrinsic_pinhole is None:
+        img_intrinsic_pinhole = PINHOLE_DEFAULT
+    if img_intrinsic_fisheye is None:
+        img_intrinsic_fisheye = FISHEYE_DEFAULT
+    if img_extrinsic is None:
+        img_extrinsic = EXTRINSIC_DEFAULT
+    
     # We store indices in int64 format so we only accept indices up to
     # np.iinfo(np.int64).max
     num_points = xyz.shape[0]
     if num_points >= 9223372036854775807:
         raise OverflowError
-
+    
     # Initialize the indices to keep track of selected points
     indices = np.arange(num_points)
 
@@ -483,7 +511,7 @@ def camera_projection_cpu(
     xyz = xyz[in_range]
     dist = dist[in_range]
     indices = indices[in_range]
-
+    
     # Project points to float pixel coordinates
     if camera in ['kitti360_perspective', 'scannet']:
         x_proj, y_proj, z_proj = pinhole_projection_cpu(
@@ -494,7 +522,7 @@ def camera_projection_cpu(
     elif camera == 's3dis_equirectangular' and img_opk is not None:
         x_proj, y_proj = equirectangular_projection_cpu(
             xyz - img_xyz, dist, img_opk, img_size)
-        z_proj = None
+        z_proj = np.ones_like(x_proj)
     else:
         raise ValueError
 
@@ -514,7 +542,7 @@ def camera_projection_cuda(
         xyz, img_xyz, img_opk=None, img_intrinsic_pinhole=None,
         img_intrinsic_fisheye=None, img_extrinsic=None,
         img_mask=None, img_size=(1024, 512), crop_top=0, crop_bottom=0,
-        r_max=30, r_min=0.5, camera='s3dis_equirectangular', **kwargs):
+        r_max=30, r_min=0.5, camera='s3dis_equirectangular'):
     assert img_mask is None or img_mask.shape == img_size, \
         f'Expected img_mask to be a torch.BoolTensor of shape ' \
         f'img_size={img_size} but got size={img_mask.shape}.'
@@ -585,7 +613,7 @@ def camera_projection(
     assert img_mask is None or img_mask.shape == img_size, \
         f'Expected img_mask to be a torch.BoolTensor of shape ' \
         f'img_size={img_size} but got size={img_mask.shape}.'
-
+    
     f = camera_projection_cuda if xyz.is_cuda else camera_projection_cpu
     return f(
         xyz, img_xyz, img_opk=img_opk, img_intrinsic_pinhole=img_intrinsic_pinhole,
@@ -881,8 +909,9 @@ def fisheye_splat_cpu(
     # TODO: improve fisheye splat computation
     z_offset = np.zeros_like(xyz)
     z_offset[:, 2] = swell * voxel / 2
-    x, y, _ = fisheye_projection_cpu(xyz + z_offset, img_extrinsic, img_intrinsic_fisheye, camera=camera)
-    splat_xy_width = 2 * np.tile(np.sqrt((x_proj - x)**2 + (y_proj - y)**2), (2, 1)).transpose()
+    x, y, _ = fisheye_projection_cpu(
+        xyz + z_offset, img_extrinsic, img_intrinsic_fisheye, camera=camera)
+    splat_xy_width = 2 * np.sqrt((x_proj - x)**2 + (y_proj - y)**2).repeat(2).reshape(-1, 2)
 
     # Compute projection masks bounding box pixel coordinates
     x_a = np.empty_like(x_proj, dtype=np.float32)
@@ -958,7 +987,7 @@ def fisheye_splat_cuda(
     # TODO: improve fisheye splat computation
     z_offset = torch.zeros_like(xyz)
     z_offset[:, 2] = swell * voxel / 2
-    x, y, _ = fisheye_projection_cpu(xyz + z_offset, img_extrinsic, img_intrinsic_fisheye, camera=camera)
+    x, y, _ = fisheye_projection_cuda(xyz + z_offset, img_extrinsic, img_intrinsic_fisheye, camera=camera)
     splat_xy_width = 2 * ((x_proj - x) ** 2 + (y_proj - y) ** 2).sqrt().repeat(2, 1).t()
 
     # Compute projection masks bounding box pixel coordinates
@@ -1044,10 +1073,10 @@ def bbox_to_xy_grid_cuda(bbox):
 @torch_to_numba
 @njit(cache=True, nogil=True)
 def visibility_from_splatting_cpu(
-        x_proj, y_proj, dist, xyz, img_extrinsic=None, img_intrinsic_pinhole=None,
-        img_intrinsic_fisheye=None, img_size=(1024, 512),
-        crop_top=0, crop_bottom=0, voxel=0.1, k_swell=1.0, d_swell=1000,
-        exact=False, camera='s3dis_equirectangular'):
+        x_proj, y_proj, dist, xyz, img_extrinsic=None, 
+        img_intrinsic_pinhole=None, img_intrinsic_fisheye=None, 
+        img_size=(1024, 512), crop_top=0, crop_bottom=0, voxel=0.1, k_swell=1.0,
+        d_swell=1000, exact=False, camera='s3dis_equirectangular'):
     """Compute visibility model with splatting on the CPU with numpy and
     numba.
 
@@ -1072,6 +1101,16 @@ def visibility_from_splatting_cpu(
     :return:
     """
     assert x_proj.shape[0] == y_proj.shape[0] == dist.shape[0] > 0
+    
+    # Need to set defaults inside the function rather than in the kwargs
+    # because those will be overwritten by the parent CPU-GPU dispatcher
+    # function
+    if img_intrinsic_pinhole is None:
+        img_intrinsic_pinhole = PINHOLE_DEFAULT
+    if img_intrinsic_fisheye is None:
+        img_intrinsic_fisheye = FISHEYE_DEFAULT
+    if img_extrinsic is None:
+        img_extrinsic = EXTRINSIC_DEFAULT
 
     # Compute splatting masks
     if camera == 's3dis_equirectangular':
@@ -1690,7 +1729,8 @@ class VisibilityModel(ABC):
             return out
 
         # Compute visibility of projected points
-        idx_2, x_pix, y_pix = self._visibility(x_proj, y_proj, dist, **kwargs)
+        idx_2, x_pix, y_pix = self._visibility(
+            x_proj, y_proj, dist, xyz[idx_1], **kwargs)
 
         # Keep data only for mapped point
         idx = idx_1[idx_2]
@@ -1731,8 +1771,9 @@ class SplattingVisibility(VisibilityModel, ABC):
         self.d_swell = d_swell
         self.exact = exact
 
-    def _visibility(self, *args, **kwargs):
-        return visibility_from_splatting(*args, **self.__dict__, **kwargs)
+    def _visibility(self, x_proj, y_proj, dist, xyz, **kwargs):
+        return visibility_from_splatting(
+            x_proj, y_proj, dist, xyz, **self.__dict__, **kwargs)
 
 
 class DepthBasedVisibility(VisibilityModel, ABC):
@@ -1741,8 +1782,9 @@ class DepthBasedVisibility(VisibilityModel, ABC):
         super(DepthBasedVisibility, self).__init__(**kwargs)
         self.depth_threshold = depth_threshold
 
-    def _visibility(self, *args, **kwargs):
-        return visibility_from_depth_map(*args, **self.__dict__, **kwargs)
+    def _visibility(self, x_proj, y_proj, dist, xyz, **kwargs):
+        return visibility_from_depth_map(
+            x_proj, y_proj, dist, **self.__dict__, **kwargs)
 
 
 class BiasuttiVisibility(VisibilityModel, ABC):
@@ -1753,7 +1795,8 @@ class BiasuttiVisibility(VisibilityModel, ABC):
         self.margin = margin
         self.threshold = threshold
 
-    def _visibility(self, *args, **kwargs):
-        return visibility_biasutti(*args, **self.__dict__, **kwargs)
+    def _visibility(self, x_proj, y_proj, dist, xyz, **kwargs):
+        return visibility_biasutti(
+            x_proj, y_proj, dist, **self.__dict__, **kwargs)
 
 # TODO: support other depth map files formats. For now, only S3DIS format supported
