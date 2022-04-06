@@ -202,7 +202,8 @@ class WindowBuffer:
 ########################################################################
 
 class KITTI360Cylinder(InMemoryDataset):
-    """Dataset supporting sampling of 3D cylinders within each window.
+    """
+    Dataset supporting sampling of 3D cylinders within each window.
 
     When `sample_per_epoch` is specified, indexing the dataset produces
     cylinders randomly picked so as to even-out class distributions.
@@ -213,7 +214,37 @@ class KITTI360Cylinder(InMemoryDataset):
 
     Parameters
     ----------
-    # TODO: parameters
+    root : `str`
+        Path to the root data directory.
+    split : {'train', 'val', 'test', 'trainval'}, optional
+    sample_per_epoch : `int`, optional
+        Rules the sampling mechanism for the dataset.
+
+        When `self.sample_per_epoch > 0`, indexing the dataset produces
+        random cylindrical sampling, picked so as to even-out the class
+        distribution across the dataset.
+
+        When `self.sample_per_epoch <= 0`, indexing the dataset
+        addresses cylindrical samples in a deterministic fashion. The
+        cylinder indices are ordered with respect to their acquisition
+        window and the regular grid sampling of the centers in each
+        window.
+    radius : `float`, optional
+        The radius of cylindrical samples.
+    sample_res : `float`, optional
+        The resolution of the grid on which cylindrical samples are
+        generated. The higher the ```sample_res```, the less cylinders
+        in the dataset.
+    transform : `callable`, optional
+        transform function operating on data.
+    pre_transform : `callable`, optional
+        pre_transform function operating on data.
+    pre_filter : `callable`, optional
+        pre_filter function operating on data.
+    keep_instance : `bool`, optional
+        Whether instance labels should be loaded.
+    buffer : `int`, optional
+        Number of windows the buffer can hold in memory at once.
     """
     num_classes = KITTI360_NUM_CLASSES
     _WINDOWS = WINDOWS
@@ -800,9 +831,8 @@ class KITTI360Sampler(Sampler):
 ########################################################################
 
 class KITTI360Dataset(BaseDataset):
-    """
-    # TODO: comments
-    """
+    """Dataset holding train, val and test sets for KITTI360."""
+
     INV_OBJECT_LABEL = INV_OBJECT_LABEL
 
     def __init__(self, dataset_opt):

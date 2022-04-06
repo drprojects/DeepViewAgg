@@ -7,9 +7,6 @@ from torch_points3d.datasets.segmentation import IGNORE_LABEL as IGNORE
 #                              Data splits                             #
 ########################################################################
 
-# TODO: 3D semseg actually ignores ['train', 'bus', 'rider', 'sky'],
-#  change labels accordingly
-
 # These train and validation splits were extracted from:
 #   - 'data_3d_semantics/train/2013_05_28_drive_train.txt'
 #   - 'data_3d_semantics/train/2013_05_28_drive_val.txt'

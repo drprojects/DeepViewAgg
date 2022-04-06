@@ -351,8 +351,8 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
 
             # Draw image coordinate system axes
             arrow_length = 0.4
-            for v, color in zip(axes, ['red', 'green', 'blue']):
-            # for v, color in zip(axes, [ 'blue', 'red', 'green',]):
+#             for v, color in zip(axes, ['red', 'green', 'blue']):
+            for v, color in zip(axes, [ 'blue', 'red', 'green',]):
                 v = xyz + v * arrow_length
                 fig.add_trace(
                     go.Scatter3d(
@@ -365,8 +365,9 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
                             width=pointsize + 7),
                         showlegend=False,
                         hoverinfo='none',
-                        # visible=True, ))  # TODO: reset this if you want to see all axes
-                        visible=(color == 'blue'), ))
+#                         visible=True,  # see all axes
+                        visible=(color == 'blue'),  # see main axis
+                    ))
 
             # Draw image position as ball
             img_traces.append(len(fig.data))
