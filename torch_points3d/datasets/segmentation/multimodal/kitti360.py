@@ -593,13 +593,6 @@ class KITTI360DatasetMM(BaseDatasetMM):
         # comparable.
         image_ratio_test = max(int(image_ratio / 10), 1)
 
-        # KITTI360 only provides about 10% of the images in the test set
-        # images (withheld images are for novel view synthesis evaluation).
-        # For this reason, the we should keep 10 times more images from
-        # test than from train and val for the image distributions to be
-        # comparable.
-        image_ratio_test = max(int(image_ratio / 10), 1)
-
         self.test_dataset = cls(
             self._data_path,
             radius=radius,
