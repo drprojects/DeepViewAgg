@@ -133,11 +133,13 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
               camera: scannet
         - transform: NeighborhoodBasedMappingFeatures  # Compute local density and occlusion
           params:
-              k: 50  # empirically-chosen heuristic [30-100] is fine
+              k: 50  # empirically-chosen heuristic [30-100] is fine. May pass a list for multi-scale features
               voxel: ${data.full_resolution_3d}
               density: True
               occlusion: True
-              use_faiss: True
+              use_faiss: False  # using FAISS+CUDA should speed up computation, but some issues remain
+              use_cuda: False
+              verbose: True  # True to print computation times
 
     train_transforms:
         - transform: SelectMappingFromPointId  # Select mappings after 3D points sampling

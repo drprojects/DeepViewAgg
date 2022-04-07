@@ -351,8 +351,8 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
 
             # Draw image coordinate system axes
             arrow_length = 0.4
-#             for v, color in zip(axes, ['red', 'green', 'blue']):
-            for v, color in zip(axes, [ 'blue', 'red', 'green',]):
+            for v, color in zip(axes, ['red', 'green', 'blue']):  # TODO: proprely rotate S3DIS equirectangular axes
+#             for v, color in zip(axes, [ 'blue', 'red', 'green',]):
                 v = xyz + v * arrow_length
                 fig.add_trace(
                     go.Scatter3d(
@@ -492,7 +492,21 @@ def visualize_2d(mm_data, figsize=800, width=None, height=None, alpha=3,
          overlay_view_error=False, error_color=None, **kwargs):
     """2D data interactive visualization tools."""
     assert isinstance(mm_data, MMData)
-
+    
+    # Prepare figure
+    width = width if width and height else figsize
+    height = height if width and height else int(figsize / 2)
+    margin = int(0.02 * min(width, height))
+    layout = go.Layout(
+        width=width,
+        height=height,
+        scene=dict(aspectmode='data', ),  # preserve aspect ratio
+        margin=dict(l=margin, r=margin, b=margin, t=margin),
+        uirevision=True)
+    fig = go.Figure(layout=layout)
+    fig.update_xaxes(visible=False)  # hide image axes
+    fig.update_yaxes(visible=False)  # hide image axes
+    
     # Make copies of the data and images to be modified in this scope
     data = mm_data.data.clone()
     images = mm_data.modalities['image'].clone()
@@ -500,6 +514,17 @@ def visualize_2d(mm_data, figsize=800, width=None, height=None, alpha=3,
     # Convert images to ImageData for convenience
     if isinstance(images, SameSettingImageData):
         images = ImageData([images])
+        
+    # Return empty figure if no images are provided
+    if images.num_views == 0:
+        return {
+            'figure': fig,
+            'n_views': 0,
+            'n_front': 0,
+            'images': images,
+            'data': data,
+            'front': front,
+            'back': back}
 
     # Set the image background with a fallback to 'x' attribute.
     # The background must be an image attribute carrying a tensor of
@@ -715,20 +740,6 @@ def visualize_2d(mm_data, figsize=800, width=None, height=None, alpha=3,
                     for v in im.visualizations:
                         v[idx] = v[idx] * is_tp + ~is_tp * error_color
                 im.is_tp_view = is_tp
-
-    # Prepare figure
-    width = width if width and height else figsize
-    height = height if width and height else int(figsize / 2)
-    margin = int(0.02 * min(width, height))
-    layout = go.Layout(
-        width=width,
-        height=height,
-        scene=dict(aspectmode='data', ),  # preserve aspect ratio
-        margin=dict(l=margin, r=margin, b=margin, t=margin),
-        uirevision=True)
-    fig = go.Figure(layout=layout)
-    fig.update_xaxes(visible=False)  # hide image axes
-    fig.update_yaxes(visible=False)  # hide image axes
 
     # Draw the images
     n_views = images.num_views

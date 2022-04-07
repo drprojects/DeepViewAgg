@@ -22,7 +22,7 @@ pre_transform:
     - transform: GridSampling3D    # Samples on a grid
       params:
             size: ${data.resolution_3d}
-            setattr_full_pos: True  # Required to keep the full-resolution points for later local features computation
+            # setattr_full_pos: True  # Required to keep the full-resolution points for later local features computation
     - transform: SaveOriginalPosId    # Required so that one can recover the multimodal mappings after the transforms
       params:
             key: ${data.mapping_key}
@@ -30,8 +30,8 @@ pre_transform:
       params:
             num_neighbors: 50  # heuristic: at least 30
             # r: 0.1  # heuristic: 2 * resolution_3d - using r will force CPU computation
-            use_full_pos: True  # Possible if GridSampling3D.setattr_full_pos = True
-            use_faiss: True
+            # use_full_pos: True  # Possible if GridSampling3D.setattr_full_pos = True
+            use_faiss: False
     - transform: EigenFeatures
       params:
             norm: True
@@ -40,7 +40,8 @@ pre_transform:
             scattering: True
     - transform: RemoveAttributes
       params:
-            attr_names: [full_pos, eigenvalues, eigenvectors]
+            # attr_names: [full_pos, eigenvalues, eigenvectors]
+            attr_names: [eigenvalues, eigenvectors]
 
 train_transforms:
   - transform: RandomNoise
