@@ -312,7 +312,7 @@ class KITTI360CylinderMM(KITTI360Cylinder):
             sample_res=0.3, transform=None, pre_transform=None,
             pre_filter=None, keep_instance=False, pre_transform_image=None,
             transform_image=None, buffer=3, image_r_max=20, image_ratio=5,
-            image_size=(1408, 376), voxel=0.05):
+            image_size=(1408, 376), voxel=0.05, cam_id=0):
 
         # 2D-related attributes
         self.pre_transform_image = pre_transform_image
@@ -321,6 +321,7 @@ class KITTI360CylinderMM(KITTI360Cylinder):
         self._image_ratio = image_ratio
         self._image_size = image_size
         self._voxel = voxel
+        self._cam_id = cam_id
 
         # Initialization with downloading and all preprocessing
         super().__init__(
@@ -356,6 +357,11 @@ class KITTI360CylinderMM(KITTI360Cylinder):
         return self._voxel
 
     @property
+    def cam_id(self):
+        """The ID of the camera used."""
+        return self._cam_id
+
+    @property
     def sequences(self):
         """Sequences present in `self.windows`."""
         return sorted(list(set([w.split('/')[0] for w in self.windows])))
@@ -368,10 +374,59 @@ class KITTI360CylinderMM(KITTI360Cylinder):
             for p in self.processed_2d_file_names]
 
     @property
+    def raw_file_structure(self):
+        return """
+            root_dir
+                └── raw/
+                    ├── data_3d_semantics/
+                    |   └── 2013_05_28_drive_{seq:0>4}_sync/
+                    |       └── static/
+                    |           └── {start_frame:0>10}_{end_frame:0>10}.ply
+                    ├── data_2d_raw
+                    |   └── 2013_05_28_drive_{seq:0>4}_sync/
+                    |       ├── image_{00|01}/
+                    |       |   └── data_rect/
+                    |       |       └── {frame:0>10}.png
+                    |       └── image_{02|03}/
+                    |           └── data_rgb/
+                    |               └── {frame:0>10}.png
+                    ├── data_poses
+                    |   └── 2013_05_28_drive_{seq:0>4}_sync/
+                    |       ├── poses.txt
+                    |       └── cam0_to_world.txt   
+                    └── calibration/
+                        ├── calib_cam_to_pose.txt
+                        ├── calib_cam_to_velo.txt
+                        ├── calib_sick_to_velo.txt
+                        ├── perspective.txt
+                        └── image_{02|03}.yaml
+            """
+
+    @property
     def raw_file_names(self):
         """The filepaths to find in order to skip the download."""
-        return super().raw_file_names + [
-            'data_2d_raw', 'data_poses', 'calibration']
+        return super().raw_file_names + self.raw_file_names_2d + \
+               self.raw_file_names_poses + [self.raw_file_names_calibration]
+
+    @property
+    def raw_file_names_2d(self):
+        """Some of the file paths to find in order to skip the download.
+        """
+        return [
+            osp.join('data_2d_raw', x, self.cam_id)
+            for x in self._SEQUENCES[self.split]]
+
+    @property
+    def raw_file_names_calibration(self):
+        """Some of the file paths to find in order to skip the download.
+        """
+        return 'calibration'
+
+    @property
+    def raw_file_names_poses(self):
+        """Some of the file paths to find in order to skip the download.
+        """
+        return [osp.join('data_poses', x) for x in self._SEQUENCES[self.split]]
 
     @property
     def processed_2d_file_names(self):
@@ -405,8 +460,34 @@ class KITTI360CylinderMM(KITTI360Cylinder):
         """
         return super().processed_file_names + self.processed_2d_file_names
 
-    def process(self):
+    def download(self):
+        missing = []
 
+        # Accumulated 3D point clouds with annotations
+        if not all(osp.exists(osp.join(self.raw_dir, x)) for x in self.raw_file_names_3d):
+            if self.split != 'test':
+                missing.append('Accumulated Point Clouds for Train & Val (12G)')
+            else:
+                missing.append('Accumulated Point Clouds for Test (1.2G)')
+
+        # Images
+        if not all(osp.exists(osp.join(self.raw_dir, x)) for x in self.raw_file_names_2d):
+            if self.split != 'test':
+                missing.append('Perspective Images for Train & Val (128G)')
+            else:
+                missing.append('Perspective Images for Test (1.5G)')
+
+        # Poses
+        if not all(osp.exists(osp.join(self.raw_dir, x)) for x in self.raw_file_names_poses):
+            missing.append('Vehicle Poses (8.9M)')
+
+        # Calibration
+        if not osp.exists(self.raw_file_names_calibration):
+            missing.append('Calibrations (3K)')
+
+        self.download_log(missing)
+
+    def process(self):
         # Gather the images from each sequence
         sequence_images = {
             s: read_kitti360_image_sequence(self.raw_dir, s)

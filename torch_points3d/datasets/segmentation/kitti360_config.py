@@ -1,6 +1,18 @@
 import numpy as np
+import os.path as osp
 from collections import namedtuple
 from torch_points3d.datasets.segmentation import IGNORE_LABEL as IGNORE
+
+########################################################################
+#                         Download information                         #
+########################################################################
+
+CVLIBS_URL = 'http://www.cvlibs.net/datasets/kitti-360/download.php'
+BASE_URL = 'https://s3.eu-central-1.amazonaws.com/avg-projects/KITTI-360'
+DATA_3D_SEMANTICS_URL = osp.join(BASE_URL, '6489aabd632d115c4280b978b2dcf72cb0142ad9/data_3d_semantics.zip')
+DATA_3D_SEMANTICS_TEST_URL = osp.join(BASE_URL, '6489aabd632d115c4280b978b2dcf72cb0142ad9/data_3d_semantics_test.zip')
+CALIBRATION_URL = osp.join(BASE_URL, '384509ed5413ccc81328cf8c55cc6af078b8c444/calibration.zip')
+DATA_POSES_URL = osp.join(BASE_URL, '89a6bae3c8a6f789e12de4807fc1e8fdcf182cf4/data_poses.zip')
 
 
 ########################################################################
@@ -8,8 +20,8 @@ from torch_points3d.datasets.segmentation import IGNORE_LABEL as IGNORE
 ########################################################################
 
 # These train and validation splits were extracted from:
-#   - 'data_3d_semantics/train/2013_05_28_drive_train.txt'
-#   - 'data_3d_semantics/train/2013_05_28_drive_val.txt'
+#   - 'data_3d_semantics/2013_05_28_drive_train.txt'
+#   - 'data_3d_semantics/2013_05_28_drive_val.txt'
 WINDOWS = {
     'train': [
         '2013_05_28_drive_0000_sync/0000000002_0000000385',
@@ -358,6 +370,9 @@ WINDOWS = {
         '2013_05_28_drive_0018_sync/0000003215_0000003513',
         '2013_05_28_drive_0018_sync/0000001878_0000002099',
         '2013_05_28_drive_0018_sync/0000002269_0000002496']}
+
+SEQUENCES = {
+    k: list(set(osp.dirname(x) for x in v)) for k, v in WINDOWS.items()}
 
 
 ########################################################################

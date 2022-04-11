@@ -46,7 +46,9 @@ class KITTI360Tracker(SegmentationTracker):
 
         # Attributes to manage per-window metrics
         self.windows = self.stage_dataset.windows
-        self.window_raw_files = self.stage_dataset.raw_3d_paths
+        self.window_raw_files = [
+            osp.join(self.stage_dataset.raw_dir, x)
+            for x in self.stage_dataset.raw_file_names_3d]
         self._temp_dir = None
         self._idx_window = None
         self._votes = None

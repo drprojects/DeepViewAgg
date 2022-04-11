@@ -3,13 +3,15 @@ import os.path as osp
 import numpy as np
 import torch
 from plyfile import PlyData
-from torch_geometric.data import InMemoryDataset, Data
+from torch_geometric.data import extract_zip
 from torch.utils.data import Sampler
 import logging
 from sklearn.neighbors import KDTree
 from tqdm.auto import tqdm as tq
 from random import shuffle
 from datetime import datetime
+import gdown
+import shutil
 
 import torch_points3d.core.data_transform as cT
 from torch_points3d.datasets.base_dataset import BaseDataset
@@ -248,6 +250,7 @@ class KITTI360Cylinder(InMemoryDataset):
     """
     num_classes = KITTI360_NUM_CLASSES
     _WINDOWS = WINDOWS
+    _SEQUENCES = SEQUENCES
 
     def __init__(
             self, root, split="train", sample_per_epoch=15000, radius=6,
@@ -427,22 +430,30 @@ class KITTI360Cylinder(InMemoryDataset):
         return self._buffer
 
     @property
-    def raw_file_names(self):
-        """The file paths to find in order to skip the download."""
-        return ['data_3d_semantics/train', 'data_3d_semantics/test']
+    def raw_file_structure(self):
+        return """
+            root_dir
+                └── raw/
+                    └── data_3d_semantics/
+                        └── 2013_05_28_drive_{seq:0>4}_sync/
+                            └── static/
+                                └── {start_frame:0>10}_{end_frame:0>10}.ply
+            """
 
     @property
-    def raw_3d_paths(self):
-        """These are the absolute paths to the raw window files for the
-        dataset. This is used by the KITTI360Tracker to compute
-        full-resolution metrics.
+    def raw_file_names(self):
+        """The file paths to find in order to skip the download."""
+        return self.raw_file_names_3d
+
+    @property
+    def raw_file_names_3d(self):
+        """Some of the file paths to find in order to skip the download.
+        Those are not directly specified inside of self.raw_file_names
+        in case self.raw_file_names would need to be extended (eg with
+        3D bounding boxes files).
         """
-        # The directory where train/test raw scans are
-        raw_3d_dir = self.raw_file_names[1] if self.split == 'test' \
-            else self.raw_file_names[0]
         return [
-            osp.join(
-                self.raw_dir, raw_3d_dir, x.split('/')[0], 'static',
+            osp.join('data_3d_semantics', x.split('/')[0], 'static',
                 x.split('/')[1] + '.ply')
             for x in self.windows]
 
@@ -499,8 +510,33 @@ class KITTI360Cylinder(InMemoryDataset):
         return path
 
     def download(self):
+        missing = []
+
+        # Accumulated 3D point clouds with annotations
+        if not all(osp.exists(osp.join(self.raw_dir, x)) for x in self.raw_file_names_3d):
+            if self.split != 'test':
+                missing.append('Accumulated Point Clouds for Train & Val (12G)')
+            else:
+                missing.append('Accumulated Point Clouds for Test (1.2G)')
+
+        self.download_log(missing)
+
+    def download_log(self, missing):
+        """Log message that will be passed to the user when some files
+        are missing.
+        """
+        log.info(
+            f'The following KITTI-360 files are missing from raw_dir='
+            f'{self.raw_dir}. Please download them from: {CVLIBS_URL}')
+        for x in missing:
+            log.info(f'  - {x}')
+        log.info('***')
+        log.info('Make sure to unzip the files in the following folder structure:')
+        log.info(self.raw_file_structure)
+
         raise NotImplementedError(
-            'KITTI360 automatic download not implemented yet')
+            'KITTI360 automatic download not implemented yet, please download '
+            'the required files manually.')
 
     def process(self):
         for path_tuple in tq(zip(self.paths, self.sampling_paths)):
@@ -535,10 +571,8 @@ class KITTI360Cylinder(InMemoryDataset):
             os.makedirs(osp.dirname(window_path), exist_ok=True)
 
             # Read the raw window data
-            raw_3d_dir = self.raw_file_names[1] if split == 'test' \
-                else self.raw_file_names[0]
             raw_window_path = osp.join(
-                self.raw_dir, raw_3d_dir, sequence_name, 'static',
+                self.raw_dir, 'data_3d_semantics', sequence_name, 'static',
                 window_name + '.ply')
             data = read_kitti360_window(
                 raw_window_path, instance=self._keep_instance, remap=True)
