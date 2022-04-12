@@ -523,14 +523,14 @@ class KITTI360Cylinder(InMemoryDataset):
         """Log message that will be passed to the user when some files
         are missing.
         """
-        log.info(
+        print(
             f'The following KITTI-360 files are missing from raw_dir='
             f'{self.raw_dir}. Please download them from: {CVLIBS_URL}')
         for x in missing:
-            log.info(f'  - {x}')
-        log.info('***')
-        log.info('Make sure to unzip the files in the following folder structure:')
-        log.info(self.raw_file_structure)
+            print(f'  - {x}')
+        print('***')
+        print('Make sure to unzip the files in the following folder structure:')
+        print(self.raw_file_structure)
 
         raise NotImplementedError(
             'KITTI360 automatic download not implemented yet, please download '

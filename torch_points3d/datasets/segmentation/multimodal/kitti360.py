@@ -413,7 +413,7 @@ class KITTI360CylinderMM(KITTI360Cylinder):
         """Some of the file paths to find in order to skip the download.
         """
         return [
-            osp.join('data_2d_raw', x, self.cam_id)
+            osp.join('data_2d_raw', x, f'image_0{self.cam_id}')
             for x in self._SEQUENCES[self.split]]
 
     @property
@@ -482,7 +482,7 @@ class KITTI360CylinderMM(KITTI360Cylinder):
             missing.append('Vehicle Poses (8.9M)')
 
         # Calibration
-        if not osp.exists(self.raw_file_names_calibration):
+        if not osp.exists(osp.join(self.raw_dir, self.raw_file_names_calibration)):
             missing.append('Calibrations (3K)')
 
         self.download_log(missing)
