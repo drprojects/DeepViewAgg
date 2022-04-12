@@ -7,7 +7,11 @@ from torch_points3d.core.multimodal.data import MMData
 from torch_points3d.core.data_transform.multimodal.image import \
     DropImagesOutsideDataBoundingBox, PickKImages
 
+import torch_points3d
+TP3D_DIR = osp.dirname(osp.dirname(osp.abspath(torch_points3d.__file__)))
+
 DIR = os.path.dirname(os.path.realpath(__file__))
+log = logging.getLogger(__name__)
 log = logging.getLogger(__name__)
 
 
@@ -461,31 +465,42 @@ class KITTI360CylinderMM(KITTI360Cylinder):
         return super().processed_file_names + self.processed_2d_file_names
 
     def download(self):
-        missing = []
+        self.download_warning
+
+        # Location of the KITTI-360 download shell scripts
+        scripts_dir = osp.join(TP3D_DIR, 'scripts/datasets')
 
         # Accumulated 3D point clouds with annotations
         if not all(osp.exists(osp.join(self.raw_dir, x)) for x in self.raw_file_names_3d):
             if self.split != 'test':
-                missing.append('Accumulated Point Clouds for Train & Val (12G)')
+                msg = 'Accumulated Point Clouds for Train & Val (12G)'
             else:
-                missing.append('Accumulated Point Clouds for Test (1.2G)')
+                msg = 'Accumulated Point Clouds for Test (1.2G)'
+            self.download_message(msg)
+            script = osp.join(scripts_dir, 'download_kitti360_3d_semantics.sh')
+            run_command([f'{script} {self.raw_dir} {self.split}'])
 
         # Images
-        if not all(osp.exists(osp.join(self.raw_dir, x)) for x in self.raw_file_names_2d):
-            if self.split != 'test':
-                missing.append('Perspective Images for Train & Val (128G)')
-            else:
-                missing.append('Perspective Images for Test (1.5G)')
-
-        # Poses
-        if not all(osp.exists(osp.join(self.raw_dir, x)) for x in self.raw_file_names_poses):
-            missing.append('Vehicle Poses (8.9M)')
+        for s in self._SEQUENCES[self.split]:
+            seq_cam_dir = osp.join(
+                self.raw_dir, 'data_2d_raw', s, f'image_0{self.cam_id}')
+            if osp.exists(seq_cam_dir):
+                continue
+            self.download_message(f'camera {self.cam_id} images of sequence {s}')
+            script = osp.join(scripts_dir, 'download_kitti360_2d_raw.sh')
+            run_command([f'{script} {self.raw_dir} {s} {self.cam_id}'])
 
         # Calibration
         if not osp.exists(osp.join(self.raw_dir, self.raw_file_names_calibration)):
-            missing.append('Calibrations (3K)')
+            self.download_message('Calibrations (3K)')
+            script = osp.join(scripts_dir, 'download_kitti360_calibration.sh')
+            run_command([f'{script} {self.raw_dir}'])
 
-        self.download_log(missing)
+        # Poses
+        if not all(osp.exists(osp.join(self.raw_dir, x)) for x in self.raw_file_names_poses):
+            self.download_message('Vehicle Poses (8.9M)')
+            script = osp.join(scripts_dir, 'download_kitti360_poses.sh')
+            run_command([f'{script} {self.raw_dir}'])
 
     def process(self):
         # Gather the images from each sequence

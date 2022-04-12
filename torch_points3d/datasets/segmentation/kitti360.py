@@ -14,6 +14,7 @@ from datetime import datetime
 import torch_points3d.core.data_transform as cT
 from torch_points3d.datasets.base_dataset import BaseDataset
 from torch_points3d.datasets.segmentation.kitti360_config import *
+from torch_points3d.utils.download import run_command
 
 DIR = os.path.dirname(os.path.realpath(__file__))
 log = logging.getLogger(__name__)
@@ -508,33 +509,44 @@ class KITTI360Cylinder(InMemoryDataset):
         return path
 
     def download(self):
-        missing = []
+        # self.download_warning
+
+        print(
+            f"WARNING: You are about to download KITTI-360 data from: "
+            f"{CVLIBS_URL}")
+        print("Files will be organized in the following structure:")
+        print(self.raw_file_structure)
+        print("***")
+        print("Press any key to continue, or CTRL-C to exit.")
+        input("")
+
+        # Location of the KITTI-360 download shell scripts
+        here = osp.dirname(osp.abspath(__file__))
+        scripts_dir = osp.join(here, '../../../scripts/datasets')
 
         # Accumulated 3D point clouds with annotations
         if not all(osp.exists(osp.join(self.raw_dir, x)) for x in self.raw_file_names_3d):
             if self.split != 'test':
-                missing.append('Accumulated Point Clouds for Train & Val (12G)')
+                msg = 'Accumulated Point Clouds for Train & Val (12G)'
             else:
-                missing.append('Accumulated Point Clouds for Test (1.2G)')
+                msg = 'Accumulated Point Clouds for Test (1.2G)'
+            self.download_message(msg)
+            script = osp.join(scripts_dir, 'download_kitti360_3d_semantics.sh')
+            run_command([f'{script} {self.raw_dir} {self.split}'])
 
-        self.download_log(missing)
-
-    def download_log(self, missing):
-        """Log message that will be passed to the user when some files
-        are missing.
-        """
+    def download_warning(self):
+        # Warning message for the user about to download
         print(
-            f'The following KITTI-360 files are missing from raw_dir='
-            f'{self.raw_dir}. Please download them from: {CVLIBS_URL}')
-        for x in missing:
-            print(f'  - {x}')
-        print('***')
-        print('Make sure to unzip the files in the following folder structure:')
+            f"WARNING: You are about to download KITTI-360 data from: "
+            f"{CVLIBS_URL}")
+        print("Files will be organized in the following structure:")
         print(self.raw_file_structure)
+        print("***")
+        print("Press any key to continue, or CTRL-C to exit.")
+        input("")
 
-        raise NotImplementedError(
-            'KITTI360 automatic download not implemented yet, please download '
-            'the required files manually.')
+    def download_message(self, msg):
+        print(f'Downloading "{msg}" to {self.raw_dir}...')
 
     def process(self):
         for path_tuple in tq(zip(self.paths, self.sampling_paths)):
