@@ -431,7 +431,7 @@ class KITTI360Cylinder(InMemoryDataset):
     @property
     def raw_file_structure(self):
         return """
-    root_dir
+    root_dir/
         └── raw/
             └── data_3d_semantics/
                 └── 2013_05_28_drive_{seq:0>4}_sync/

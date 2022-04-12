@@ -380,13 +380,13 @@ class KITTI360CylinderMM(KITTI360Cylinder):
     @property
     def raw_file_structure(self):
         return """
-    root_dir
+    root_dir/
         └── raw/
             ├── data_3d_semantics/
             |   └── 2013_05_28_drive_{seq:0>4}_sync/
             |       └── static/
             |           └── {start_frame:0>10}_{end_frame:0>10}.ply
-            ├── data_2d_raw
+            ├── data_2d_raw/
             |   └── 2013_05_28_drive_{seq:0>4}_sync/
             |       ├── image_{00|01}/
             |       |   └── data_rect/
@@ -394,7 +394,7 @@ class KITTI360CylinderMM(KITTI360Cylinder):
             |       └── image_{02|03}/
             |           └── data_rgb/
             |               └── {frame:0>10}.png
-            ├── data_poses
+            ├── data_poses/
             |   └── 2013_05_28_drive_{seq:0>4}_sync/
             |       ├── poses.txt
             |       └── cam0_to_world.txt   
