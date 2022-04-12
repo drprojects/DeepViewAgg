@@ -431,12 +431,12 @@ class KITTI360Cylinder(InMemoryDataset):
     @property
     def raw_file_structure(self):
         return """
-            root_dir
-                └── raw/
-                    └── data_3d_semantics/
-                        └── 2013_05_28_drive_{seq:0>4}_sync/
-                            └── static/
-                                └── {start_frame:0>10}_{end_frame:0>10}.ply
+    root_dir
+        └── raw/
+            └── data_3d_semantics/
+                └── 2013_05_28_drive_{seq:0>4}_sync/
+                    └── static/
+                        └── {start_frame:0>10}_{end_frame:0>10}.ply
             """
 
     @property
@@ -509,16 +509,7 @@ class KITTI360Cylinder(InMemoryDataset):
         return path
 
     def download(self):
-        # self.download_warning
-
-        print(
-            f"WARNING: You are about to download KITTI-360 data from: "
-            f"{CVLIBS_URL}")
-        print("Files will be organized in the following structure:")
-        print(self.raw_file_structure)
-        print("***")
-        print("Press any key to continue, or CTRL-C to exit.")
-        input("")
+        self.download_warning()
 
         # Location of the KITTI-360 download shell scripts
         here = osp.dirname(osp.abspath(__file__))
@@ -541,9 +532,10 @@ class KITTI360Cylinder(InMemoryDataset):
             f"{CVLIBS_URL}")
         print("Files will be organized in the following structure:")
         print(self.raw_file_structure)
-        print("***")
+        print("")
         print("Press any key to continue, or CTRL-C to exit.")
         input("")
+        print("")
 
     def download_message(self, msg):
         print(f'Downloading "{msg}" to {self.raw_dir}...')

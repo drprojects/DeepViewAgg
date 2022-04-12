@@ -380,30 +380,30 @@ class KITTI360CylinderMM(KITTI360Cylinder):
     @property
     def raw_file_structure(self):
         return """
-            root_dir
-                └── raw/
-                    ├── data_3d_semantics/
-                    |   └── 2013_05_28_drive_{seq:0>4}_sync/
-                    |       └── static/
-                    |           └── {start_frame:0>10}_{end_frame:0>10}.ply
-                    ├── data_2d_raw
-                    |   └── 2013_05_28_drive_{seq:0>4}_sync/
-                    |       ├── image_{00|01}/
-                    |       |   └── data_rect/
-                    |       |       └── {frame:0>10}.png
-                    |       └── image_{02|03}/
-                    |           └── data_rgb/
-                    |               └── {frame:0>10}.png
-                    ├── data_poses
-                    |   └── 2013_05_28_drive_{seq:0>4}_sync/
-                    |       ├── poses.txt
-                    |       └── cam0_to_world.txt   
-                    └── calibration/
-                        ├── calib_cam_to_pose.txt
-                        ├── calib_cam_to_velo.txt
-                        ├── calib_sick_to_velo.txt
-                        ├── perspective.txt
-                        └── image_{02|03}.yaml
+    root_dir
+        └── raw/
+            ├── data_3d_semantics/
+            |   └── 2013_05_28_drive_{seq:0>4}_sync/
+            |       └── static/
+            |           └── {start_frame:0>10}_{end_frame:0>10}.ply
+            ├── data_2d_raw
+            |   └── 2013_05_28_drive_{seq:0>4}_sync/
+            |       ├── image_{00|01}/
+            |       |   └── data_rect/
+            |       |       └── {frame:0>10}.png
+            |       └── image_{02|03}/
+            |           └── data_rgb/
+            |               └── {frame:0>10}.png
+            ├── data_poses
+            |   └── 2013_05_28_drive_{seq:0>4}_sync/
+            |       ├── poses.txt
+            |       └── cam0_to_world.txt   
+            └── calibration/
+                ├── calib_cam_to_pose.txt
+                ├── calib_cam_to_velo.txt
+                ├── calib_sick_to_velo.txt
+                ├── perspective.txt
+                └── image_{02|03}.yaml
             """
 
     @property
@@ -465,7 +465,7 @@ class KITTI360CylinderMM(KITTI360Cylinder):
         return super().processed_file_names + self.processed_2d_file_names
 
     def download(self):
-        self.download_warning
+        self.download_warning()
 
         # Location of the KITTI-360 download shell scripts
         scripts_dir = osp.join(TP3D_DIR, 'scripts/datasets')
