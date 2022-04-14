@@ -36,7 +36,6 @@ This is **not the official [Torch-Points3D framework](https://github.com/nicolas
 ## Project structure
 The project follows the original [Torch-Points3D framework](https://github.com/nicolas-chaulet/torch-points3d) structure.
 ```bash
-├─ benchmark               # Output from various benchmark runs
 ├─ conf                    # All configurations for training and evaluation leave there
 ├─ notebooks               # A collection of notebooks that allow result exploration and network debugging
 ├─ eval.py                 # Eval script
