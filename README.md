@@ -1,7 +1,9 @@
 # DeepViewAgg
-Official repository for the *Learning Multi-View Aggregation In the Wild for Large-Scale 3D Semantic Segmentation* paper :page_facing_up:.
+Official repository for the **_Learning Multi-View Aggregation In the Wild for Large-Scale 3D Semantic Segmentation_** paper :page_facing_up:.
 
-![](./illustrations/teaser.png)
+<p align="center">
+  <img width="40%" height="40%" src="./illustrations/teaser.png">
+</p>
 
 [Paper](link-to-paper) abstract:
 
@@ -66,7 +68,9 @@ The most important ones can be found in the following:
 ## Visualization of multimodal data
 We provide code to produce interactive and sharable HTML visualizations of multimodal data and point-image mappings:
 
-![](./illustrations/interactive_visualization_snapshot.png)
+<p align="center">
+  <img width="60%" height="60%" src="./illustrations/interactive_visualization_snapshot.png">
+</p>
  
 Examples of such HTML produced on S3DIS Fold 5 are zipped here [here](./illustrations/interactive_visualizations.zip) and can be opened in your browser.
 
