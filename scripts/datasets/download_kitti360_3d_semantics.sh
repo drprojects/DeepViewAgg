@@ -21,7 +21,8 @@ if ! test -f "${zip_file}"; then
 fi
 
 # Unzip the data
-unzip -d ${raw_dir} ${zip_file}
+echo "Unzipping the data..."
+unzip -q -d ${raw_dir} ${zip_file}
 # rm ${zip_file}
 
 # Remove the train/ and test/ folder level so all sequences are in the same 
