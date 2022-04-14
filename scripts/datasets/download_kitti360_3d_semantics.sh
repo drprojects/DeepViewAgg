@@ -21,7 +21,7 @@ if ! test -f "${zip_file}"; then
 fi
 
 # Unzip the data
-echo "Unzipping the data..."
+echo "Unzipping ${zip_file} to ${raw_dir}..."
 unzip -q -d ${raw_dir} ${zip_file}
 # rm ${zip_file}
 

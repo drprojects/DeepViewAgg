@@ -47,6 +47,6 @@ if ! test -f "${zip_file}"; then
 fi
 
 # Unzip the data
-echo "Unzipping the data..."
+echo "Unzipping ${zip_file} to ${data_2d_dir}..."
 unzip -q -d ${data_2d_dir} ${zip_file}
 # rm ${zip_file}
