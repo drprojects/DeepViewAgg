@@ -1,0 +1,34 @@
+# @package data
+defaults:
+    - segmentation/default
+
+class: shapenet.ShapeNetDataset
+dataset_name: "shapenet_sparse"
+dataroot: data
+normal: True
+use_category: True
+grid_size: 0.02
+pre_transforms:
+  - transform: NormalizeScale
+train_transforms:
+  - transform: RandomNoise
+    params:
+      sigma: 0.01
+      clip: 0.05
+  - transform: GridSampling3D
+    params:
+      size: ${data.grid_size}
+      mode: "mean"
+      quantize_coords: True
+test_transforms:
+  - transform: GridSampling3D
+    params:
+      size: ${data.grid_size}
+      quantize_coords: True
+      mode: "mean"
+val_transforms:
+  - transform: GridSampling3D
+    params:
+      size: ${data.grid_size}
+      quantize_coords: True
+      mode: "mean"
