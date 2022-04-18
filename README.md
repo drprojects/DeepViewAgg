@@ -40,7 +40,7 @@ This is **not the official [Torch-Points3D](https://github.com/nicolas-chaulet/t
 The project follows the original [Torch-Points3D framework](https://github.com/nicolas-chaulet/torch-points3d) structure.
 ```bash
 ├─ conf                    # All configurations live there
-├─ notebooks               # A collection of notebooks to get started with multimodal data and model manipulation
+├─ notebooks               # Notebooks to get started with multimodal datasets and models
 ├─ eval.py                 # Eval script
 ├─ insall.sh               # Installation script for DeepViewAgg
 ├─ scripts                 # Some scripts to help manage the project
