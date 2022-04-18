@@ -34,13 +34,13 @@ To install DeepViewAgg, simply run `./install.sh` from inside the repository.
 - :warning: **Do not** install Torch-Points3D from the official repository, nor from `pip`.
 
 ## Disclaimer
-This is **not the official [Torch-Points3D](https://github.com/nicolas-chaulet/torch-points3d) framework**. This work builds on and modifies a fixed version of the framework and has not been merged with the official repository yet. In particular, this repository **introduces numerous features for multimodal learning on large-scale 3D point clouds**. In this repository, some TP3D-specific files were trimmed. 
+This is **not the official [Torch-Points3D](https://github.com/nicolas-chaulet/torch-points3d) framework**. This work builds on and modifies a fixed version of the framework and has not been merged with the official repository yet. In particular, this repository **introduces numerous features for multimodal learning on large-scale 3D point clouds**. In this repository, some TP3D-specific files were trimmed for simplicity. 
 
 ## Project structure
 The project follows the original [Torch-Points3D framework](https://github.com/nicolas-chaulet/torch-points3d) structure.
 ```bash
-├─ conf                    # All configurations for training and evaluation leave there
-├─ notebooks               # A collection of notebooks that allow result exploration and network debugging
+├─ conf                    # All configurations live there
+├─ notebooks               # A collection of notebooks to get started with multimodal data and model manipulation
 ├─ eval.py                 # Eval script
 ├─ insall.sh               # Installation script for DeepViewAgg
 ├─ scripts                 # Some scripts to help manage the project
@@ -52,7 +52,6 @@ The project follows the original [Torch-Points3D framework](https://github.com/n
     ├─ modules             # Basic modules that can be used in a modular way
     ├─ utils               # Various utils
     └─ visualization       # Visualization
-├─ test
 └─ train.py                # Main script to launch a training
 ```
 
@@ -77,7 +76,7 @@ We provide code to produce interactive and sharable HTML visualizations of multi
   <img width="60%" height="60%" src="./illustrations/interactive_visualization_snapshot.png">
 </p>
  
-Examples of such HTML produced on S3DIS Fold 5 are zipped here [here](./illustrations/interactive_visualizations.zip) and can be opened in your browser.
+Examples of such HTML produced on S3DIS Fold 5 are zipped [here](./illustrations/interactive_visualizations.zip) and can be opened in your browser.
 
 ## Credits :credit_card:
 - This implementation of **DeepViewAgg** largely relies on the [Torch-Points3D framework](https://github.com/nicolas-chaulet/torch-points3d), although not merged with the official project at this point. 
