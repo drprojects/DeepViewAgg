@@ -1,11 +1,11 @@
 # DeepViewAgg
-Official repository for the **_Learning Multi-View Aggregation In the Wild for Large-Scale 3D Semantic Segmentation_** paper :page_facing_up:.
+Official repository for the **_Learning Multi-View Aggregation In the Wild for Large-Scale 3D Semantic Segmentation_** [paper :page_facing_up:](http://arxiv.org/abs/2204.07548)
 
 <p align="center">
   <img width="40%" height="40%" src="./illustrations/teaser.png">
 </p>
 
-[Paper](link-to-paper) abstract:
+[Paper](http://arxiv.org/abs/2204.07548) abstract:
 
 *Recent works on 3D semantic segmentation propose to exploit the synergy between images and point clouds by pro- cessing each modality with a dedicated network and project- ing learned 2D features onto 3D points. Merging large-scale point clouds and images raises several challenges, such as constructing a mapping between points and pixels, and ag- gregating features between multiple views. Current methods require mesh reconstruction or specialized sensors to recover occlusions, and use heuristics to select and aggregate avail- able images. In contrast, we propose an end-to-end trainable multi-view aggregation model leveraging the viewing condi- tions of 3D points to merge features from images taken at ar- bitrary positions. Our method can combine standard 2D and 3D networks and outperforms both 3D models operating on colorized point clouds and hybrid 2D/3D networks without requiring colorization, meshing, or true depth maps. We set a new state-of-the-art for large-scale indoor/outdoor semantic segmentation on S3DIS (74.7 mIoU 6-Fold) and on KITTI- 360 (58.3 mIoU). Our full pipeline only requires raw 3D scans and a set of images and poses.*
 
