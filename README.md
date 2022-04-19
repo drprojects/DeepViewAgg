@@ -71,6 +71,9 @@ The most important ones can be found in the following:
 ## Getting started :rocket:
 Notebooks available very soon :rotating_light: :construction:
 
+## Documentation :books:
+The official documentation of [Pytorch Geometric](https://pytorch-geometric.readthedocs.io/en/latest/index.html) and [Torch-Points3D](https://torch-points3d.readthedocs.io/en/latest/index.html#) are good starting points, since this project largely builds on top of these frameworks. For DeepViewAgg-specific features (*i.e.* all that concerns multimodal learning), the provided code is commented as much as possible, but hit me up :speech_balloon: if some parts need clarification.
+
 ## Visualization of multimodal data :telescope:
 We provide code to produce interactive and sharable HTML visualizations of multimodal data and point-image mappings:
 
@@ -81,7 +84,7 @@ We provide code to produce interactive and sharable HTML visualizations of multi
 Examples of such HTML produced on S3DIS Fold 5 are zipped [here](./illustrations/interactive_visualizations.zip) and can be opened in your browser.
 
 ## Credits :credit_card:
-- This implementation of **DeepViewAgg** largely relies on the [Torch-Points3D framework](https://github.com/nicolas-chaulet/torch-points3d), although not merged with the official project at this point. 
+- This implementation of DeepViewAgg largely relies on the [Torch-Points3D framework](https://github.com/nicolas-chaulet/torch-points3d), although not merged with the official project at this point. 
 - For datasets, some code from the official [KITTI-360](https://github.com/autonomousvision/kitti360Scripts) and [ScanNet](https://github.com/ScanNet/ScanNet) repositories was used.
 
 ## Reference
