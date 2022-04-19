@@ -7,7 +7,7 @@ Official repository for **_Learning Multi-View Aggregation In the Wild for Large
   <img width="40%" height="40%" src="./illustrations/teaser.png">
 </p>
 
-*We propose to exploit the synergy between images and 3D point clouds by learning to select the most relevant views for each point. Our approach is end-to-end trainable multi-view aggregation model leveraging the viewing conditions of 3D points to merge features from images taken at arbitrary positions. We reach SOTA results for S3DIS (74.7 mIoU 6-Fold) and on KITTI- 360 (58.3 mIoU) without requiring point colorization, meshing, or the use of depth cameras: our full pipeline only requires raw 3D scans and a set of images and poses.*
+*We propose to exploit the synergy between images and 3D point clouds by learning to select the most relevant views for each point. Our approach uses the viewing conditions of 3D points to merge features from images taken at arbitrary positions. We reach SOTA results for S3DIS (74.7 mIoU 6-Fold) and on KITTI- 360 (58.3 mIoU) without requiring point colorization, meshing, or the use of depth cameras: our full pipeline only requires raw 3D scans and a set of images and poses.*
 
 ## Coming very soon :rotating_light: :construction:
 - **notebooks** for manipulating multimodal data for S3DIS, ScanNet and KITTI-360, training and testing models and reproducing our papers' main results.
