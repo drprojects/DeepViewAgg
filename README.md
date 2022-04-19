@@ -1,16 +1,16 @@
-# DeepViewAgg
-Official repository for the **_Learning Multi-View Aggregation In the Wild for Large-Scale 3D Semantic Segmentation_** paper :page_facing_up:.
+# DeepViewAgg [CVPR 2022 Oral]
+[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/learning-multi-view-aggregation-in-the-wild/semantic-segmentation-on-s3dis)](https://paperswithcode.com/sota/semantic-segmentation-on-s3dis?p=learning-multi-view-aggregation-in-the-wild) [![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/learning-multi-view-aggregation-in-the-wild/3d-semantic-segmentation-on-kitti-360)](https://paperswithcode.com/sota/3d-semantic-segmentation-on-kitti-360?p=learning-multi-view-aggregation-in-the-wild)
+
+Official repository for **_Learning Multi-View Aggregation In the Wild for Large-Scale 3D Semantic Segmentation_** [paper :page_facing_up:](http://arxiv.org/abs/2204.07548) selected for an Oral presentation at CVPR 2022.
 
 <p align="center">
   <img width="40%" height="40%" src="./illustrations/teaser.png">
 </p>
 
-[Paper](link-to-paper) abstract:
-
-*Recent works on 3D semantic segmentation propose to exploit the synergy between images and point clouds by pro- cessing each modality with a dedicated network and project- ing learned 2D features onto 3D points. Merging large-scale point clouds and images raises several challenges, such as constructing a mapping between points and pixels, and ag- gregating features between multiple views. Current methods require mesh reconstruction or specialized sensors to recover occlusions, and use heuristics to select and aggregate avail- able images. In contrast, we propose an end-to-end trainable multi-view aggregation model leveraging the viewing condi- tions of 3D points to merge features from images taken at ar- bitrary positions. Our method can combine standard 2D and 3D networks and outperforms both 3D models operating on colorized point clouds and hybrid 2D/3D networks without requiring colorization, meshing, or true depth maps. We set a new state-of-the-art for large-scale indoor/outdoor semantic segmentation on S3DIS (74.7 mIoU 6-Fold) and on KITTI- 360 (58.3 mIoU). Our full pipeline only requires raw 3D scans and a set of images and poses.*
+*We propose to exploit the synergy between images and 3D point clouds by learning to select the most relevant views for each point. Our approach uses the viewing conditions of 3D points to merge features from images taken at arbitrary positions. We reach SOTA results for S3DIS (74.7 mIoU 6-Fold) and on KITTI- 360 (58.3 mIoU) without requiring point colorization, meshing, or the use of depth cameras: our full pipeline only requires raw 3D scans and a set of images and poses.*
 
 ## Coming very soon :rotating_light: :construction:
-- **notebooks** for manipulating multimodal data for S3DIS, ScanNet and KITTI-360, training and testing models and reproduce our papers' main results.
+- **notebooks** for manipulating multimodal data for S3DIS, ScanNet and KITTI-360, training and testing models and reproducing our papers' main results.
 - **pretrained weights** from our best-performing model on S3DIS and KITTI-360
 - **[wandb](https://wandb.ai) logs** of our experiments
 
@@ -20,7 +20,7 @@ The following must be installed before installing this project.
 - cuda >= 10.1
 - gcc >= 7
 
-All remaining dependencies (PyTorch, PyTorch Geometric, etc) should be installed using the prodived [installation script](install.sh).
+All remaining dependencies (PyTorch, PyTorch Geometric, etc) should be installed using the provided [installation script](install.sh).
 
 The code has been tested in the following environment:
 - Ubuntu 18.04.6 LTS
@@ -31,16 +31,16 @@ The code has been tested in the following environment:
 ## Installation :bricks:
 To install DeepViewAgg, simply run `./install.sh` from inside the repository. 
 - You will need to have **sudo rights** to install [MinkowskiEngine](https://github.com/NVIDIA/MinkowskiEngine) and [TorchSparse](https://github.com/mit-han-lab/torchsparse) dependencies.
-- :warning: **Do not** install Torch-Points3D from the official repository, nor from `pip`.
+- :warning: **Do not** install Torch-Points3D from the official repository, or with `pip`.
 
 ## Disclaimer
-This is **not the official [Torch-Points3D](https://github.com/nicolas-chaulet/torch-points3d) framework**. This work builds on and modifies a fixed version of the framework and has not been merged with the official repository yet. In particular, this repository **introduces numerous features for multimodal learning on large-scale 3D point clouds**. In this repository, some TP3D-specific files were trimmed. 
+This is **not the official [Torch-Points3D](https://github.com/nicolas-chaulet/torch-points3d) framework**. This work builds on and modifies a fixed version of the framework and has not been merged with the official repository yet. In particular, this repository **introduces numerous features for multimodal learning on large-scale 3D point clouds**. In this repository, some TP3D-specific files were removed for simplicity. 
 
 ## Project structure
 The project follows the original [Torch-Points3D framework](https://github.com/nicolas-chaulet/torch-points3d) structure.
 ```bash
-├─ conf                    # All configurations for training and evaluation leave there
-├─ notebooks               # A collection of notebooks that allow result exploration and network debugging
+├─ conf                    # All configurations live there
+├─ notebooks               # Notebooks to get started with multimodal datasets and models
 ├─ eval.py                 # Eval script
 ├─ insall.sh               # Installation script for DeepViewAgg
 ├─ scripts                 # Some scripts to help manage the project
@@ -52,7 +52,6 @@ The project follows the original [Torch-Points3D framework](https://github.com/n
     ├─ modules             # Basic modules that can be used in a modular way
     ├─ utils               # Various utils
     └─ visualization       # Visualization
-├─ test
 └─ train.py                # Main script to launch a training
 ```
 
@@ -70,6 +69,9 @@ The most important ones can be found in the following:
 ## Getting started :rocket:
 Notebooks available very soon :rotating_light: :construction:
 
+## Documentation :books:
+The official documentation of [Pytorch Geometric](https://pytorch-geometric.readthedocs.io/en/latest/index.html) and [Torch-Points3D](https://torch-points3d.readthedocs.io/en/latest/index.html#) are good starting points, since this project largely builds on top of these frameworks. For DeepViewAgg-specific features (*i.e.* all that concerns multimodal learning), the provided code is commented as much as possible, but hit me up :speech_balloon: if some parts need clarification.
+
 ## Visualization of multimodal data :telescope:
 We provide code to produce interactive and sharable HTML visualizations of multimodal data and point-image mappings:
 
@@ -77,10 +79,10 @@ We provide code to produce interactive and sharable HTML visualizations of multi
   <img width="60%" height="60%" src="./illustrations/interactive_visualization_snapshot.png">
 </p>
  
-Examples of such HTML produced on S3DIS Fold 5 are zipped here [here](./illustrations/interactive_visualizations.zip) and can be opened in your browser.
+Examples of such HTML produced on S3DIS Fold 5 are zipped [here](./illustrations/interactive_visualizations.zip) and can be opened in your browser.
 
 ## Credits :credit_card:
-- This implementation of **DeepViewAgg** largely relies on the [Torch-Points3D framework](https://github.com/nicolas-chaulet/torch-points3d), although not merged with the official project at this point. 
+- This implementation of DeepViewAgg largely relies on the [Torch-Points3D framework](https://github.com/nicolas-chaulet/torch-points3d), although not merged with the official project at this point. 
 - For datasets, some code from the official [KITTI-360](https://github.com/autonomousvision/kitti360Scripts) and [ScanNet](https://github.com/ScanNet/ScanNet) repositories was used.
 
 ## Reference
