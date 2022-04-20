@@ -10,9 +10,11 @@ Official repository for **_Learning Multi-View Aggregation In the Wild for Large
 *We propose to exploit the synergy between images and 3D point clouds by learning to select the most relevant views for each point. Our approach uses the viewing conditions of 3D points to merge features from images taken at arbitrary positions. We reach SOTA results for S3DIS (74.7 mIoU 6-Fold) and on KITTI- 360 (58.3 mIoU) without requiring point colorization, meshing, or the use of depth cameras: our full pipeline only requires raw 3D scans and a set of images and poses.*
 
 ## Coming very soon :rotating_light: :construction:
-- **notebooks** for manipulating multimodal data for S3DIS, ScanNet and KITTI-360, training and testing models and reproducing our papers' main results.
 - **pretrained weights** from our best-performing model on S3DIS and KITTI-360
 - **[wandb](https://wandb.ai) logs** of our experiments
+
+## Change log
+- 2022-04-20 Added notebooks and scripts to get started with DeepViewAgg
 
 ## Requirements :memo:
 The following must be installed before installing this project.
@@ -68,7 +70,30 @@ The most important ones can be found in the following:
 - `torch_points3d/visualization/multimodal_data.py`: tools for interactive visualization of multimodal data.
 
 ## Getting started :rocket:
-Notebooks available very soon :rotating_light: :construction:
+Notebook to create synthetic toy dataset and get familiar with 2D-3D mappings construction :
+- `notebooks/synthetic_multimodal_dataset.ipynb`
+
+Notebooks to create dataset, get familiar with dataset configuration and produce interactive visualization:
+- `notebooks/kitti360_visualization.ipynb` (at least **350G** of memory :floppy_disk:)
+- `notebooks/s3dis_visualization.ipynb` (at least **400G** of memory :floppy_disk:)
+- `notebooks/scannet_visualization.ipynb` (at least **1.3T** of memory :floppy_disk:)
+
+Notebooks to create multimodal models, get familiar with model configuration and run forward and backward passes for debugging:
+- `notebooks/multimodal_model.ipynb`
+
+Notebooks to run full inference on multimodal datasets, from a model checkpoint:
+- `notebooks/kitti360_inference.ipynb`
+- `notebooks/s3dis_inference.ipynb`
+- `notebooks/scannet_inference.ipynb`
+
+Scripts to replicate our paper's best results :chart_with_upwards_trend: for each dataset:
+- `scripts/train_kitti360.sh`
+- `scripts/train_s3dis.sh`
+- `scripts/train_scannet.sh`
+
+If you need to go deeper into this project, see the [Documentation](#documentation-books) section.
+
+If you have trouble using these or need reproduce other results from our paper, create an issue or leave me a message :speech_balloon: !
 
 ## Documentation :books:
 The official documentation of [Pytorch Geometric](https://pytorch-geometric.readthedocs.io/en/latest/index.html) and [Torch-Points3D](https://torch-points3d.readthedocs.io/en/latest/index.html#) are good starting points, since this project largely builds on top of these frameworks. For DeepViewAgg-specific features (*i.e.* all that concerns multimodal learning), the provided code is commented as much as possible, but hit me up :speech_balloon: if some parts need clarification.
