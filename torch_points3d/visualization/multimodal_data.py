@@ -106,10 +106,30 @@ def identity_PCA(x, dim=3):
     return x_reduced
 
 
-def visualize_3d(mm_data, class_names=None, class_colors=None,
-         class_opacities=None, figsize=800, width=None, height=None, voxel=0.1,
-         max_points=100000, pointsize=5, error_color=None, **kwargs):
-    """3D data interactive visualization tools."""
+def visualize_3d(
+        mm_data, figsize=800, width=None, height=None, class_names=None,
+        class_colors=None, class_opacities=None,  voxel=0.1, max_points=100000,
+        pointsize=5, error_color=None, show_image_number=False, **kwargs):
+    """3D data interactive visualization.
+
+    :param mm_data: MMData object holding 3d points, images and mappings
+    :param figsize: figure dimensions will be (figsize, figsize/2) if
+      `width` and `height` are not specified
+    :param width: figure width
+    :param height: figure height
+    :param class_names: names for point labels in MMData
+    :param class_colors: colors for point labels in MMData
+    :param class_opacities: class-wise opacities
+    :param voxel: voxel size to subsample the point cloud to facilitate
+      visualization
+    :param max_points: maximum number of points displayed to facilitate
+      visualization
+    :param pointsize: size of points
+    :param error_color: color used to identify mis-predicted points
+    :param show_image_number: whether image numbers should be displayed
+    :param kwargs:
+    :return:
+    """
     assert isinstance(mm_data, MMData)
 
     # 3D visualization modes
@@ -382,8 +402,7 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
                         line_width=2,
                         size=pointsize + 12,
                         color=PALETTE[i % len(PALETTE)], ),
-                    # text=f"<b>{i}</b>",  # TODO: reset this if you want to see image number
-                    text='',
+                    text=f"<b>{i}</b>" if show_image_number else '',
                     textposition="bottom center",
                     textfont=dict(size=16),
                     hoverinfo='x+y+z+name',
@@ -487,10 +506,42 @@ def visualize_3d(mm_data, class_names=None, class_colors=None,
     return output
 
 
-def visualize_2d(mm_data, figsize=800, width=None, height=None, alpha=3,
-         class_colors=None, back=None, front=None, overlay_point_error=False,
-         overlay_view_error=False, error_color=None, **kwargs):
-    """2D data interactive visualization tools."""
+def visualize_2d(
+        mm_data, figsize=800, width=None, height=None, alpha=0.3,
+        back_dark=False, class_colors=None, back=None, front=None,
+        overlay_point_error=False, overlay_view_error=False, error_color=None,
+        **kwargs):
+    """2D data interactive visualization.
+
+    :param mm_data: MMData object holding 3d points, images and mappings
+    :param figsize: figure dimensions will be (figsize, figsize/2) if
+      `width` and `height` are not specified
+    :param width: figure width
+    :param height: figure height
+    :param alpha: controls the intensity of background (non-mapped)
+      pixels
+    :param back_dark: whether the background (non-mapped) pixels should
+      appear brightened or darkened
+    :param class_colors: colors for point labels in MMData
+    :param back: background mode for non-mapped pixels visualization:
+      'x' will use the image features, 'pred' will use image predictions.
+      Otherwise, fallback to 'x'
+    :param front: foreground mode used for mapped pixels visualization:
+      'map' simply uses a dark/bright pattern between the background and
+      the foreground, 'rgb' colors pixels with the associated 3D point's
+      RGB color, 'pos' colors pixels with the associated 3D point's
+      RGB-encoded position, 'y' colors pixels with the associated 3D
+      point's label, 'feat_3d' colors pixels with the associated 3D
+      point's features, 'feat_proj' colors pixels with the associated
+      mapping features.
+    :param overlay_point_error: True to colorize mapped pixels where the
+      point prediction is incorrect after multi-view aggregation
+    :param overlay_view_error: True to colorize mapped pixels where the
+      point prediction is incorrect for the view only
+    :param error_color: color used to show erroneous predictions
+    :param kwargs:
+    :return:
+    """
     assert isinstance(mm_data, MMData)
     
     # Prepare figure
@@ -606,6 +657,9 @@ def visualize_2d(mm_data, figsize=800, width=None, height=None, alpha=3,
     if any([im.mappings is None for im in images]):
         front = []
 
+    # Make sure alpha is in [0, 1]
+    alpha = max(0, min(alpha, 1))
+
     # Compute the background-foreground visualizations
     if len(front) == 0:
         for im in images:
@@ -613,9 +667,12 @@ def visualize_2d(mm_data, figsize=800, width=None, height=None, alpha=3,
             im.front = []
     else:
         for im in images:
-            # Color the mapped foreground and darken the background
-            im.background_alpha = (255 - 0.3 * (255 - im.background.float())).floor().type(torch.uint8)  # TODO: this is for clearer background
-            # im.background_alpha = (im.background.float() / alpha).floor().type(torch.uint8)  # TODO: this is for darker background
+            # Color the mapped foreground and brighten/darken the
+            # background with alpha intensity
+            if back_dark:
+                im.background_alpha = (im.background.float() * alpha).floor().type(torch.uint8)
+            else:
+                im.background_alpha = (255 - 0.3 * (255 - im.background.float())).floor().type(torch.uint8)
 
             # Get the mapping of all points in the sample
             idx = im.mappings.feature_map_indexing
@@ -842,7 +899,18 @@ def figure_html(fig):
 def visualize_mm_data(
         mm_data, show_3d=True, show_2d=True, path=None, title=None,
         no_output=True, **kwargs):
-    """Draw an interactive 3D visualization of the Data point cloud."""
+    """Multimodal 3D+2D data interactive visualization.
+
+    :param mm_data: MMData object holding 3d points, images and mappings
+    :param show_3d: whether 3D points should be displayed
+    :param show_2d: whether 2D images should be displayed
+    :param path: path to save the visualization into a sharable HTML
+    :param title: figure title
+    :param no_output: set to True if you want to return the 3D and 2D
+      Plotly figure objects
+    :param kwargs:
+    :return:
+    """
     assert isinstance(mm_data, MMData)
 
     # Sanitize title and path
