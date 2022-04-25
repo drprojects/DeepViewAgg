@@ -133,7 +133,7 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
         - transform: NeighborhoodBasedMappingFeatures  # Compute local density and occlusion
           params:
                 k: 50  # empirically-chosen heuristic [30-100] is fine. May pass a list for multi-scale features
-                voxel: ${data.full_resolution_3d}
+                voxel: ${data.resolution_3d}
                 density: True
                 occlusion: True
                 use_faiss: False  # using FAISS+CUDA should speed up computation, but some issues remain
