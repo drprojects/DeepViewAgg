@@ -154,8 +154,8 @@ pip install -U MinkowskiEngine==v0.4.3 --install-option="--blas=openblas" -v --n
 
 # Install torchsparse
 sudo apt-get install libsparsehash-dev
-pip install --upgrade git+https://github.com/mit-han-lab/torchsparse.git
-pip install --upgrade git+https://github.com/mit-han-lab/torchsparse.git@v1.4.0 #####################
+pip install --upgrade git+https://github.com/mit-han-lab/torchsparse.git@v1.1.0
+#pip install --upgrade git+https://github.com/mit-han-lab/torchsparse.git@v1.4.0
 
 # Install plotly and associated jupyter requirements
 pip install plotly==5.4.0
