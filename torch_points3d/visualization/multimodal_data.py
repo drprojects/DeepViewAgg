@@ -109,7 +109,7 @@ def identity_PCA(x, dim=3):
 def visualize_3d(
         mm_data, figsize=800, width=None, height=None, class_names=None,
         class_colors=None, class_opacities=None,  voxel=0.1, max_points=100000,
-        pointsize=5, error_color=None, show_image_number=False, **kwargs):
+        pointsize=5, error_color=None, show_image_number=True, **kwargs):
     """3D data interactive visualization.
 
     :param mm_data: MMData object holding 3d points, images and mappings
@@ -672,7 +672,7 @@ def visualize_2d(
             if back_dark:
                 im.background_alpha = (im.background.float() * alpha).floor().type(torch.uint8)
             else:
-                im.background_alpha = (255 - 0.3 * (255 - im.background.float())).floor().type(torch.uint8)
+                im.background_alpha = (255 - alpha * (255 - im.background.float())).floor().type(torch.uint8)
 
             # Get the mapping of all points in the sample
             idx = im.mappings.feature_map_indexing
