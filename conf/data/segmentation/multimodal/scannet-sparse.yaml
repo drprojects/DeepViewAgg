@@ -33,7 +33,7 @@ pre_transform:
       params:
           num_neighbors: 50  # heuristic: at least 30
           # r: 0.1  # heuristic: 2 * voxel - using r will force CPU computation
-          use_faiss: True
+          use_faiss: False  # using FAISS+CUDA should speed up computation, but some issues remain
     - transform: EigenFeatures
       params:
           norm: True

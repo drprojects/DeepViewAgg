@@ -47,7 +47,7 @@ multimodal:  # Each modality must be inserted in a dedicated 'multimodal' sectio
                 voxel: ${data.first_subsampling}
                 density: True
                 occlusion: True
-                use_faiss: True
+                use_faiss: False  # using FAISS+CUDA should speed up computation, but some issues remain
                 verbose: True  # True to print computation times
 
     train_transforms:
