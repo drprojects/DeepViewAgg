@@ -73,7 +73,6 @@ class Trainer:
             Wandb.launch(self._cfg, self._cfg.training.wandb.public and self.wandb_log)
 
         # Checkpoint
-
         self._checkpoint: ModelCheckpoint = ModelCheckpoint(
             self._cfg.training.checkpoint_dir,
             self._cfg.model_name,
@@ -84,6 +83,14 @@ class Trainer:
 
         # Create model and datasets
         if not self._checkpoint.is_empty:
+
+            # If data.dataroot was specified in the Trainer's input
+            # config, we overwrite the corresponding dataroot path in
+            # the checkpoint. This is useful if we want to load a
+            # checkpoint created on another machine
+            if hasattr(self._cfg, 'data') and hasattr(self._cfg.data, 'dataroot'):
+                self._checkpoint.dataroot = self._cfg.data.dataroot
+
             self._dataset: BaseDataset = instantiate_dataset(self._checkpoint.data_config)
             self._model: BaseModel = self._checkpoint.create_model(
                 self._dataset, weight_name=self._cfg.training.weight_name

@@ -255,6 +255,14 @@ class ModelCheckpoint(object):
         return OmegaConf.create(self._checkpoint.run_config).data
 
     @property
+    def dataroot(self):
+        return self.data_config.dataroot
+
+    @dataroot.setter
+    def dataroot(self, path):
+        self._checkpoint.run_config['data']['dataroot'] = path
+
+    @property
     def selection_stage(self):
         return self._selection_stage
 
