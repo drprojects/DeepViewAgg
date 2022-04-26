@@ -337,7 +337,7 @@ def visualize_3d(
     if has_error:
         indices = np.where(data.pred.numpy() != data.y.numpy())[0]
         error_color = f"rgb{tuple(error_color)}" \
-            if error_color is not None else 'rgb(0, 0, 0)'
+            if error_color is not None else 'rgb(255, 0, 0)'
         fig.add_trace(
             go.Scatter3d(
                 name='Errors',
