@@ -9,8 +9,7 @@ Official repository for **_Learning Multi-View Aggregation In the Wild for Large
 
 *We propose to exploit the synergy between images and 3D point clouds by learning to select the most relevant views for each point. Our approach uses the viewing conditions of 3D points to merge features from images taken at arbitrary positions. We reach SOTA results for S3DIS (74.7 mIoU 6-Fold) and on KITTI- 360 (58.3 mIoU) without requiring point colorization, meshing, or the use of depth cameras: our full pipeline only requires raw 3D scans and a set of images and poses.*
 
-## Coming very soon :rotating_light: :construction:
-- **pretrained weights** from our best-performing model on S3DIS and KITTI-360
+## Coming soon :rotating_light: :construction:
 - **[wandb](https://wandb.ai) logs** of our experiments
 
 ## Change log
@@ -73,7 +72,8 @@ The most important ones can be found in the following:
 Notebook to create synthetic toy dataset and get familiar with 2D-3D mappings construction :
 - `notebooks/synthetic_multimodal_dataset.ipynb`
 
-Notebooks to create dataset, get familiar with dataset configuration and produce interactive visualization:
+Notebooks to create dataset, get familiar with dataset configuration and produce interactive visualization. 
+You can also run inference from a checkpoint and visualize predictions:
 - `notebooks/kitti360_visualization.ipynb` (at least **350G** of memory :floppy_disk:)
 - `notebooks/s3dis_visualization.ipynb` (at least **400G** of memory :floppy_disk:)
 - `notebooks/scannet_visualization.ipynb` (at least **1.3T** of memory :floppy_disk:)
@@ -81,12 +81,13 @@ Notebooks to create dataset, get familiar with dataset configuration and produce
 Notebooks to create multimodal models, get familiar with model configuration and run forward and backward passes for debugging:
 - `notebooks/multimodal_model.ipynb`
 
-Notebooks to run full inference on multimodal datasets, from a model checkpoint:
+Notebooks to run full inference on multimodal datasets, from a model checkpoint. 
+Those should allow you to reproduce our results by using the pretrained models in [Models](#models):
 - `notebooks/kitti360_inference.ipynb`
 - `notebooks/s3dis_inference.ipynb`
 - `notebooks/scannet_inference.ipynb`
 
-Scripts to replicate our paper's best results :chart_with_upwards_trend: for each dataset:
+Scripts to replicate our paper's best experiments :chart_with_upwards_trend: for each dataset:
 - `scripts/train_kitti360.sh`
 - `scripts/train_s3dis.sh`
 - `scripts/train_scannet.sh`
@@ -94,6 +95,13 @@ Scripts to replicate our paper's best results :chart_with_upwards_trend: for eac
 If you need to go deeper into this project, see the [Documentation](#documentation-books) section.
 
 If you have trouble using these or need reproduce other results from our paper, create an issue or leave me a message :speech_balloon: !
+
+## Models
+| Model name | Dataset | mIoU  | :floppy_disk: | :point_down: |
+|---|:---:|:---:|:---:|:---:|
+| Res16UNet34-L4-early |  S3DIS 6-Fold | 74.7 | 2.0 G | [link](https://drive.google.com/file/d/19SgU1f2Ny1du5fRL0d9L1721Gqi1AnsY/view?usp=sharing)  |
+| Res16UNet34-PointPyramid-early-cityscapes-interpolate | KITTI-360 | 61.7 Val / 58.3 Test | 339 M | [link](https://drive.google.com/file/d/1ucQVJ1cdzwpW6HzthaOqTR1BwTp95vrl/view?usp=sharing) |
+| Res16UNet34-L4-early | ScanNet | 71.0 Val | 341 M | [link](https://drive.google.com/file/d/1H03540psSjturqerEBJkX5B7R8s6fEba/view?usp=sharing) |
 
 ## Documentation :books:
 The official documentation of [Pytorch Geometric](https://pytorch-geometric.readthedocs.io/en/latest/index.html) and [Torch-Points3D](https://torch-points3d.readthedocs.io/en/latest/index.html#) are good starting points, since this project largely builds on top of these frameworks. For DeepViewAgg-specific features (*i.e.* all that concerns multimodal learning), the provided code is commented as much as possible, but hit me up :speech_balloon: if some parts need clarification.
@@ -106,6 +114,10 @@ We provide code to produce interactive and sharable HTML visualizations of multi
 </p>
  
 Examples of such HTML produced on S3DIS Fold 5 are zipped [here](./illustrations/interactive_visualizations.zip) and can be opened in your browser.
+
+## Known issues
+- [RuntimeError: CUDA error: device-side assert triggered](https://github.com/drprojects/DeepViewAgg/issues/2) when training a model on KITTI-360. I am investigating this at the moment.
+- Setting `use_faiss=True` or `use_cuda=True` to accelerate `PCAComputePointwise`, `MapImages` or `NeighborhoodBasedMappingFeatures`. As suggested [here](https://github.com/drprojects/DeepViewAgg/issues/1), one should stick to the CPU-based computation for now.
 
 ## Credits :credit_card:
 - This implementation of DeepViewAgg largely relies on the [Torch-Points3D framework](https://github.com/nicolas-chaulet/torch-points3d), although not merged with the official project at this point. 
