@@ -147,20 +147,10 @@ class S3DISOriginalFusedMM(InMemoryDataset):
     num_classes = S3DIS_NUM_CLASSES
 
     def __init__(
-            self,
-            root,
-            test_area=6,
-            split="train",
-            transform=None,
-            pre_transform=None,
-            pre_collate_transform=None,
-            pre_filter=None,
-            pre_transform_image=None,
-            transform_image=None,
-            img_ref_size=(512, 256),
-            keep_instance=False,
-            verbose=False,
-            debug=False, ):
+            self, root, test_area=6, split="train", transform=None,
+            pre_transform=None, pre_collate_transform=None, pre_filter=None,
+            keep_instance=False, pre_transform_image=None, transform_image=None,
+            img_ref_size=(512, 256), verbose=False, debug=False):
         assert test_area in list(range(1, 7))
 
         self.transform = transform
@@ -558,41 +548,52 @@ class S3DISOriginalFusedMM(InMemoryDataset):
 # ----------------------------------------------------------------------
 
 class S3DISSphereMM(S3DISOriginalFusedMM):
-    """ Small variation of S3DISOriginalFusedMM that allows random
+    """ Small variation of S3DISOriginalFused that allows random
     sampling of spheres within an Area during training and validation.
-    Spheres have a radius of 2m. If sample_per_epoch is not specified,
-    spheres are taken on a 2m grid.
+    By default, spheres have a radius of 2m and are taken on a
+    `sample_res * radius` regular grid. If `sample_per_epoch > 0`,
+    indexing the dataset will return random spheres picked on the grid
+    with a bias towards balancing class frequencies. Otherwise, if
+    `sample_per_epoch <= 0` indexing the dataset becomes deterministic
+    and will return spheres of corresponding indices.
 
     http://buildingparser.stanford.edu/dataset.html
 
     Parameters
     ----------
     root: str
-        path to the directory where the data will be saved
+        Path to the directory where the data will be saved
     test_area: int
-        number between 1 and 6 that denotes the area used for testing
+        Number between 1 and 6 that denotes the area used for testing
     train: bool
         Is this a train split or not
     pre_collate_transform:
         Transforms to be applied before the data is assembled into
         samples (apply fusing here for example)
     keep_instance: bool
-        set to True if you wish to keep instance data
-    sample_per_epoch
+        Set to True if you wish to keep instance data
+    sample_per_epoch : int
         Number of spheres that are randomly sampled at each epoch (-1
         for fixed grid)
-    radius
-        radius of each sphere
+    radius : float
+        Radius of each sphere
+    sample_res : float
+        The resolution of the sample grid is computed as
+        `sample_res * radius`. By default, `sample_res=0.1` means the
+        dataset samples will be picked on a regular grid of step ten
+        times smaller than the sample radius
     pre_transform
     transform
     pre_filter
     """
 
-    def __init__(self, root, sample_per_epoch=100, radius=2, *args,
-                 **kwargs):
+    def __init__(
+            self, root, *args, sample_per_epoch=100, radius=2, sample_res=0.1,
+            **kwargs):
         self._sample_per_epoch = sample_per_epoch
+        self._sample_res = sample_res
         self._radius = radius
-        self._grid_sphere_sampling = cT.GridSampling3D(size=radius / 10.0)
+        self._grid_sphere_sampling = cT.GridSampling3D(size=radius * sample_res)
         super().__init__(root, *args, **kwargs)
 
     def __len__(self):
@@ -726,7 +727,8 @@ class S3DISSphereMM(S3DISOriginalFusedMM):
             for i_area in range(len(self._datas)):
                 self._datas[i_area].area_id = i_area
             grid_sampler = cT.GridSphereSampling(
-                self._radius, self._radius, center=False)
+                self._radius, grid_size=self._radius * self._sample_res,
+                center=False)
             self._test_spheres = grid_sampler(self._datas)
 
 
@@ -759,14 +761,19 @@ class S3DISFusedDataset(BaseDatasetMM):
 
         sampling_format = dataset_opt.get('sampling_format', 'sphere')
         assert sampling_format == 'sphere', \
-            f"Only sampling format 'sphere' is supported."
+            f"Only sampling format 'sphere' is supported for now."
 
         sample_per_epoch = dataset_opt.get('sample_per_epoch', 3000)
+        radius = dataset_opt.get('radius', 2)
+        train_sample_res = dataset_opt.get('train_sample_res', 0.1)
+        eval_sample_res = dataset_opt.get('eval_sample_res', 1)
         train_is_trainval = dataset_opt.get('train_is_trainval', False)
 
         self.train_dataset = S3DISSphereMM(
             self._data_path,
             sample_per_epoch=sample_per_epoch,
+            radius=radius,
+            sample_res=train_sample_res,
             test_area=self.dataset_opt.fold,
             split="train" if not train_is_trainval else "trainval",
             pre_collate_transform=self.pre_collate_transform,
@@ -778,6 +785,8 @@ class S3DISFusedDataset(BaseDatasetMM):
         self.val_dataset = S3DISSphereMM(
             self._data_path,
             sample_per_epoch=-1,
+            radius=radius,
+            sample_res=eval_sample_res,
             test_area=self.dataset_opt.fold,
             split="val",
             pre_collate_transform=self.pre_collate_transform,
@@ -786,20 +795,11 @@ class S3DISFusedDataset(BaseDatasetMM):
             transform_image=self.val_transform_image,
             img_ref_size=self.dataset_opt.resolution_2d)
 
-        # self.trainval_dataset = S3DISSphereMM(
-        #     self._data_path,
-        #     sample_per_epoch=sample_per_epoch,
-        #     test_area=self.dataset_opt.fold,
-        #     split="trainval",
-        #     pre_collate_transform=self.pre_collate_transform,
-        #     transform=self.train_transform,
-        #     pre_transform_image=self.pre_transform_image,
-        #     transform_image=self.train_transform_image,
-        #     img_ref_size = self.dataset_opt.resolution_2d)
-
         self.test_dataset = S3DISSphereMM(
             self._data_path,
             sample_per_epoch=-1,
+            radius=radius,
+            sample_res=eval_sample_res,
             test_area=self.dataset_opt.fold,
             split="test",
             pre_collate_transform=self.pre_collate_transform,

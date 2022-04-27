@@ -109,7 +109,8 @@ def object_name_to_label(object_class):
     return object_label
 
 
-def read_s3dis_format(train_file, room_name, label_out=True, verbose=False, debug=False):
+def read_s3dis_format(
+        train_file, room_name, label_out=True, verbose=False, debug=False):
     """extract data from a room folder"""
 
     room_type = room_name.split("_")[0]
@@ -264,18 +265,9 @@ class S3DISOriginalFused(InMemoryDataset):
     num_classes = S3DIS_NUM_CLASSES
 
     def __init__(
-        self,
-        root,
-        test_area=6,
-        split="train",
-        transform=None,
-        pre_transform=None,
-        pre_collate_transform=None,
-        pre_filter=None,
-        keep_instance=False,
-        verbose=False,
-        debug=False,
-    ):
+            self, root, test_area=6, split="train", transform=None,
+            pre_transform=None, pre_collate_transform=None, pre_filter=None,
+            keep_instance=False, verbose=False, debug=False):
         assert test_area >= 1 and test_area <= 6
         self.transform = transform
         self.pre_collate_transform = pre_collate_transform
@@ -471,7 +463,9 @@ class S3DISOriginalFused(InMemoryDataset):
 
         self._save_data(train_data_list, val_data_list, test_data_list, trainval_data_list)
 
-    def _save_data(self, train_data_list, val_data_list, test_data_list, trainval_data_list):
+    def _save_data(
+            self, train_data_list, val_data_list, test_data_list,
+            trainval_data_list):
         torch.save(self.collate(train_data_list), self.processed_paths[0])
         torch.save(self.collate(val_data_list), self.processed_paths[1])
         torch.save(self.collate(test_data_list), self.processed_paths[2])
@@ -493,38 +487,54 @@ class S3DISOriginalFused(InMemoryDataset):
             return range(len(self)) if self._indices is None else self._indices
         return super().indices()
 
+
 class S3DISSphere(S3DISOriginalFused):
-    """ Small variation of S3DISOriginalFused that allows random sampling of spheres 
-    within an Area during training and validation. Spheres have a radius of 2m. If sample_per_epoch is not specified, spheres
-    are taken on a 2m grid.
+    """ Small variation of S3DISOriginalFused that allows random
+    sampling of spheres within an Area during training and validation.
+    By default, spheres have a radius of 2m and are taken on a
+    `sample_res * radius` regular grid. If `sample_per_epoch > 0`,
+    indexing the dataset will return random spheres picked on the grid
+    with a bias towards balancing class frequencies. Otherwise, if
+    `sample_per_epoch <= 0` indexing the dataset becomes deterministic
+    and will return spheres of corresponding indices.
 
     http://buildingparser.stanford.edu/dataset.html
 
     Parameters
     ----------
     root: str
-        path to the directory where the data will be saved
+        Path to the directory where the data will be saved
     test_area: int
-        number between 1 and 6 that denotes the area used for testing
+        Number between 1 and 6 that denotes the area used for testing
     train: bool
         Is this a train split or not
     pre_collate_transform:
-        Transforms to be applied before the data is assembled into samples (apply fusing here for example)
+        Transforms to be applied before the data is assembled into
+        samples (apply fusing here for example)
     keep_instance: bool
-        set to True if you wish to keep instance data
-    sample_per_epoch
-        Number of spheres that are randomly sampled at each epoch (-1 for fixed grid)
-    radius
-        radius of each sphere
+        Set to True if you wish to keep instance data
+    sample_per_epoch : int
+        Number of spheres that are randomly sampled at each epoch (-1
+        for fixed grid)
+    radius : float
+        Radius of each sphere
+    sample_res : float
+        The resolution of the sample grid is computed as
+        `sample_res * radius`. By default, `sample_res=0.1` means the
+        dataset samples will be picked on a regular grid of step ten
+        times smaller than the sample radius
     pre_transform
     transform
     pre_filter
     """
 
-    def __init__(self, root, sample_per_epoch=100, radius=2, *args, **kwargs):
+    def __init__(
+            self, root, *args, sample_per_epoch=100, radius=2, sample_res=0.1,
+            **kwargs):
         self._sample_per_epoch = sample_per_epoch
+        self._sample_res = sample_res
         self._radius = radius
-        self._grid_sphere_sampling = cT.GridSampling3D(size=radius / 10.0)
+        self._grid_sphere_sampling = cT.GridSampling3D(size=radius * sample_res)
         super().__init__(root, *args, **kwargs)
 
     def __len__(self):
@@ -555,7 +565,9 @@ class S3DISSphere(S3DISOriginalFused):
         sphere_sampler = cT.SphereSampling(self._radius, centre[:3], align_origin=False)
         return sphere_sampler(area_data)
 
-    def _save_data(self, train_data_list, val_data_list, test_data_list, trainval_data_list):
+    def _save_data(
+            self, train_data_list, val_data_list, test_data_list,
+            trainval_data_list):
         torch.save(train_data_list, self.processed_paths[0])
         torch.save(val_data_list, self.processed_paths[1])
         torch.save(test_data_list, self.processed_paths[2])
@@ -586,13 +598,54 @@ class S3DISSphere(S3DISOriginalFused):
             self._label_counts = uni_counts / np.sum(uni_counts)
             self._labels = uni
         else:
-            grid_sampler = cT.GridSphereSampling(self._radius, self._radius, center=False)
+            grid_sampler = cT.GridSphereSampling(
+                self._radius, grid_size=self._radius * self._sample_res,
+                center=False)
             self._test_spheres = grid_sampler(self._datas)
 
 
 class S3DISCylinder(S3DISSphere):
+    """ Small variation of S3DISOriginalFused that allows random
+    sampling of cylinders within an Area during training and validation.
+    By default, cylinders have a radius of 2m and are taken on a
+    `sample_res * radius` regular grid. If `sample_per_epoch > 0`,
+    indexing the dataset will return random cylinders picked on the grid
+    with a bias towards balancing class frequencies. Otherwise, if
+    `sample_per_epoch <= 0` indexing the dataset becomes deterministic
+    and will return cylinders of corresponding indices.
+
+    http://buildingparser.stanford.edu/dataset.html
+
+    Parameters
+    ----------
+    root: str
+        Path to the directory where the data will be saved
+    test_area: int
+        Number between 1 and 6 that denotes the area used for testing
+    train: bool
+        Is this a train split or not
+    pre_collate_transform:
+        Transforms to be applied before the data is assembled into
+        samples (apply fusing here for example)
+    keep_instance: bool
+        Set to True if you wish to keep instance data
+    sample_per_epoch : int
+        Number of cylinders that are randomly sampled at each epoch (-1
+        for fixed grid)
+    radius : float
+        Radius of each cylinder
+    sample_res : float
+        The resolution of the sample grid is computed as
+        `sample_res * radius`. By default, `sample_res=0.1` means the
+        dataset samples will be picked on a regular grid of step ten
+        times smaller than the sample radius
+    pre_transform
+    transform
+    pre_filter
+    """
+
     def _get_random(self):
-        # Random spheres biased towards getting more low frequency classes
+        # Random cylinders biased towards getting more low frequency classes
         chosen_label = np.random.choice(self._labels, p=self._label_counts)
         valid_centres = self._centres_for_sampling[self._centres_for_sampling[:, 4] == chosen_label]
         centre_idx = int(random.random() * (valid_centres.shape[0] - 1))
@@ -626,7 +679,9 @@ class S3DISCylinder(S3DISSphere):
             self._label_counts = uni_counts / np.sum(uni_counts)
             self._labels = uni
         else:
-            grid_sampler = cT.GridCylinderSampling(self._radius, self._radius, center=False)
+            grid_sampler = cT.GridCylinderSampling(
+                self._radius, grid_size=self._radius * self._sample_res,
+                center=False)
             self._test_spheres = grid_sampler(self._datas)
 
 
@@ -653,36 +708,43 @@ class S3DISFusedDataset(BaseDataset):
         super().__init__(dataset_opt)
 
         sampling_format = dataset_opt.get("sampling_format", "sphere")
-        dataset_cls = S3DISCylinder if sampling_format == "cylinder" else S3DISSphere
-
+        dataset_cls = S3DISCylinder if sampling_format == "cylinder" \
+            else S3DISSphere
         sample_per_epoch = dataset_opt.get('sample_per_epoch', 3000)
+        radius = dataset_opt.get('radius', 2)
+        train_sample_res = dataset_opt.get('train_sample_res', 0.1)
+        eval_sample_res = dataset_opt.get('eval_sample_res', 1)
         train_is_trainval = dataset_opt.get('train_is_trainval', False)
 
         self.train_dataset = dataset_cls(
             self._data_path,
             sample_per_epoch=sample_per_epoch,
+            radius=radius,
+            sample_res=train_sample_res,
             test_area=self.dataset_opt.fold,
             split="train" if not train_is_trainval else "trainval",
             pre_collate_transform=self.pre_collate_transform,
-            transform=self.train_transform,
-        )
+            transform=self.train_transform)
 
         self.val_dataset = dataset_cls(
             self._data_path,
             sample_per_epoch=-1,
+            radius=radius,
+            sample_res=eval_sample_res,
             test_area=self.dataset_opt.fold,
             split="val",
             pre_collate_transform=self.pre_collate_transform,
-            transform=self.val_transform,
-        )
+            transform=self.val_transform)
+
         self.test_dataset = dataset_cls(
             self._data_path,
             sample_per_epoch=-1,
+            radius=radius,
+            sample_res=eval_sample_res,
             test_area=self.dataset_opt.fold,
             split="test",
             pre_collate_transform=self.pre_collate_transform,
-            transform=self.test_transform,
-        )
+            transform=self.test_transform)
 
         if dataset_opt.class_weight_method:
             self.add_weights(class_weight_method=dataset_opt.class_weight_method)
