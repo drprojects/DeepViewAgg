@@ -492,11 +492,11 @@ class S3DISSphere(S3DISOriginalFused):
     """ Small variation of S3DISOriginalFused that allows random
     sampling of spheres within an Area during training and validation.
     By default, spheres have a radius of 2m and are taken on a
-    `sample_res * radius` regular grid. If `sample_per_epoch > 0`,
-    indexing the dataset will return random spheres picked on the grid
-    with a bias towards balancing class frequencies. Otherwise, if
-    `sample_per_epoch <= 0` indexing the dataset becomes deterministic
-    and will return spheres of corresponding indices.
+    20cm regular grid. If `sample_per_epoch > 0`, indexing the dataset
+    will return random spheres picked on the grid with a bias towards
+    balancing class frequencies. Otherwise, if `sample_per_epoch <= 0`
+    indexing the dataset becomes deterministic and will return spheres
+    of corresponding indices.
 
     http://buildingparser.stanford.edu/dataset.html
 
@@ -519,22 +519,20 @@ class S3DISSphere(S3DISOriginalFused):
     radius : float
         Radius of each sphere
     sample_res : float
-        The resolution of the sample grid is computed as
-        `sample_res * radius`. By default, `sample_res=0.1` means the
-        dataset samples will be picked on a regular grid of step ten
-        times smaller than the sample radius
+        The resolution of the regular grid on which the dataset samples
+        will be picked
     pre_transform
     transform
     pre_filter
     """
 
     def __init__(
-            self, root, *args, sample_per_epoch=100, radius=2, sample_res=0.1,
+            self, root, *args, sample_per_epoch=100, radius=2, sample_res=2,
             **kwargs):
         self._sample_per_epoch = sample_per_epoch
         self._sample_res = sample_res
         self._radius = radius
-        self._grid_sphere_sampling = cT.GridSampling3D(size=radius * sample_res)
+        self._grid_sphere_sampling = cT.GridSampling3D(size=sample_res)
         super().__init__(root, *args, **kwargs)
 
     def __len__(self):
@@ -599,8 +597,7 @@ class S3DISSphere(S3DISOriginalFused):
             self._labels = uni
         else:
             grid_sampler = cT.GridSphereSampling(
-                self._radius, grid_size=self._radius * self._sample_res,
-                center=False)
+                self._radius, grid_size=self._sample_res, center=False)
             self._test_spheres = grid_sampler(self._datas)
 
 
@@ -608,11 +605,11 @@ class S3DISCylinder(S3DISSphere):
     """ Small variation of S3DISOriginalFused that allows random
     sampling of cylinders within an Area during training and validation.
     By default, cylinders have a radius of 2m and are taken on a
-    `sample_res * radius` regular grid. If `sample_per_epoch > 0`,
-    indexing the dataset will return random cylinders picked on the grid
-    with a bias towards balancing class frequencies. Otherwise, if
-    `sample_per_epoch <= 0` indexing the dataset becomes deterministic
-    and will return cylinders of corresponding indices.
+    20cm regular grid. If `sample_per_epoch > 0`, indexing the dataset
+    will return random cylinders picked on the grid with a bias towards
+    balancing class frequencies. Otherwise, if `sample_per_epoch <= 0`
+    indexing the dataset becomes deterministic and will return cylinders
+    of corresponding indices.
 
     http://buildingparser.stanford.edu/dataset.html
 
@@ -635,10 +632,8 @@ class S3DISCylinder(S3DISSphere):
     radius : float
         Radius of each cylinder
     sample_res : float
-        The resolution of the sample grid is computed as
-        `sample_res * radius`. By default, `sample_res=0.1` means the
-        dataset samples will be picked on a regular grid of step ten
-        times smaller than the sample radius
+        The resolution of the regular grid on which the dataset samples
+        will be picked
     pre_transform
     transform
     pre_filter
@@ -680,8 +675,7 @@ class S3DISCylinder(S3DISSphere):
             self._labels = uni
         else:
             grid_sampler = cT.GridCylinderSampling(
-                self._radius, grid_size=self._radius * self._sample_res,
-                center=False)
+                self._radius, grid_size=self._sample_res, center=False)
             self._test_spheres = grid_sampler(self._datas)
 
 
@@ -712,8 +706,8 @@ class S3DISFusedDataset(BaseDataset):
             else S3DISSphere
         sample_per_epoch = dataset_opt.get('sample_per_epoch', 3000)
         radius = dataset_opt.get('radius', 2)
-        train_sample_res = dataset_opt.get('train_sample_res', 0.1)
-        eval_sample_res = dataset_opt.get('eval_sample_res', 1)
+        train_sample_res = dataset_opt.get('train_sample_res', radius / 10)
+        eval_sample_res = dataset_opt.get('eval_sample_res', radius)
         train_is_trainval = dataset_opt.get('train_is_trainval', False)
 
         self.train_dataset = dataset_cls(

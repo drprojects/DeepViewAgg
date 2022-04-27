@@ -284,7 +284,7 @@ class KITTI360CylinderMM(KITTI360Cylinder):
         The radius of cylindrical samples.
     sample_res : `float`, optional
         The resolution of the grid on which cylindrical samples are
-        generated. The higher the ```sample_res```, the less cylinders
+        generated. The higher the `sample_res`, the less cylinders
         in the dataset.
     transform : callable, optional
         transform function operating on data.
@@ -313,7 +313,7 @@ class KITTI360CylinderMM(KITTI360Cylinder):
 
     def __init__(
             self, root, split="train", sample_per_epoch=15000, radius=6,
-            sample_res=0.3, transform=None, pre_transform=None,
+            sample_res=6, transform=None, pre_transform=None,
             pre_filter=None, keep_instance=False, pre_transform_image=None,
             transform_image=None, buffer=3, image_r_max=20, image_ratio=5,
             image_size=(1408, 376), voxel=0.05, cam_id=0):

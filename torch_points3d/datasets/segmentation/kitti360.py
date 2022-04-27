@@ -234,7 +234,7 @@ class KITTI360Cylinder(InMemoryDataset):
         The radius of cylindrical samples.
     sample_res : `float`, optional
         The resolution of the grid on which cylindrical samples are
-        generated. The higher the ```sample_res```, the less cylinders
+        generated. The higher the `sample_res`, the less cylinders
         in the dataset.
     transform : `callable`, optional
         transform function operating on data.
@@ -253,7 +253,7 @@ class KITTI360Cylinder(InMemoryDataset):
 
     def __init__(
             self, root, split="train", sample_per_epoch=15000, radius=6,
-            sample_res=0.3, transform=None, pre_transform=None,
+            sample_res=6, transform=None, pre_transform=None,
             pre_filter=None, keep_instance=False, buffer=3):
 
         self._split = split
@@ -877,8 +877,8 @@ class KITTI360Dataset(BaseDataset):
         cls = MiniKITTI360Cylinder if dataset_opt.get('mini', False) \
             else KITTI360Cylinder
         radius = dataset_opt.get('radius')
-        train_sample_res = dataset_opt.get('train_sample_res')
-        eval_sample_res = dataset_opt.get('eval_sample_res')
+        train_sample_res = dataset_opt.get('train_sample_res', radius)
+        eval_sample_res = dataset_opt.get('eval_sample_res', radius)
         keep_instance = dataset_opt.get('keep_instance', False)
         sample_per_epoch = dataset_opt.get('sample_per_epoch', 12000)
         train_is_trainval = dataset_opt.get('train_is_trainval', False)
