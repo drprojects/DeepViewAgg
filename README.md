@@ -14,6 +14,7 @@ Official repository for **_Learning Multi-View Aggregation In the Wild for Large
 
 ## Change log
 - 2022-04-20 Added notebooks and scripts to get started with DeepViewAgg
+- 2022-04-27 Added pretrained weights and features to help reproduce our results
 
 ## Requirements :memo:
 The following must be installed before installing this project.
