@@ -7,6 +7,7 @@ import logging
 
 from tqdm.auto import tqdm
 import wandb
+from omegaconf import OmegaConf
 
 # Import building function for model and dataset
 from torch_points3d.datasets.dataset_factory import instantiate_dataset
@@ -65,47 +66,40 @@ class Trainer:
 
         # Profiling
         if self.profiling:
-            # Set the num_workers as torch.utils.bottleneck doesn't work well with it
+            # Set the num_workers as torch.utils.bottleneck doesn't work
+            # well with it
             self._cfg.training.num_workers = 0
 
         # Start Wandb if public
         if self.wandb_log:
-            Wandb.launch(self._cfg, self._cfg.training.wandb.public and self.wandb_log)
+            Wandb.launch(
+                self._cfg, self._cfg.training.wandb.public and self.wandb_log)
 
         # Checkpoint
         self._checkpoint: ModelCheckpoint = ModelCheckpoint(
-            self._cfg.training.checkpoint_dir,
-            self._cfg.model_name,
-            "",
-            run_config=self._cfg,
-            resume=resume,
-        )
+            self._cfg.training.checkpoint_dir, self._cfg.model_name,
+            "", run_config=self._cfg, resume=resume)
+
+        # Recover the merged config from Checkpoint
+        self._cfg = self._checkpoint.run_config
 
         # Create model and datasets
         if not self._checkpoint.is_empty:
-
-            # If data.dataroot was specified in the Trainer's input
-            # config, we overwrite the corresponding dataroot path in
-            # the checkpoint. This is useful if we want to load a
-            # checkpoint created on another machine
-            if hasattr(self._cfg, 'data') and hasattr(self._cfg.data, 'dataroot'):
-                self._checkpoint.dataroot = self._cfg.data.dataroot
-
-            self._dataset: BaseDataset = instantiate_dataset(self._checkpoint.data_config)
+            self._dataset: BaseDataset = instantiate_dataset(self._cfg.data)
             self._model: BaseModel = self._checkpoint.create_model(
-                self._dataset, weight_name=self._cfg.training.weight_name
-            )
+                self._dataset, weight_name=self._cfg.training.weight_name)
         else:
             self._dataset: BaseDataset = instantiate_dataset(self._cfg.data)
-            self._model: BaseModel = instantiate_model(copy.deepcopy(self._cfg), self._dataset)
+            self._model: BaseModel = instantiate_model(
+                copy.deepcopy(self._cfg), self._dataset)
             self._model.instantiate_optimizers(self._cfg, "cuda" in device)
             self._model.set_pretrained_weights()
             if not self._checkpoint.validate(self._dataset.used_properties):
                 log.warning(
-                    "The model will not be able to be used from pretrained weights without the corresponding dataset. Current properties are {}".format(
-                        self._dataset.used_properties
-                    )
-                )
+                    "The model will not be able to be used from pretrained "
+                    "weights without the corresponding dataset. Current "
+                    "properties are {}".format(self._dataset.used_properties))
+
         self._checkpoint.dataset_properties = self._dataset.used_properties
 
         log.info(self._model)
@@ -128,8 +122,10 @@ class Trainer:
 
         # Choose selection stage
         selection_stage = getattr(self._cfg, "selection_stage", "")
-        self._checkpoint.selection_stage = self._dataset.resolve_saving_stage(selection_stage)
-        self._tracker: BaseTracker = self._dataset.get_tracker(self.wandb_log, self.tensorboard_log)
+        self._checkpoint.selection_stage = self._dataset.resolve_saving_stage(
+            selection_stage)
+        self._tracker: BaseTracker = self._dataset.get_tracker(
+            self.wandb_log, self.tensorboard_log)
 
         if self.wandb_log:
             Wandb.launch(self._cfg, not self._cfg.training.wandb.public and self.wandb_log)
@@ -138,8 +134,8 @@ class Trainer:
         self._model = self._model.to(self._device)
         if self.has_visualization:
             self._visualizer = Visualizer(
-                self._cfg.visualization, self._dataset.num_batches, self._dataset.batch_size, os.getcwd()
-            )
+                self._cfg.visualization, self._dataset.num_batches,
+                self._dataset.batch_size, os.getcwd())
 
     def train(self):
         self._is_training = True
@@ -182,7 +178,8 @@ class Trainer:
         self._tracker.finalise(**self.tracker_options)
         if self._is_training:
             metrics = self._tracker.publish(epoch)
-            self._checkpoint.save_best_models_under_current_metrics(self._model, metrics, self._tracker.metric_func)
+            self._checkpoint.save_best_models_under_current_metrics(
+                self._model, metrics, self._tracker.metric_func)
             if self.wandb_log and self._cfg.training.wandb.public:
                 Wandb.add_file(self._checkpoint.checkpoint_path)
             if self._tracker._stage == "train":
@@ -204,7 +201,8 @@ class Trainer:
                 self._model.optimize_parameters(epoch, self._dataset.batch_size)
                 if i % 10 == 0:
                     with torch.no_grad():
-                        self._tracker.track(self._model, data=data, **self.tracker_options)
+                        self._tracker.track(
+                            self._model, data=data, **self.tracker_options)
 
                 tq_train_loader.set_postfix(
                     **self._tracker.get_metrics(),
@@ -214,7 +212,8 @@ class Trainer:
                 )
 
                 if self._visualizer.is_active:
-                    self._visualizer.save_visuals(self._model.get_current_visuals())
+                    self._visualizer.save_visuals(
+                        self._model.get_current_visuals())
 
                 iter_data_time = time.time()
 
