@@ -100,9 +100,9 @@ If you have trouble using these or need reproduce other results from our paper, 
 ## Models
 | Model name | Dataset | mIoU  | :floppy_disk: | :point_down: |
 |---|:---:|:---:|:---:|:---:|
-| Res16UNet34-L4-early |  S3DIS 6-Fold | 74.7 | 2.0 G | [link](https://drive.google.com/file/d/19SgU1f2Ny1du5fRL0d9L1721Gqi1AnsY/view?usp=sharing)  |
-| Res16UNet34-PointPyramid-early-cityscapes-interpolate | KITTI-360 | 61.7 Val / 58.3 Test | 339 M | [link](https://drive.google.com/file/d/1ucQVJ1cdzwpW6HzthaOqTR1BwTp95vrl/view?usp=sharing) |
-| Res16UNet34-L4-early | ScanNet | 71.0 Val | 341 M | [link](https://drive.google.com/file/d/1H03540psSjturqerEBJkX5B7R8s6fEba/view?usp=sharing) |
+| Res16UNet34-L4-early |  S3DIS 6-Fold | 74.7 | 2.0G | [link](https://drive.google.com/file/d/19SgU1f2Ny1du5fRL0d9L1721Gqi1AnsY/view?usp=sharing)  |
+| Res16UNet34-PointPyramid-early-cityscapes-interpolate | KITTI-360 | 61.7 Val / 58.3 Test | 339M | [link](https://drive.google.com/file/d/1ucQVJ1cdzwpW6HzthaOqTR1BwTp95vrl/view?usp=sharing) |
+| Res16UNet34-L4-early | ScanNet | 71.0 Val | 341M | [link](https://drive.google.com/file/d/1H03540psSjturqerEBJkX5B7R8s6fEba/view?usp=sharing) |
 
 ## Documentation :books:
 The official documentation of [Pytorch Geometric](https://pytorch-geometric.readthedocs.io/en/latest/index.html) and [Torch-Points3D](https://torch-points3d.readthedocs.io/en/latest/index.html#) are good starting points, since this project largely builds on top of these frameworks. For DeepViewAgg-specific features (*i.e.* all that concerns multimodal learning), the provided code is commented as much as possible, but hit me up :speech_balloon: if some parts need clarification.
