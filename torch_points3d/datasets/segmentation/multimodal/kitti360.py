@@ -640,8 +640,8 @@ class KITTI360DatasetMM(BaseDatasetMM):
         cls = MiniKITTI360CylinderMM if dataset_opt.get('mini', False) \
             else KITTI360CylinderMM
         radius = dataset_opt.get('radius')
-        train_sample_res = dataset_opt.get('train_sample_res')
-        eval_sample_res = dataset_opt.get('eval_sample_res')
+        train_sample_res = dataset_opt.get('train_sample_res', radius / 10)
+        eval_sample_res = dataset_opt.get('eval_sample_res', radius)
         image_r_max = dataset_opt.get('image_r_max')
         image_ratio = dataset_opt.get('image_ratio')
         image_size = tuple(dataset_opt.get('resolution_2d'))
