@@ -21,24 +21,26 @@ DATA_DIR=${DATA_ROOT}/kitti360/5cm
 TASK=segmentation
 
 # MODELS=${TASK}/________
-MODELS=${TASK}/sparseconv3d
+# MODELS=${TASK}/sparseconv3d
 # MODELS=${TASK}/pointnet2
 # MODELS=${TASK}/multimodal/no3d
-# MODELS=${TASK}/multimodal/sparseconv3d
+MODELS=${TASK}/multimodal/sparseconv3d
 
 # MODEL_NAME=_________
-MODEL_NAME=Res16UNet34
+# MODEL_NAME=Res16UNet34
 # MODEL_NAME=pointnet2_largemsg
 # MODEL_NAME=Res16UNet34-L4-early-cityscapes
+MODEL_NAME=Res16UNet34-PointPyramid-early-cityscapes-interpolate
+# MODEL_NAME=small_2d_3d
 
 # DATASET=${TASK}/_________
-DATASET=${TASK}/kitti360-sparse
+# DATASET=${TASK}/kitti360-sparse
 # DATASET=${TASK}/kitti360-fixed
-# DATASET=${TASK}/multimodal/kitti360-sparse
+DATASET=${TASK}/multimodal/kitti360-sparse
 
-TRAINING=kitti360_benchmark/sparseconv3d
+# TRAINING=kitti360_benchmark/sparseconv3d
 # TRAINING=kitti360_benchmark/pointnet2
-# TRAINING=kitti360_benchmark/sparseconv3d_rgb-pretrained-0
+TRAINING=kitti360_benchmark/sparseconv3d_rgb-pretrained-0
 # TRAINING=kitti360_benchmark/no3d_pretrained
 
 # EXP_NAME=________
@@ -48,8 +50,8 @@ EPOCHS=60
 CYLINDERS_PER_EPOCH=12000  # Roughly speaking, 40 cylinders per window
 TRAINVAL=False
 MINI=False
-BATCH_SIZE=8
-# BATCH_SIZE=4
+# BATCH_SIZE=8
+BATCH_SIZE=4
 WORKERS=4
 BASE_LR=0.1
 # BASE_LR=0.01  # for PointNet++
@@ -67,7 +69,7 @@ SUBMISSION=False
 #                                     RUN                                      #
 # ------------------------------------------------------------------------------#
 
-python -W ignore train.py \
+CUDA_LAUNCH_BLOCKIN=1 python -W ignore train.py \
 data=${DATASET} \
 models=${MODELS} \
 model_name=${MODEL_NAME} \

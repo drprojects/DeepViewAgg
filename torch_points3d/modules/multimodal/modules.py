@@ -196,6 +196,19 @@ class MultimodalBlockDown(nn.Module, ABC):
                                      ).floor() * stride_out).int()
                 out_coords = x_3d.coord_maps[stride_out]
                 idx = sphashquery(sphash(in_coords), sphash(out_coords))
+                                
+                # idx is -1 when an in_coords could not be matched to an
+                # out_coords. Normally, this should never happen in our 
+                # use case. But sometimes the GPU computation of idx 
+                # produces -1 indices for reasons I still ignore, 
+                # while the CPU computation works fine. This is a very 
+                # rare occurrence which can have significant downstream 
+                # repercussions. To this end, if we detect a negative 
+                # index, we re-run the computation on CPU, even if it 
+                # means breaking CPU-GPU asynchronicity
+                if not idx.ge(0).all():
+                    idx = sphashquery(sphash(in_coords.cpu()), sphash(out_coords.cpu()))
+                    idx = idx.to(in_coords.device)
             mode = 'merge'
 
         else:

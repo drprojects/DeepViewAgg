@@ -884,22 +884,21 @@ class SameSettingImageData:
 
         # Merge mode
         elif mode == 'merge':
-            try:
-                assert idx.shape[0] == self.num_points > 0, \
-                    f"Merge correspondences has size {idx.shape[0]} but size " \
-                    f"{self.num_points} was expected."
-                assert (torch.arange(idx.max() + 1, device=self.device)
-                        == torch.unique(idx)).all(), \
-                    "Merge correspondences must map to a compact set of " \
-                    "indices."
-            except:
-                # TODO: quick fix. Investigate why this occasionally crashes
-                return self.clone()
+            images = self.clone()
+            
+            # Merge correspondences should match the number of
+            # points, which should be non-zero
+            if not idx.shape[0] == self.num_points > 0:
+                return images
+            
+            # All the output voxels should appear in merge 
+            # correspondences 
+            if not torch.arange(idx.max() + 1, device=self.device).equal(idx.unique()):
+                return images
 
             # Select mappings wrt the point index
             # Images are not modified, since the 'merge' mode
             # guarantees no image is discarded
-            images = self.clone()
             images.mappings = images.mappings.select_points(idx, mode=mode)
 
         else:
@@ -2205,16 +2204,14 @@ class ImageMapping(CSRData):
 
         # Merge mode
         elif mode == 'merge':
-            try:
-                assert idx.shape[0] == self.num_groups > 0, \
-                    f"Merge correspondences has size {idx.shape[0]} but size " \
-                    f"{self.num_groups} was expected."
-                assert (torch.arange(idx.max() + 1, device=self.device)
-                        == torch.unique(idx)).all(), \
-                    "Merge correspondences must map to a compact set of " \
-                    "indices."
-            except:
-                # TODO: quick fix. Investigate why this occasionally crashes
+            # Merge correspondences should match the number of
+            # points, which should be non-zero
+            if not idx.shape[0] == self.num_groups > 0:
+                return self.clone()
+            
+            # All the output voxels should appear in merge 
+            # correspondences 
+            if not torch.arange(idx.max() + 1, device=self.device).equal(idx.unique()):
                 return self.clone()
 
             # Expand to dense view-level format
