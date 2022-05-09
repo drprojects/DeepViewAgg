@@ -40,7 +40,8 @@ DATASET=${TASK}/multimodal/kitti360-sparse
 
 # TRAINING=kitti360_benchmark/sparseconv3d
 # TRAINING=kitti360_benchmark/pointnet2
-TRAINING=kitti360_benchmark/sparseconv3d_rgb-pretrained-0
+# TRAINING=kitti360_benchmark/sparseconv3d_rgb-pretrained-0
+TRAINING=kitti360_benchmark/sparseconv3d_rgb-pretrained-pyramid-0
 # TRAINING=kitti360_benchmark/no3d_pretrained
 
 # EXP_NAME=________
@@ -57,7 +58,7 @@ BASE_LR=0.1
 # BASE_LR=0.01  # for PointNet++
 LR_SCHEDULER=multi_step_kitti360_${EPOCHS}
 # LR_SCHEDULER=exponential_kitti360_${EPOCHS}
-EVAL_FREQUENCY=5
+EVAL_FREQUENCY=10
 export SPARSE_BACKEND=torchsparse
 # export SPARSE_BACKEND=minkowski
 SUBMISSION=False
@@ -69,7 +70,8 @@ SUBMISSION=False
 #                                     RUN                                      #
 # ------------------------------------------------------------------------------#
 
-CUDA_LAUNCH_BLOCKIN=1 python -W ignore train.py \
+# CUDA_LAUNCH_BLOCKING=1 \
+python -W ignore train.py \
 data=${DATASET} \
 models=${MODELS} \
 model_name=${MODEL_NAME} \

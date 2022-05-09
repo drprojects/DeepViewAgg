@@ -6821,7 +6821,6 @@ Res16UNet34-L4-early-fromscratch:
 
 Res16UNet34-mean-RGB-early:
     # 28.1 M params - 109.4 Mo on the GPU - ~2.7 ko/pixel at training time
-    path_pretrained: /workspace/projects/torch-points3d/outputs/2022-02-10/08-46-35/Res16UNet34-mean-RGB-early.pt
     class: sparseconv3d.APIModel
     conv_type: "SPARSE"
     backend: "torchsparse"
@@ -7269,7 +7268,6 @@ Res16UNet34-PointPyramid-early-cityscapes:
 
 Res16UNet34-PointPyramid-early-cityscapes-interpolate:
     # 28.1 M params - 109.4 Mo on the GPU - ~2.7 ko/pixel at training time
-#     path_pretrained: /workspace/projects/torch-points3d/outputs/2022-02-08/08-53-28/Res16UNet34-PointPyramid-early-cityscapes-interpolate.pt
     class: sparseconv3d.APIModel
     conv_type: "SPARSE"
     backend: "torchsparse"
@@ -7537,7 +7535,6 @@ Res16UNet34-PointPyramid-late-cityscapes-interpolate:
 
 Res16UNet34-PointPyramid-early-cityscapes-interpolate-nogating:
     # 28.1 M params - 109.4 Mo on the GPU - ~2.7 ko/pixel at training time
-    path_pretrained: /workspace/projects/torch-points3d/outputs/2022-02-08/08-50-58/Res16UNet34-PointPyramid-early-cityscapes-interpolate-nogating.pt
     class: sparseconv3d.APIModel
     conv_type: "SPARSE"
     backend: "torchsparse"
