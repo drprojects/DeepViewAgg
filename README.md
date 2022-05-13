@@ -119,7 +119,6 @@ We provide code to produce interactive and sharable HTML visualizations of multi
 Examples of such HTML produced on S3DIS Fold 5 are zipped [here](./illustrations/interactive_visualizations.zip) and can be opened in your browser.
 
 ## Known issues
-- [RuntimeError: CUDA error: device-side assert triggered](https://github.com/drprojects/DeepViewAgg/issues/2) when training a model on KITTI-360. I am investigating this at the moment.
 - Setting `use_faiss=True` or `use_cuda=True` to accelerate `PCAComputePointwise`, `MapImages` or `NeighborhoodBasedMappingFeatures`. As suggested [here](https://github.com/drprojects/DeepViewAgg/issues/1), one should stick to the CPU-based computation for now.
 
 ## Credits :credit_card:
