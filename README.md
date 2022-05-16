@@ -31,6 +31,7 @@ The code has been tested in the following environment:
 - Python 3.8.5
 - PyTorch 1.7.1
 - CUDA 10.2, 11.2 and 11.4
+- NVIDIA V100 32G
 - 64G RAM
 
 ## Installation :bricks:
