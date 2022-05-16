@@ -1,0 +1,189 @@
+# @package data
+defaults:
+  - /data/segmentation/multimodal/default
+
+class: s3dis.S3DISFusedDataset
+dataroot: data
+fold: 5
+first_subsampling: ${data.resolution_3d}
+use_category: False
+sample_per_epoch: 3000
+
+resolution_3d: 0.02         # Point cloud resolution
+resolution_2d: [1024, 512]  # Image resolution
+padding_2d: 8               # Padding for CropImageGroups
+min_size_2d: 64             # Minimum size for CropImageGroups
+exact_splatting_2d: True    # Whether only exact mappings are preserved after splatting
+
+# Transforms for 3D points
+pre_collate_transform:
+    - transform: PointCloudFusion    # One point cloud per area
+    - transform: SaveOriginalPosId    # Required so that one can recover the original point in the fused point cloud
+    - transform: GridSampling3D    # Samples on a grid
+      params:
+            size: ${data.first_subsampling}
+            # setattr_full_pos: True  # Required to keep the full-resolution points for later local features computation
+    - transform: SaveOriginalPosId    # Required so that one can recover the multimodal mappings after the transforms
+      params:
+            key: ${data.multimodal.settings.mapping_key}
+    - transform: PCAComputePointwise
+      params:
+            num_neighbors: 50  # heuristic: at least 30
+            # r: 0.1  # heuristic: 2 * voxel - using r will force CPU computation
+            # use_full_pos: True  # Possible if GridSampling3D.setattr_full_pos = True
+            use_faiss: False  # using FAISS+CUDA should speed up computation, but some issues remain
+    - transform: EigenFeatures
+      params:
+            norm: True
+            linearity: True
+            planarity: True
+            scattering: True
+    - transform: RemoveAttributes
+      params:
+            # attr_names: [full_pos, eigenvalues, eigenvectors]
+            attr_names: [eigenvalues, eigenvectors]
+
+train_transforms:
+    - transform: RandomNoise
+      params:
+            sigma: 0.001
+    - transform: RandomRotate
+      params:
+            degrees: 180
+            axis: 2
+    - transform: RandomScaleAnisotropic
+      params:
+            scales: [0.8, 1.2]
+    - transform: RandomSymmetry
+      params:
+            axis: [True, False, False]
+    - transform: XYZFeature
+      params:
+            add_x: False
+            add_y: False
+            add_z: True
+    - transform: AddFeatsByKeys  # No RGB for points
+      params:
+            feat_names: [pos_z, rgb, linearity, norm, planarity, scattering]
+            list_add_to_x: [True, False, False, False, False, False]
+            delete_feats: [True, True, True, True, True, True]
+    - transform: Center
+    - transform: GridSampling3D
+      params:
+            size: ${data.first_subsampling}
+            quantize_coords: True
+            mode: "last"
+    - transform: ShiftVoxels
+
+test_transform:
+    - transform: XYZFeature
+      params:
+            add_x: False
+            add_y: False
+            add_z: True
+    - transform: AddFeatsByKeys  # No RGB for points
+      params:
+            feat_names: [pos_z, rgb, linearity, norm, planarity, scattering]
+            list_add_to_x: [True, False, False, False, False, False]
+            delete_feats: [True, True, True, True, True, True]
+    - transform: Center
+    - transform: GridSampling3D
+      params:
+            size: ${data.first_subsampling}
+            quantize_coords: True
+            mode: "last"
+
+val_transform: ${data.test_transform}
+
+# Transforms for 2D images
+multimodal:  # Each modality must be inserted in a dedicated 'multimodal' section
+
+    modality: image
+
+    settings:
+        mapping_key: mapping_index  # hardcoded key used to sync 3D points and modality mappings
+        proj_upscale: 2
+        r_max: 8
+        r_min: 0.05
+        train_pixel_credit: 4  # Choose based on GPU capacity, model ko/pixel cost and 3D batch_size
+        test_pixel_credit: 4
+        k_coverage: 2
+
+    pre_transform:
+        - transform: LoadImages  # Read images from disk
+          params:
+                ref_size: ${data.resolution_2d}
+                show_progress: True
+        - transform: NonStaticMask  # Compute acquisition mask
+          params:
+                ref_size: ${data.resolution_2d}
+                proj_upscale: ${data.multimodal.settings.proj_upscale}
+                n_sample: 5
+        - transform: MapImages  # Compute the 3D-2D mapping
+          params:
+                method: SplattingVisibility
+                ref_size: ${data.resolution_2d}
+                proj_upscale: ${data.multimodal.settings.proj_upscale}
+                use_cuda: True
+                voxel: ${data.first_subsampling}
+                r_max: ${data.multimodal.settings.r_max}
+                r_min: ${data.multimodal.settings.r_min}
+                exact: ${data.exact_splatting_2d}
+                verbose: True  # True to print computation times
+        - transform: NeighborhoodBasedMappingFeatures  # Compute local density and occlusion
+          params:
+                k: 50  # empirically-chosen heuristic [30-100] is fine. May pass a list for multi-scale features
+                voxel: ${data.resolution_3d}
+                density: True
+                occlusion: True
+                use_faiss: False  # using FAISS+CUDA should speed up computation, but some issues remain
+                use_cuda: False
+                verbose: True  # True to print computation times
+
+    train_transforms:
+        - transform: SelectMappingFromPointId  # Select mappings after 3D points sampling
+        - transform: CenterRoll  # Roll images to center mappings
+        - transform: PickImagesFromMappingArea  # Remove images with not enough mappings
+          params:
+                use_bbox: ${data.exact_splatting_2d}
+        - transform: CropImageGroups  # Compute cropping groups to minimize embedding cost
+          params:
+                padding: ${data.padding_2d}
+                min_size: ${data.min_size_2d}
+        - transform: PickImagesFromMemoryCredit  # Pick images based on memory credit
+          params:
+                img_size: ${data.resolution_2d}
+                n_img: ${data.multimodal.settings.train_pixel_credit}
+                k_coverage: ${data.multimodal.settings.k_coverage}
+        - transform: JitterMappingFeatures  # Mapping features augmentation
+          params:
+                sigma: 0.02
+                clip: 0.03
+        - transform: ColorJitter  # Radiometric augmentation
+          params:
+                brightness: 0.6
+                contrast: 0.6
+                saturation: 0.7
+        - transform: RandomHorizontalFlip
+        - transform: ToFloatImage  # Convert uint8 image to float
+        - transform: Normalize  # Normalize colors
+
+    test_transforms:
+        - transform: SelectMappingFromPointId  # Select mappings after 3D points sampling
+        - transform: CenterRoll  # Roll images to center mappings
+        - transform: PickImagesFromMappingArea  # Remove images with not enough mappings
+          params:
+                use_bbox: ${data.exact_splatting_2d}
+        - transform: CropImageGroups  # Compute cropping groups to minimize embedding cost
+          params:
+                padding: ${data.padding_2d}
+                min_size: ${data.min_size_2d}
+        - transform: PickImagesFromMemoryCredit  # Pick images based on memory credit
+          params:
+                img_size: ${data.resolution_2d}
+                n_img: ${data.multimodal.settings.test_pixel_credit}
+                k_coverage: ${data.multimodal.settings.k_coverage}
+        - transform: ToFloatImage  # Convert uint8 image to float
+        - transform: Normalize  # Normalize colors
+
+    val_transforms: ${data.multimodal.test_transforms}

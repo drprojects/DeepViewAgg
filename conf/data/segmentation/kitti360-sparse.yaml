@@ -1,0 +1,99 @@
+# @package data
+defaults:
+    - /data/segmentation/default
+
+class: kitti360.KITTI360Dataset
+dataroot: data
+
+# Note that changing 'train_sample_res' or 'eval_sample_res' will change
+# the nature of 3D cylindrical samplings and will hence trigger the
+# processing of sampling centers (if not already existing)
+radius: 6                        # Radius of 3D cylindrical samples
+eval_sample_res: ${data.radius}  # Controls number of cylinders sampled in val and test set. Saves time when training. For voting INFERENCE, better choose radius / 2 or less.
+resolution_3d: 0.05              # 3D voxel resolution
+mapping_key: mapping_index       # hardcoded key used to sync 3D points and modality mappings
+sample_per_epoch: 12000          # Roughly speaking, this means 40 cylinders per training window, to mitigate loading overhead
+train_is_trainval: false         # Change this if you want to train on the whole trainval dataset
+mini: False                      # Change this if you want to use a reduced version of the dataset for experimentation
+
+pre_transform:
+    - transform: SaveOriginalPosId  # Required so that one can recover the original point in the fused point cloud
+    - transform: GridSampling3D  # Samples on a grid
+      params:
+            size: ${data.resolution_3d}
+            # setattr_full_pos: True  # Required to keep the full-resolution points for later local features computation
+    - transform: SaveOriginalPosId  # Required so that one can recover the multimodal mappings after the transforms
+      params:
+            key: ${data.mapping_key}
+    - transform: PCAComputePointwise
+      params:
+            num_neighbors: 50  # heuristic: at least 30
+            # r: 0.1  # heuristic: 2 * resolution_3d - using r will force CPU computation
+            # use_full_pos: True  # Possible if GridSampling3D.setattr_full_pos = True
+            use_faiss: False
+    - transform: EigenFeatures
+      params:
+            norm: True
+            linearity: True
+            planarity: True
+            scattering: True
+    - transform: RemoveAttributes
+      params:
+            # attr_names: [full_pos, eigenvalues, eigenvectors]
+            attr_names: [eigenvalues, eigenvectors]
+
+train_transforms:
+  - transform: RandomNoise
+    params:
+      sigma: 0.001
+  - transform: RandomRotate
+    params:
+      degrees: 180
+      axis: 2
+  - transform: RandomScaleAnisotropic
+    params:
+      scales: [0.8, 1.2]
+  - transform: RandomSymmetry
+    params:
+      axis: [True, False, False]
+  - transform: DropFeature
+    params:
+      drop_proba: 0.2
+      feature_name: rgb
+  - transform: XYZFeature
+    params:
+      add_x: False
+      add_y: False
+      add_z: True
+  - transform: AddFeatsByKeys
+    params:
+      list_add_to_x: [True, True]
+      feat_names: [rgb, pos_z]
+      delete_feats: [True, True]
+  - transform: Center
+  - transform: GridSampling3D
+    params:
+      size: ${data.resolution_3d}
+      quantize_coords: True
+      mode: "last"
+  - transform: ShiftVoxels
+
+test_transform:
+  - transform: XYZFeature
+    params:
+      add_x: False
+      add_y: False
+      add_z: True
+  - transform: AddFeatsByKeys
+    params:
+      list_add_to_x: [True, True]
+      feat_names: [rgb, pos_z]
+      delete_feats: [True, True]
+  - transform: Center
+  - transform: GridSampling3D
+    params:
+      size: ${data.resolution_3d}
+      quantize_coords: True
+      mode: "last"
+
+val_transform: ${data.test_transform}
