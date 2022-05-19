@@ -12,7 +12,7 @@
 I_GPU=0
 
 DATA_ROOT="/path/to/your/dataset/root/directory"                        # set your dataset root directory, where the data was/will be downloaded
-EXP_NAME="My awesome KITTI-360 experiment"                              # whatever suits your needs
+EXP_NAME="My_awesome_S3DIS_experiment"                                  # whatever suits your needs
 TASK="segmentation"
 MODELS_CONFIG="${TASK}/multimodal/sparseconv3d"                         # family of multimodal models using the sparseconv3d backbone
 MODEL_NAME="Res16UNet34-L4-early-ade20k-interpolate"                    # specific model name
