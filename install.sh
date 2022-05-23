@@ -118,8 +118,6 @@ conda activate ${PROJECT_NAME}
 # Dependencies not installed from the .yml
 # See https://pytorch.org/get-started/previous-versions/ if wheel issues
 pip install torch==${TORCH}+${cuXXX_TORCH} torchvision==0.8.2+${cuXXX_TV} --no-cache-dir -f https://download.pytorch.org/whl/torch_stable.html
-pip install torch==${TORCH}+${cu110} --no-cache-dir -f https://download.pytorch.org/whl/torch_stable.html
-pip install torchvision==0.8.2+${cuXXX_TV} --no-cache-dir -f https://download.pytorch.org/whl/torch_stable.html
 pip install torchnet
 
 # Install torch-geometric and dependencies
