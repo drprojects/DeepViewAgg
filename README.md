@@ -1,7 +1,7 @@
-# DeepViewAgg [CVPR 2022 Oral]
-[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/learning-multi-view-aggregation-in-the-wild/semantic-segmentation-on-s3dis)](https://paperswithcode.com/sota/semantic-segmentation-on-s3dis?p=learning-multi-view-aggregation-in-the-wild) [![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/learning-multi-view-aggregation-in-the-wild/3d-semantic-segmentation-on-kitti-360)](https://paperswithcode.com/sota/3d-semantic-segmentation-on-kitti-360?p=learning-multi-view-aggregation-in-the-wild)
+# DeepViewAgg [[CVPR'22 Best Paper Finalist :tada:](https://twitter.com/CVPR/status/1539772091112857600)]
+[![arXiv](https://img.shields.io/badge/arxiv-2204.07548-b31b1b.svg)](https://arxiv.org/abs/2204.07548) | [Paper](https://openaccess.thecvf.com/content/CVPR2022/papers/Robert_Learning_Multi-View_Aggregation_in_the_Wild_for_Large-Scale_3D_Semantic_CVPR_2022_paper.pdf) | [Supplementary](https://openaccess.thecvf.com/content/CVPR2022/supplemental/Robert_Learning_Multi-View_Aggregation_CVPR_2022_supplemental.pdf) | [Project Page](https://drprojects.github.io/deepviewagg) | [Video](https://drprojects.github.io/deepviewagg) | [Poster](https://drive.google.com/file/d/1vtOLLM4VNV5x57HT-60PbeR9QRiOfX7_/view?usp=sharing) | [CV News](https://www.rsipvision.com/ComputerVisionNews-2022July/24/)
 
-[![arXiv](https://img.shields.io/badge/arxiv-2204.07548-b31b1b.svg)](https://arxiv.org/abs/2204.07548) | [ [Webpage](https://drprojects.github.io/deepviewagg) ] | [ [Video](https://drprojects.github.io/deepviewagg) ]
+[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/learning-multi-view-aggregation-in-the-wild/semantic-segmentation-on-s3dis)](https://paperswithcode.com/sota/semantic-segmentation-on-s3dis?p=learning-multi-view-aggregation-in-the-wild) [![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/learning-multi-view-aggregation-in-the-wild/3d-semantic-segmentation-on-kitti-360)](https://paperswithcode.com/sota/3d-semantic-segmentation-on-kitti-360?p=learning-multi-view-aggregation-in-the-wild)
 
 Official repository for **_Learning Multi-View Aggregation In the Wild for Large-Scale 3D Semantic Segmentation_** [paper :page_facing_up:](http://arxiv.org/abs/2204.07548) selected for an Oral presentation at CVPR 2022.
 
@@ -134,6 +134,8 @@ In case you use all or part of the present code, please include a citation to th
   title={Learning Multi-View Aggregation In the Wild for Large-Scale 3D Semantic Segmentation},
   author={Robert, Damien and Vallet, Bruno and Landrieu, Loic},
   booktitle={Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition},
+  year={2022},
+  pages={5575--5584},
   year={2022},
   url = {\url{https://github.com/drprojects/DeepViewAgg}}
 }
