@@ -254,9 +254,7 @@ class S3DISOriginalFused(InMemoryDataset):
     pre_filter
     """
 
-    form_url = (
-        "https://docs.google.com/forms/d/e/1FAIpQLScDimvNMCGhy_rmBA2gHfDu3naktRm6A8BPwAWWDv-Uhm6Shw/viewform?c=0&w=1"
-    )
+    form_url = "https://docs.google.com/forms/d/e/1FAIpQLScDimvNMCGhy_rmBA2gHfDu3naktRm6A8BPwAWWDv-Uhm6Shw/viewform?c=0&w=1"
     download_url = "https://drive.google.com/uc?id=0BweDykwS9vIobkVPN0wzRzFwTDg&export=download"
     zip_name = "Stanford3dDataset_v1.2_Version.zip"
     path_file = osp.join(DIR, "s3dis.patch")

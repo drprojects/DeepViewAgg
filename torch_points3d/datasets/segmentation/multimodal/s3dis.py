@@ -2,7 +2,7 @@ import torch
 import json
 from torch_points3d.datasets.base_dataset_multimodal import BaseDatasetMM
 from torch_points3d.datasets.segmentation.s3dis import *
-from torch_geometric.data import Data
+from torch_geometric.data import extract_tar
 from torch_points3d.core.multimodal.data import MMData
 from torch_points3d.core.data_transform.multimodal.image import \
     SelectMappingFromPointId
@@ -134,16 +134,28 @@ class S3DISOriginalFusedMM(InMemoryDataset):
     torch_points3d.datasets.segmentation.s3dis to 3D with images.
     """
 
-    form_url = \
-        "https://docs.google.com/forms/d/e/1FAIpQLScDimvNMCGhy_rmBA2g" \
-        "HfDu3naktRm6A8BPwAWWDv-Uhm6Shw/viewform?c=0&w=1"
-    download_url = \
-        "https://drive.google.com/uc?id=0BweDykwS9vIobkVPN0wzRzFwTDg&" \
-        "export=download"
-    zip_name = "Stanford3dDataset_v1.2_Version.zip"
+    # 3D data from S3DIS
+    form_url_3d = "https://docs.google.com/forms/d/e/1FAIpQLScDimvNMCGhy_rmBA2gHfDu3naktRm6A8BPwAWWDv-Uhm6Shw/viewform?c=0&w=1"
+    download_url_3d = "https://drive.google.com/uc?id=0BweDykwS9vIobkVPN0wzRzFwTDg&export=download"
+    zip_name_3d = "Stanford3dDataset_v1.2_Version.zip"
+    unzip_name_3d = "Stanford3dDataset_v1.2"
+    folders_3d = [f"Area_{i}" for i in range(1, 7)]
+
+    # 2D data 2D-3D-Semantics
+    form_url_2d = "https://docs.google.com/forms/d/e/1FAIpQLScFR0U8WEUtb7tgjOhhnl31OrkEs73-Y8bQwPeXgebqVKNMpQ/viewform?c=0&w=1&fbzx=2385342593428671800"
+    drive_url_2d = "https://drive.google.com/drive/folders/1wVQ0Dpsm8_P7oK-GTemNSoab2rDzLJ2D?usp=sharing"
+    download_url_2d = {
+        'area_1': 'https://drive.google.com/uc?export=download&id=1e_H5jNIrbIb46-xlWWw2dlYdhHY5KnHq',
+        'area_2': 'https://drive.google.com/uc?export=download&id=1AjdIr_NsMIqwWQOpQog8P-YXjgVPZ93O',
+        'area_3': 'https://drive.google.com/uc?export=download&id=1tQse7IT6Dlm1Yb9igQXpVwqPiDYW6iFr',
+        'area_4': 'https://drive.google.com/uc?export=download&id=1X65efUfRNZNjgqSiPhzQGvRCeZmbSTZN',
+        'area_5a': 'https://drive.google.com/uc?export=download&id=1CMLRPQB38SfaNkidbCdk1fxPwydfOoWl',
+        'area_5b': 'https://drive.google.com/uc?export=download&id=1xbS2ALLyuRmk4IFp1tLDNGXCeAAYoT1Y',
+        'area_6': 'https://drive.google.com/uc?export=download&id=1GPSvnLGEGHz_gIkDeQqUegOXefXYAgdz'}
+    folders_2d = list(download_url_2d.keys())
+
+    # Other global attributes
     patch_file = osp.join(DIR, "s3dis.patch")
-    file_name = "Stanford3dDataset_v1.2"
-    folders = [f"Area_{i}" for i in range(1, 7)]
     num_classes = S3DIS_NUM_CLASSES
 
     def __init__(
@@ -194,7 +206,7 @@ class S3DISOriginalFusedMM(InMemoryDataset):
 
     @property
     def raw_file_names(self):
-        return self.folders
+        return self.folders_3d + ['../image/' + f for f in self.folders_2d]
 
     @property
     def image_dir(self):
@@ -249,53 +261,112 @@ class S3DISOriginalFusedMM(InMemoryDataset):
         self._raw_test_data = value
 
     def download(self):
-        raw_folders = os.listdir(self.raw_dir)
-        if len(raw_folders) == 0:
-            if not osp.exists(osp.join(self.root, self.zip_name)):
-                # TODO: download and unzip images. Create a custom
-                #  repository with only RGB images and poses ?
-                """
-                Expected image directory structure:
-                root
-                |___images
-                    |___area_{1, 2, 3, 4, 5a, 5b, 6}
-                        |___pano
-                            |___depth
-                                |___image_name_depth.png
-                            |___normal
-                                |___image_name_normals.json
-                            |___pose
-                                |___image_name_pose.json
-                            |___rgb
-                                |___image_name_rgb.png
-                            |___semantic
-                                |___image_name_semantic.json
-                            |___semantic_pretty
-                                |___image_name_semantic_pretty.json
-                """
-                log.info("WARNING: You are downloading S3DIS dataset")
-                log.info(f"Please, register yourself by filling up the form "
-                         f"at {self.form_url}")
-                log.info("***")
-                log.info("Press any key to continue, or CTRL-C to exit. By "
-                         "continuing, you confirm filling up the form.")
-                input("")
-                gdown.download(
-                    self.download_url, osp.join(self.root, self.zip_name),
-                    quiet=False)
-            extract_zip(osp.join(self.root, self.zip_name), self.root)
+        # Download 3D data from S3DIS
+        if not files_exist([osp.join(self.raw_dir, self.folders_3d)]):
+            self.download_3d()
+
+        # Download 2D data from 2D-3D-Semantics
+        if not files_exist([osp.join(self.image_dir, self.folders_2d)]):
+            self.download_2d()
+
+    def download_3d(self):
+        """
+        Raw 3D data is expected to be saved under the following
+        directory structure:
+        root
+        |___raw
+            |___Area_{1, 2, 3, 4, 5, 6}
+        """
+        # Download .zip file holding all 3D data from S3DIS
+        if not osp.exists(osp.join(self.root, self.zip_name_3d)):
+            log.info("WARNING: You are downloading S3DIS dataset")
+            log.info(f"Please, register yourself by filling up the form "
+                     f"at {self.form_url_3d}")
+            log.info("***")
+            log.info("Press any key to continue, or CTRL-C to exit. By "
+                     "continuing, you confirm filling up the form.")
+            input("")
+            gdown.download(
+                self.download_url_3d, osp.join(self.root, self.zip_name_3d),
+                quiet=False)
+
+        # If raw/ already exists, it will be entirely removed
+        if osp.exists(self.raw_dir):
             shutil.rmtree(self.raw_dir)
-            os.rename(osp.join(self.root, self.file_name), self.raw_dir)
-            shutil.copy(self.patch_file, self.raw_dir)
-            cmd = f"patch -ruN -p0 -d  {self.raw_dir} < " \
-                  f"{osp.join(self.raw_dir, 's3dis.patch')}"
-            os.system(cmd)
-        else:
-            intersection = len(set(self.folders).intersection(set(raw_folders)))
-            if intersection != 6:
-                shutil.rmtree(self.raw_dir)
-                os.makedirs(self.raw_dir)
-                self.download()
+
+        # Extract the folders from the .zip and place them under raw/
+        extract_zip(osp.join(self.root, self.zip_name_3d), self.root)
+        os.rename(osp.join(self.root, self.unzip_name_3d), self.raw_dir)
+
+        # Patch to fix some erroneous data points in the raw files
+        shutil.copy(self.patch_file, self.raw_dir)
+        cmd = f"patch -ruN -p0 -d  {self.raw_dir} < " \
+              f"{osp.join(self.raw_dir, 's3dis.patch')}"
+        os.system(cmd)
+
+    def download_2d(self):
+        """
+        Raw 3D data is expected to be saved under the following
+        directory structure:
+        root
+        |___image
+            |___area_{1, 2, 3, 4, 5a, 5b, 6}
+                |___pano
+                    |___depth (optional)
+                        |___image_name_depth.png
+                    |___pose
+                        |___image_name_pose.json
+                    |___rgb
+                        |___image_name_rgb.png
+        """
+        # Warn the user of the incoming download. It can take quite a
+        # while for 2D data
+        log.info("WARNING: You are downloading the noXYZ 2D-3D-Semantics"
+                 " dataset, this can take a while.")
+        log.info(f"Please, register yourself by filling up the form "
+                 f"at {self.form_url_2d}")
+        log.info("***")
+        log.info("Press any key to continue, or CTRL-C to exit. By "
+                 "continuing, you confirm filling up the form.")
+        input("")
+
+        # Create the root/image/ directory if it is not already here
+        os.makedirs(self.image_dir, exist_ok=True)
+
+        for f in self.folders_2d:
+
+            # Skip the download of the folder if it already exists
+            folder = osp.join(self.image_dir, f)
+            if osp.exists(folder):
+                continue
+
+            # Download the file
+            tar_file = osp.join(self.root, f + '_no_xyz.tar')
+            if not osp.exists(tar_file):
+                gdown.download(
+                    self.self.download_url_2d[f], tar_file, quiet=False)
+
+            # Unzip the downloaded .tar file
+            extract_tar(tar_file, folder, mode='r:gz', log=True)
+
+        # Make sure all downloads worked. If not, raise an error and
+        # require a manual download
+        missing = [
+            f for f in self.folders_2d
+            if not osp.exists(osp.join(self.image_dir, f))]
+        if len(missing) > 0:
+            log.info("WARNING: Some files were not properly downloaded.")
+            log.info("The following files are missing:")
+            log.info(f"{missing}")
+            log.info("Please manually download the missing data from:"
+                f"{self.drive_url_2d}.")
+            log.info("Relaunch this script after placing the corresponding "
+                     f".tar files at: {self.image_dir}.")
+            log.info("***")
+            log.info("Press any key to continue, or CTRL-C to exit. By "
+                     "continuing, you confirm filling up the form.")
+            input("")
+            raise FileNotFoundError
 
     def process(self):
         # --------------------------------------------------------------
@@ -319,7 +390,7 @@ class S3DISOriginalFusedMM(InMemoryDataset):
 
             data_files = [
                 (f, room_name, osp.join(self.raw_dir, f, room_name))
-                for f in self.folders
+                for f in self.folders_3d
                 for room_name in os.listdir(osp.join(self.raw_dir, f))
                 if osp.isdir(osp.join(self.raw_dir, f, room_name))]
 
@@ -423,7 +494,7 @@ class S3DISOriginalFusedMM(InMemoryDataset):
             print('Computing image data...')
             rooms = [
                 (int(f[-1]) - 1, room_name)
-                for f in self.folders
+                for f in self.folders_3d
                 for room_name in os.listdir(osp.join(self.raw_dir, f))
                 if osp.isdir(osp.join(self.raw_dir, f, room_name))]
             rooms = [[r[1] for r in rooms if r[0] == i] for i in range(6)]
@@ -434,12 +505,12 @@ class S3DISOriginalFusedMM(InMemoryDataset):
                 # S3DIS Area 5 images are split into two folders
                 # 'area_5a' and 'area_5b' and one of them requires
                 # specific treatment for pose reading
-                folders = [f"area_{i + 1}"] if i != 4 \
-                    else ["area_5a", "area_5b"]
+                folders_2d = \
+                    [f"area_{i + 1}"] if i != 4 else ["area_5a", "area_5b"]
 
                 image_info_list = [
                     {'path': i_file, **read_s3dis_pose(p_file)}
-                    for folder in folders
+                    for folder in folders_2d
                     for i_file, p_file in read_image_pose_pairs(
                         osp.join(self.image_dir, folder, 'pano', 'rgb'),
                         osp.join(self.image_dir, folder, 'pano', 'pose'),
@@ -455,7 +526,8 @@ class S3DISOriginalFusedMM(InMemoryDataset):
                       f"{len(image_info_list)} images")
 
                 # Keep all images for the test area
-                image_data_list.append(img_info_to_img_data(image_info_list, self.img_ref_size))
+                image_data_list.append(
+                    img_info_to_img_data(image_info_list, self.img_ref_size))
 
             # Save image data
             torch.save(image_data_list, self.image_data_path)
