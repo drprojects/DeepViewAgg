@@ -126,7 +126,7 @@ pip install --no-index torch-scatter -f https://pytorch-geometric.com/whl/torch-
 pip install --no-index torch-sparse -f https://pytorch-geometric.com/whl/torch-${TORCH}+${cuXXX_PYG}.html
 pip install --no-index torch-cluster -f https://pytorch-geometric.com/whl/torch-${TORCH}+${cuXXX_PYG}.html
 pip install --no-index torch-spline-conv -f https://pytorch-geometric.com/whl/torch-${TORCH}+${cuXXX_PYG}.html
-pip install torch-geometric==1.7.2
+pip install torch-geometric==1.6.3
 pip install torch-points-kernels==0.6.10 --no-cache-dir
 
 # Additional dependencies
