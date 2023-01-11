@@ -211,7 +211,7 @@ class SameSettingImageData:
     _pinhole_keys = ['fx', 'fy', 'mx', 'my']
     _fisheye_keys = ['xi', 'k1', 'k2', 'gamma1', 'gamma2', 'u0', 'v0']
     _torch_keys = ['pos', 'opk', 'extrinsic', 'crop_offsets', 'rollings'] \
-        + _pinhole_keys + _fisheye_keys
+                  + _pinhole_keys + _fisheye_keys
     _map_key = 'mappings'
     _x_key = 'x'
     _mask_key = 'mask'
@@ -885,14 +885,14 @@ class SameSettingImageData:
         # Merge mode
         elif mode == 'merge':
             images = self.clone()
-            
+
             # Merge correspondences should match the number of
             # points, which should be non-zero
             if not idx.shape[0] == self.num_points > 0:
                 return images
-            
-            # All the output voxels should appear in merge 
-            # correspondences 
+
+            # All the output voxels should appear in merge
+            # correspondences
             if not torch.arange(idx.max() + 1, device=self.device).equal(idx.unique()):
                 return images
 
@@ -1935,8 +1935,14 @@ class ImageMapping(CSRData):
         if ratio == 1:
             return out
 
-        # Expand atomic-level mappings to 'dense' format
-        ids = torch.arange(
+        # Expand atomic-level mappings to 'dense' format.
+        # Important subtlety here: we need to distinguish between
+        # view_ids and ids because the image downscale might break
+        # atomic feature map indexing, when some points are mapped to
+        # multiple pixels. This will typically happen when the 3D points
+        # have undergone some downsampling with merging
+        ids = torch.arange(out.values[1].num_items, device=self.device)
+        view_ids = torch.arange(
             out.values[1].num_groups, device=self.device).repeat_interleave(
             out.values[1].pointers[1:] - out.values[1].pointers[:-1])
         pix_x = out.values[1].values[0][:, 0]
@@ -1951,7 +1957,7 @@ class ImageMapping(CSRData):
         # Assuming this does not cause issues for other potential
         # atomic-level CSR-nested values
         idx_unique = lexargunique(ids, pix_x, pix_y)
-        ids = ids[idx_unique]
+        view_ids = view_ids[idx_unique]
         pix_x = pix_x[idx_unique]
         pix_y = pix_y[idx_unique]
 
@@ -1959,12 +1965,12 @@ class ImageMapping(CSRData):
         if isinstance(out.values[1], CSRBatch):
             sizes = out.values[1].__sizes__
             out.values[1] = CSRBatch(
-                ids, torch.stack((pix_x, pix_y), dim=1).type(pix_dtype),
+                view_ids, torch.stack((pix_x, pix_y), dim=1).type(pix_dtype),
                 dense=True)
             out.values[1].__sizes__ = sizes
         elif isinstance(out.values[1], CSRData):
             out.values[1] = CSRData(
-                ids, torch.stack((pix_x, pix_y), dim=1).type(pix_dtype),
+                view_ids, torch.stack((pix_x, pix_y), dim=1).type(pix_dtype),
                 dense=True)
         else:
             raise NotImplementedError(
@@ -2208,7 +2214,7 @@ class ImageMapping(CSRData):
             # points, which should be non-zero
             if not idx.shape[0] == self.num_groups > 0:
                 return self.clone()
-            
+
             # All the output voxels should appear in merge 
             # correspondences 
             if not torch.arange(idx.max() + 1, device=self.device).equal(idx.unique()):

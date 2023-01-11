@@ -12,9 +12,9 @@ Official repository for **_Learning Multi-View Aggregation In the Wild for Large
 *We propose to exploit the synergy between images and 3D point clouds by learning to select the most relevant views for each point. Our approach uses the viewing conditions of 3D points to merge features from images taken at arbitrary positions. We reach SOTA results for S3DIS (74.7 mIoU 6-Fold) and on KITTI- 360 (58.3 mIoU) without requiring point colorization, meshing, or the use of depth cameras: our full pipeline only requires raw 3D scans and a set of images and poses.*
 
 ## Coming soon :rotating_light: :construction:
-- **[wandb](https://wandb.ai) logs** of our experiments
 
 ## Change log
+- 2023-01-11 Fixed some bug when using intermediate fusion
 - 2022-04-20 Added notebooks and scripts to get started with DeepViewAgg
 - 2022-04-27 Added pretrained weights and features to help reproduce our results
 
