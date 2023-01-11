@@ -491,7 +491,7 @@ class QKVBimodalCSRPool(nn.Module, ABC):
 
             # Compute view-wise queries : V x (D x num_groups)
             x_mix = self.E_mix_Q(torch.cat([x_main_q, x_mod], dim=1))
-            keys = self.Q(x_mix)
+            queries = self.Q(x_mix)
         else:
             # Compute pointwise queries : N x (D x num_groups)
             queries = self.Q(x_main)
