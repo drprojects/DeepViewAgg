@@ -249,7 +249,6 @@ class KITTI360Cylinder(InMemoryDataset):
     """
     num_classes = KITTI360_NUM_CLASSES
     _WINDOWS = WINDOWS
-    _SEQUENCES = SEQUENCES
 
     def __init__(
             self, root, split="train", sample_per_epoch=15000, radius=6,

@@ -418,7 +418,7 @@ class KITTI360CylinderMM(KITTI360Cylinder):
         """
         return [
             osp.join('data_2d_raw', x, f'image_0{self.cam_id}')
-            for x in self._SEQUENCES[self.split]]
+            for x in self.sequences]
 
     @property
     def raw_file_names_calibration(self):
@@ -430,7 +430,7 @@ class KITTI360CylinderMM(KITTI360Cylinder):
     def raw_file_names_poses(self):
         """Some of the file paths to find in order to skip the download.
         """
-        return [osp.join('data_poses', x) for x in self._SEQUENCES[self.split]]
+        return [osp.join('data_poses', x) for x in self.sequences]
 
     @property
     def processed_2d_file_names(self):
@@ -481,7 +481,7 @@ class KITTI360CylinderMM(KITTI360Cylinder):
             run_command([f'{script} {self.raw_dir} {self.split}'])
 
         # Images
-        for s in self._SEQUENCES[self.split]:
+        for s in self.sequences:
             seq_cam_dir = osp.join(
                 self.raw_dir, 'data_2d_raw', s, f'image_0{self.cam_id}')
             if osp.exists(seq_cam_dir):
