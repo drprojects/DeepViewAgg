@@ -379,23 +379,23 @@ class KITTI360CylinderMM(KITTI360Cylinder):
 
     @property
     def raw_file_structure(self):
-        return """
-    root_dir/
+        return f"""
+    {self.root}/
         └── raw/
             ├── data_3d_semantics/
-            |   └── 2013_05_28_drive_{seq:0>4}_sync/
+            |   └── 2013_05_28_drive_{{seq:0>4}}_sync/
             |       └── static/
-            |           └── {start_frame:0>10}_{end_frame:0>10}.ply
+            |           └── {{start_frame:0>10}}_{{end_frame:0>10}}.ply
             ├── data_2d_raw/
-            |   └── 2013_05_28_drive_{seq:0>4}_sync/
-            |       ├── image_{00|01}/
+            |   └── 2013_05_28_drive_{{seq:0>4}}_sync/
+            |       ├── image_{{00|01}}/
             |       |   └── data_rect/
-            |       |       └── {frame:0>10}.png
-            |       └── image_{02|03}/
+            |       |       └── {{frame:0>10}}.png
+            |       └── image_{{02|03}}/
             |           └── data_rgb/
-            |               └── {frame:0>10}.png
+            |               └── {{frame:0>10}}.png
             ├── data_poses/
-            |   └── 2013_05_28_drive_{seq:0>4}_sync/
+            |   └── 2013_05_28_drive_{{seq:0>4}}_sync/
             |       ├── poses.txt
             |       └── cam0_to_world.txt   
             └── calibration/
@@ -403,7 +403,7 @@ class KITTI360CylinderMM(KITTI360Cylinder):
                 ├── calib_cam_to_velo.txt
                 ├── calib_sick_to_velo.txt
                 ├── perspective.txt
-                └── image_{02|03}.yaml
+                └── image_{{02|03}}.yaml
             """
 
     @property
@@ -466,41 +466,7 @@ class KITTI360CylinderMM(KITTI360Cylinder):
 
     def download(self):
         self.download_warning()
-
-        # Location of the KITTI-360 download shell scripts
-        scripts_dir = osp.join(TP3D_DIR, 'scripts/datasets')
-
-        # Accumulated 3D point clouds with annotations
-        if not all(osp.exists(osp.join(self.raw_dir, x)) for x in self.raw_file_names_3d):
-            if self.split != 'test':
-                msg = 'Accumulated Point Clouds for Train & Val (12G)'
-            else:
-                msg = 'Accumulated Point Clouds for Test (1.2G)'
-            self.download_message(msg)
-            script = osp.join(scripts_dir, 'download_kitti360_3d_semantics.sh')
-            run_command([f'{script} {self.raw_dir} {self.split}'])
-
-        # Images
-        for s in self.sequences:
-            seq_cam_dir = osp.join(
-                self.raw_dir, 'data_2d_raw', s, f'image_0{self.cam_id}')
-            if osp.exists(seq_cam_dir):
-                continue
-            self.download_message(f'camera {self.cam_id} images of sequence {s}')
-            script = osp.join(scripts_dir, 'download_kitti360_2d_raw.sh')
-            run_command([f'{script} {self.raw_dir} {s} {self.cam_id}'])
-
-        # Calibration
-        if not osp.exists(osp.join(self.raw_dir, self.raw_file_names_calibration)):
-            self.download_message('Calibrations (3K)')
-            script = osp.join(scripts_dir, 'download_kitti360_calibration.sh')
-            run_command([f'{script} {self.raw_dir}'])
-
-        # Poses
-        if not all(osp.exists(osp.join(self.raw_dir, x)) for x in self.raw_file_names_poses):
-            self.download_message('Vehicle Poses (8.9M)')
-            script = osp.join(scripts_dir, 'download_kitti360_poses.sh')
-            run_command([f'{script} {self.raw_dir}'])
+        exit()
 
     def process(self):
         # Gather the images from each sequence
