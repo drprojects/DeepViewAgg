@@ -1,6 +1,4 @@
 import os
-import os.path as osp
-import numpy as np
 import torch
 from plyfile import PlyData
 from torch_geometric.data import InMemoryDataset, Data
@@ -14,7 +12,6 @@ from datetime import datetime
 import torch_points3d.core.data_transform as cT
 from torch_points3d.datasets.base_dataset import BaseDataset
 from torch_points3d.datasets.segmentation.kitti360_config import *
-from torch_points3d.utils.download import run_command
 
 DIR = os.path.dirname(os.path.realpath(__file__))
 log = logging.getLogger(__name__)
@@ -249,7 +246,6 @@ class KITTI360Cylinder(InMemoryDataset):
     """
     num_classes = KITTI360_NUM_CLASSES
     _WINDOWS = WINDOWS
-    _SEQUENCES = SEQUENCES
 
     def __init__(
             self, root, split="train", sample_per_epoch=15000, radius=6,
@@ -430,13 +426,13 @@ class KITTI360Cylinder(InMemoryDataset):
 
     @property
     def raw_file_structure(self):
-        return """
-    root_dir/
+        return f"""
+    {self.root}/
         └── raw/
             └── data_3d_semantics/
-                └── 2013_05_28_drive_{seq:0>4}_sync/
+                └── 2013_05_28_drive_{{seq:0>4}}_sync/
                     └── static/
-                        └── {start_frame:0>10}_{end_frame:0>10}.ply
+                        └── {{start_frame:0>10}}_{{end_frame:0>10}}.ply
             """
 
     @property
@@ -510,29 +506,18 @@ class KITTI360Cylinder(InMemoryDataset):
 
     def download(self):
         self.download_warning()
-
-        # Location of the KITTI-360 download shell scripts
-        here = osp.dirname(osp.abspath(__file__))
-        scripts_dir = osp.join(here, '../../../scripts/datasets')
-
-        # Accumulated 3D point clouds with annotations
-        if not all(osp.exists(osp.join(self.raw_dir, x)) for x in self.raw_file_names_3d):
-            if self.split != 'test':
-                msg = 'Accumulated Point Clouds for Train & Val (12G)'
-            else:
-                msg = 'Accumulated Point Clouds for Test (1.2G)'
-            self.download_message(msg)
-            script = osp.join(scripts_dir, 'download_kitti360_3d_semantics.sh')
-            run_command([f'{script} {self.raw_dir} {self.split}'])
+        exit()
 
     def download_warning(self):
         # Warning message for the user about to download
         print(
-            f"WARNING: You are about to download KITTI-360 data from: "
+            f"WARNING: the KITTI-360 terms and conditions require that you "
+            f"register and manually download KITTI-360 data from: "
             f"{CVLIBS_URL}")
-        print("Files will be organized in the following structure:")
+        print("Files must be organized in the following structure:")
         print(self.raw_file_structure)
         print("")
+        exit()
         print("Press any key to continue, or CTRL-C to exit.")
         input("")
         print("")
