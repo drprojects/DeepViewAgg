@@ -1,5 +1,6 @@
 import re
 import yaml
+from sys import exit
 from torch_points3d.datasets.segmentation.kitti360 import *
 from torch_points3d.datasets.base_dataset_multimodal import BaseDatasetMM
 from torch_points3d.core.multimodal.image import SameSettingImageData
