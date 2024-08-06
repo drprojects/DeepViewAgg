@@ -1,30 +1,88 @@
-# DeepViewAgg [[CVPR'22 Best Paper Finalist :tada:](https://twitter.com/CVPR/status/1539772091112857600)]
-[![arXiv](https://img.shields.io/badge/arxiv-2204.07548-b31b1b.svg)](https://arxiv.org/abs/2204.07548) | [Paper](https://openaccess.thecvf.com/content/CVPR2022/papers/Robert_Learning_Multi-View_Aggregation_in_the_Wild_for_Large-Scale_3D_Semantic_CVPR_2022_paper.pdf) | [Supplementary](https://openaccess.thecvf.com/content/CVPR2022/supplemental/Robert_Learning_Multi-View_Aggregation_CVPR_2022_supplemental.pdf) | [Project Page](https://drprojects.github.io/deepviewagg) | [Video](https://www.youtube.com/watch?v=SoMKwI863tw) | [Poster](https://drive.google.com/file/d/1vtOLLM4VNV5x57HT-60PbeR9QRiOfX7_/view?usp=sharing) | [CV News](https://www.rsipvision.com/ComputerVisionNews-2022July/24/)
+<div align="center">
 
-[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/learning-multi-view-aggregation-in-the-wild/semantic-segmentation-on-s3dis)](https://paperswithcode.com/sota/semantic-segmentation-on-s3dis?p=learning-multi-view-aggregation-in-the-wild) [![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/learning-multi-view-aggregation-in-the-wild/3d-semantic-segmentation-on-kitti-360)](https://paperswithcode.com/sota/3d-semantic-segmentation-on-kitti-360?p=learning-multi-view-aggregation-in-the-wild)
+# DeepViewAgg
 
-Official repository for **_Learning Multi-View Aggregation In the Wild for Large-Scale 3D Semantic Segmentation_** [paper :page_facing_up:](http://arxiv.org/abs/2204.07548) selected for an Oral presentation at CVPR 2022.
+[![python](https://img.shields.io/badge/-Python_3.7.9-blue?logo=python&logoColor=white)](https://www.python.org/downloads/release/python-379/)
+[![pytorch](https://img.shields.io/badge/PyTorch_1.7.1-ee4c2c?logo=pytorch&logoColor=white)](https://pytorch.org/get-started/locally/)
+[![license](https://img.shields.io/badge/License-BSD+MIT-green.svg?labelColor=gray)](https://github.com/drprojects/DeepViewAgg/blob/release/LICENSE.md)
+
+Official implementation for
+<br>
+<br>
+[_Learning Multi-View Aggregation In the Wild for Large-Scale 3D Semantic Segmentation_](https://arxiv.org/abs/2204.07548) ([CVPR'22 Best Paper Finalist 🎉](https://twitter.com/CVPR/status/1539772091112857600))
+<br>
+[![arXiv](https://img.shields.io/badge/arxiv-2204.07548-b31b1b.svg)](https://arxiv.org/abs/2204.07548)
+[![Project page](https://img.shields.io/badge/Project_page-8A2BE2)](https://drprojects.github.io/deepviewagg)
+[![Video](https://img.shields.io/badge/Video-FFC300)](https://www.youtube.com/watch?v=SoMKwI863tw)
+[![Poster](https://img.shields.io/badge/Poster-e76f51)](https://drive.google.com/file/d/1vtOLLM4VNV5x57HT-60PbeR9QRiOfX7_/view?usp=sharing)
+[![CV News](https://img.shields.io/badge/CV_News-6a994e)](https://www.rsipvision.com/ComputerVisionNews-2022July/24)
+
+<p align="center">
+  <img width="60%" src="./illustrations/teaser.png">
+</p>
+
+<br>
+
+**If you ❤️ or simply use this project, don't forget to give the repository a ⭐,
+it means a lot to us !**
+<br>
+</div>
+
+```
+@article{robert2022dva,
+  title={Learning Multi-View Aggregation In the Wild for Large-Scale 3D Semantic Segmentation},
+  author={Robert, Damien and Vallet, Bruno and Landrieu, Loic},
+  journal={Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition},
+  year={2022}
+}
+```
+
+<br>
+
+## 📌  Description
 
 <p align="center">
   <img width="40%" height="40%" src="./illustrations/teaser.png">
 </p>
 
-*We propose to exploit the synergy between images and 3D point clouds by learning to select the most relevant views for each point. Our approach uses the viewing conditions of 3D points to merge features from images taken at arbitrary positions. We reach SOTA results for S3DIS (74.7 mIoU 6-Fold) and on KITTI- 360 (58.3 mIoU) without requiring point colorization, meshing, or the use of depth cameras: our full pipeline only requires raw 3D scans and a set of images and poses.*
+We propose to exploit the synergy between **images** 🖼️ and **3D point clouds** 
+☁️ by learning to select the most relevant views for each point. Our approach 
+uses the **viewing conditions** 👀 of 3D points to merge features from images 
+taken at **arbitrary positions**. We reach SOTA results for S3DIS (74.7 mIoU 
+6-Fold) and on KITTI- 360 (58.3 mIoU) without requiring point colorization, 
+meshing, or the use of depth cameras: our full pipeline **only requires raw, 
+large-scale 3D point clouds and a set of images and poses**.
 
-## Coming soon :rotating_light: :construction:
+<div align="center">
 
-## Change log
+|                               ✨ DeepViewAgg in short ✨                               |
+|:------------------------------------------------------------------------------------:|
+|                       🤖 Learns **2D+3D features** end-to-end                        |
+|              👀 **Attentive multi-view aggregation** from **viewing conditions**     |
+| 🚫 No need for 3D colorization, meshing, depth sensor, synthetic views, or 2D labels |
+|                 ✅ Only needs **raw point clouds, images, and poses**                 |
+
+[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/learning-multi-view-aggregation-in-the-wild/semantic-segmentation-on-s3dis)](https://paperswithcode.com/sota/semantic-segmentation-on-s3dis?p=learning-multi-view-aggregation-in-the-wild)
+[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/learning-multi-view-aggregation-in-the-wild/3d-semantic-segmentation-on-kitti-360)](https://paperswithcode.com/sota/3d-semantic-segmentation-on-kitti-360?p=learning-multi-view-aggregation-in-the-wild)
+
+</div>
+
+<br>
+
+## 📰 Change log
 - 2023-01-11 Fixed some bug when using intermediate fusion
 - 2022-04-20 Added notebooks and scripts to get started with DeepViewAgg
 - 2022-04-27 Added pretrained weights and features to help reproduce our results
 
-## Requirements :memo:
+<br>
+
+## 📝 Requirements
 The following must be installed before installing this project.
 - Anaconda3
 - cuda >= 10.1
 - gcc >= 7
 
-All remaining dependencies (PyTorch, PyTorch Geometric, etc) should be installed using the provided [installation script](install.sh).
+All remaining dependencies (PyTorch, PyTorch Geometric, etc.) should be installed using the provided [installation script](install.sh).
 
 The code has been tested in the following environment:
 - Ubuntu 18.04.6 LTS
@@ -34,15 +92,21 @@ The code has been tested in the following environment:
 - NVIDIA V100 32G
 - 64G RAM
 
-## Installation :bricks:
+<br>
+
+## 🏗️ Installation
 To install DeepViewAgg, simply run `./install.sh` from inside the repository. 
 - You will need to have **sudo rights** to install [MinkowskiEngine](https://github.com/NVIDIA/MinkowskiEngine) and [TorchSparse](https://github.com/mit-han-lab/torchsparse) dependencies.
-- :warning: **Do not** install Torch-Points3D from the official repository, or with `pip`.
+- ⚠️ **Do not** install Torch-Points3D from the official repository, or with `pip`.
+
+<br>
 
 ## Disclaimer
 This is **not the official [Torch-Points3D](https://github.com/nicolas-chaulet/torch-points3d) framework**. This work builds on and modifies a fixed version of the framework and has not been merged with the official repository yet. In particular, this repository **introduces numerous features for multimodal learning on large-scale 3D point clouds**. In this repository, some TP3D-specific files were removed for simplicity. 
 
-## Project structure
+<br>
+
+## 🔩 Project structure
 The project follows the original [Torch-Points3D framework](https://github.com/nicolas-chaulet/torch-points3d) structure.
 ```bash
 ├─ conf                    # All configurations live there
@@ -72,15 +136,17 @@ The most important ones can be found in the following:
 - `torch_points3d/modules/multimodal`: 3D+2D modules. This is where the DeepViewAgg module can be found.
 - `torch_points3d/visualization/multimodal_data.py`: tools for interactive visualization of multimodal data.
 
-## Getting started :rocket:
+<br>
+
+## 🚀 Getting started
 Notebook to create synthetic toy dataset and get familiar with 2D-3D mappings construction :
 - `notebooks/synthetic_multimodal_dataset.ipynb`
 
 Notebooks to create dataset, get familiar with dataset configuration and produce interactive visualization. 
 You can also run inference from a checkpoint and visualize predictions:
-- `notebooks/kitti360_visualization.ipynb` (at least **350G** of memory :floppy_disk:)
-- `notebooks/s3dis_visualization.ipynb` (at least **400G** of memory :floppy_disk:)
-- `notebooks/scannet_visualization.ipynb` (at least **1.3T** of memory :floppy_disk:)
+- `notebooks/kitti360_visualization.ipynb` (at least **350G** of memory 💾)
+- `notebooks/s3dis_visualization.ipynb` (at least **400G** of memory 💾)
+- `notebooks/scannet_visualization.ipynb` (at least **1.3T** of memory 💾)
 
 Notebooks to create multimodal models, get familiar with model configuration and run forward and backward passes for debugging:
 - `notebooks/multimodal_model.ipynb`
@@ -91,52 +157,79 @@ Those should allow you to reproduce our results by using the pretrained models i
 - `notebooks/s3dis_inference.ipynb`
 - `notebooks/scannet_inference.ipynb`
 
-Scripts to replicate our paper's best experiments :chart_with_upwards_trend: for each dataset:
+Scripts to replicate our paper's best experiments 📈 for each dataset:
 - `scripts/train_kitti360.sh`
 - `scripts/train_s3dis.sh`
 - `scripts/train_scannet.sh`
 
 If you need to go deeper into this project, see the [Documentation](#documentation-books) section.
 
-If you have trouble using these or need reproduce other results from our paper, create an issue or leave me a message :speech_balloon: !
+If you have trouble using these or need reproduce other results from our paper, 
+create an issue or leave me a message 💬 !
 
-## Models
-| Model name | Dataset | mIoU  | :floppy_disk: | :point_down: |
-|---|:---:|:---:|:---:|:---:|
-| Res16UNet34-L4-early |  S3DIS 6-Fold | 74.7 | 2.0G | [link](https://drive.google.com/file/d/19SgU1f2Ny1du5fRL0d9L1721Gqi1AnsY/view?usp=sharing)  |
-| Res16UNet34-PointPyramid-early-cityscapes-interpolate | KITTI-360 | 61.7 Val / 58.3 Test | 339M | [link](https://drive.google.com/file/d/1ucQVJ1cdzwpW6HzthaOqTR1BwTp95vrl/view?usp=sharing) |
-| Res16UNet34-L4-early | ScanNet | 71.0 Val | 341M | [link](https://drive.google.com/file/d/1H03540psSjturqerEBJkX5B7R8s6fEba/view?usp=sharing) |
+<br>
 
-## Documentation :books:
-The official documentation of [Pytorch Geometric](https://pytorch-geometric.readthedocs.io/en/latest/index.html) and [Torch-Points3D](https://torch-points3d.readthedocs.io/en/latest/index.html#) are good starting points, since this project largely builds on top of these frameworks. For DeepViewAgg-specific features (*i.e.* all that concerns multimodal learning), the provided code is commented as much as possible, but hit me up :speech_balloon: if some parts need clarification.
+## 🤖 Models
+| Model name                                            |   Dataset    |         mIoU          |  💾   |                                             👇                                             |
+|-------------------------------------------------------|:------------:|:---------------------:|:-----:|:------------------------------------------------------------------------------------------:|
+| Res16UNet34-L4-early                                  | S3DIS 6-Fold |         74.7          | 2.0G  | [link](https://drive.google.com/file/d/19SgU1f2Ny1du5fRL0d9L1721Gqi1AnsY/view?usp=sharing) |
+| Res16UNet34-PointPyramid-early-cityscapes-interpolate |  KITTI-360   | 61.7 Val / 58.3 Test  | 339M  | [link](https://drive.google.com/file/d/1ucQVJ1cdzwpW6HzthaOqTR1BwTp95vrl/view?usp=sharing) |
+| Res16UNet34-L4-early                                  |   ScanNet    |       71.0 Val        | 341M  | [link](https://drive.google.com/file/d/1H03540psSjturqerEBJkX5B7R8s6fEba/view?usp=sharing) |
 
-## Visualization of multimodal data :telescope:
-We provide code to produce interactive and sharable HTML visualizations of multimodal data and point-image mappings:
+<br>
+
+## 📚 Documentation
+The official documentation of [Pytorch Geometric](https://pytorch-geometric.readthedocs.io/en/latest/index.html) and [Torch-Points3D](https://torch-points3d.readthedocs.io/en/latest/index.html#)
+are good starting points, since this project largely builds on top of these 
+frameworks. For DeepViewAgg-specific features (*i.e.* all that concerns 
+multimodal learning), the provided code is commented as much as possible, but 
+hit me up 💬 if some parts need clarification.
+
+<br>
+
+## 🔭 Visualization of multimodal data
+We provide code to produce interactive and sharable HTML visualizations of 
+multimodal data and point-image mappings:
 
 <p align="center">
   <img width="60%" height="60%" src="./illustrations/interactive_visualization_snapshot.png">
 </p>
  
-Examples of such HTML produced on S3DIS Fold 5 are zipped [here](./illustrations/interactive_visualizations.zip) and can be opened in your browser.
+Examples of such HTML produced on S3DIS Fold 5 are zipped [here](./illustrations/interactive_visualizations.zip) 
+and can be opened in your browser.
 
-## Known issues
-- Setting `use_faiss=True` or `use_cuda=True` to accelerate `PCAComputePointwise`, `MapImages` or `NeighborhoodBasedMappingFeatures`. As suggested [here](https://github.com/drprojects/DeepViewAgg/issues/1), one should stick to the CPU-based computation for now.
+<br>
 
-## Credits :credit_card:
-- This implementation of DeepViewAgg largely relies on the [Torch-Points3D framework](https://github.com/nicolas-chaulet/torch-points3d), although not merged with the official project at this point. 
-- For datasets, some code from the official [KITTI-360](https://github.com/autonomousvision/kitti360Scripts) and [ScanNet](https://github.com/ScanNet/ScanNet) repositories was used.
+## 👩‍🔧 Troubleshooting & known issues
+- Setting `use_faiss=True` or `use_cuda=True` to accelerate 
+`PCAComputePointwise`, `MapImages` or `NeighborhoodBasedMappingFeatures`. As 
+suggested [here](https://github.com/drprojects/DeepViewAgg/issues/1), one should stick to the CPU-based computation for now.
 
-## Reference
-In case you use all or part of the present code, please include a citation to the following paper:
+<br>
+
+## 💳 Credits
+- This implementation of DeepViewAgg largely relies on the 
+[Torch-Points3D framework](https://github.com/nicolas-chaulet/torch-points3d), although not merged with the official project 
+at this point. 
+- For datasets, some code from the official [KITTI-360](https://github.com/autonomousvision/kitti360Scripts) and [ScanNet](https://github.com/ScanNet/ScanNet) 
+repositories was used.
+
+<br>
+
+## Citing our work
+In case you use all or part of the present code, please include the following
+citation:
 
 ```
-@inproceedings{robert2022dva,
+@article{robert2022dva,
   title={Learning Multi-View Aggregation In the Wild for Large-Scale 3D Semantic Segmentation},
   author={Robert, Damien and Vallet, Bruno and Landrieu, Loic},
-  booktitle={Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition},
-  year={2022},
-  pages={5575--5584},
-  year={2022},
-  url = {\url{https://github.com/drprojects/DeepViewAgg}}
+  journal={Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition},
+  year={2022}
 }
 ```
+
+You can find our [DeepViewAgg paper 📄](https://arxiv.org/abs/2204.07548) on arxiv.
+
+Also, **if you ❤️ or simply use this project, don't forget to give the 
+repository a ⭐, it means a lot to us !**
