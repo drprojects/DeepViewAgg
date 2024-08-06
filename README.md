@@ -9,7 +9,9 @@
 Official implementation for
 <br>
 <br>
-[_Learning Multi-View Aggregation In the Wild for Large-Scale 3D Semantic Segmentation_](https://arxiv.org/abs/2204.07548) ([CVPR'22 Best Paper Finalist 🎉](https://twitter.com/CVPR/status/1539772091112857600))
+[_Learning Multi-View Aggregation In the Wild for Large-Scale 3D Semantic Segmentation_](https://arxiv.org/abs/2204.07548)
+<br>
+([CVPR'22 Best Paper Finalist 🎉](https://twitter.com/CVPR/status/1539772091112857600))
 <br>
 [![arXiv](https://img.shields.io/badge/arxiv-2204.07548-b31b1b.svg)](https://arxiv.org/abs/2204.07548)
 [![Project page](https://img.shields.io/badge/Project_page-8A2BE2)](https://drprojects.github.io/deepviewagg)
