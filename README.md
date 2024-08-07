@@ -18,13 +18,8 @@ Official implementation for
 [![Video](https://img.shields.io/badge/Video-FFC300)](https://www.youtube.com/watch?v=SoMKwI863tw)
 [![Poster](https://img.shields.io/badge/Poster-e76f51)](https://drive.google.com/file/d/1vtOLLM4VNV5x57HT-60PbeR9QRiOfX7_/view?usp=sharing)
 [![CV News](https://img.shields.io/badge/CV_News-6a994e)](https://www.rsipvision.com/ComputerVisionNews-2022July/24)
-
-<p align="center">
-  <img width="60%" src="./illustrations/teaser.png">
-</p>
-
 <br>
-
+<br>
 **If you ❤️ or simply use this project, don't forget to give the repository a ⭐,
 it means a lot to us !**
 <br>
@@ -44,7 +39,7 @@ it means a lot to us !**
 ## 📌  Description
 
 <p align="center">
-  <img width="40%" height="40%" src="./illustrations/teaser.png">
+  <img width="50%" src="./illustrations/teaser.png">
 </p>
 
 We propose to exploit the synergy between **images** 🖼️ and **3D point clouds** 
