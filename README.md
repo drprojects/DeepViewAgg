@@ -14,7 +14,7 @@ Official implementation for
 ([CVPR'22 Best Paper Finalist 🎉](https://twitter.com/CVPR/status/1539772091112857600))
 <br>
 [![arXiv](https://img.shields.io/badge/arxiv-2204.07548-b31b1b.svg)](https://arxiv.org/abs/2204.07548)
-[![Project page](https://img.shields.io/badge/Project_page-8A2BE2)](https://drprojects.github.io/deepviewagg)
+[![Project page](https://img.shields.io/badge/Project_page-8A2BE2)](https://drprojects.github.io/deepviewagg-site)
 [![Video](https://img.shields.io/badge/Video-FFC300)](https://www.youtube.com/watch?v=SoMKwI863tw)
 [![Poster](https://img.shields.io/badge/Poster-e76f51)](https://drive.google.com/file/d/1vtOLLM4VNV5x57HT-60PbeR9QRiOfX7_/view?usp=sharing)
 [![CV News](https://img.shields.io/badge/CV_News-6a994e)](https://www.rsipvision.com/ComputerVisionNews-2022July/24)
